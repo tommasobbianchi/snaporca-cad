@@ -1229,10 +1229,36 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
     // inverse (handles any mesh rotation + shear + axis remap). When off, the raw
     // machine-frame G-code is shown (useful for debugging the transform itself).
     const bool is_belt = print.config().belt_printer.value;
-    const Transform3d belt_inv = (is_belt && m_belt_show_designed)
+    Transform3d belt_inv = (is_belt && m_belt_show_designed)
         ? compute_belt_back_transform(print.config()) : Transform3d::Identity();
     const bool apply_belt = is_belt && m_belt_show_designed
         && !belt_inv.matrix().isApprox(Transform3d::Identity().matrix());
+    if (apply_belt) {
+        // The linear belt back-transform recovers the print's shape and orientation but not
+        // the per-object placement/lift translation: the object's position on the belt, the
+        // BeltSliceStrategy min-Z lift, and the centering pre-translate are applied OUTSIDE
+        // build_forward_transform() (see PrintObjectSlice.cpp), so its linear inverse leaves
+        // them un-undone. Uncorrected, the upright toolpaths float a fixed offset from the
+        // model shell. Recover the translation generally — independent of the offset's exact
+        // source or the axis remap — by anchoring the back-transformed object body onto the
+        // upright model bounding box (the same space the shells render in).
+        BoundingBoxf3 model_bb;
+        for (const PrintObject* po : print.objects())
+            for (const ModelInstance* mi : po->model_object()->instances)
+                model_bb.merge(po->model_object()->instance_bounding_box(*mi));
+        BoundingBoxf3 tp_bb;
+        for (const GCodeProcessorResult::MoveVertex& mv : gcode_result.moves)
+            if (mv.type == EMoveType::Extrude && mv.layer_id >= 1) // skip layer-0 prime/skirt
+                tp_bb.merge(Vec3d(belt_inv * mv.position.cast<double>()));
+        if (model_bb.defined && tp_bb.defined) {
+            const Vec3d d = model_bb.min - tp_bb.min;
+            belt_inv = Transform3d(Eigen::Translation3d(d)) * belt_inv;
+            BOOST_LOG_TRIVIAL(debug) << "[BELT-PREVIEW] anchor: model_bb.min=("
+                << model_bb.min.x() << "," << model_bb.min.y() << "," << model_bb.min.z()
+                << ") tp_bb.min=(" << tp_bb.min.x() << "," << tp_bb.min.y() << "," << tp_bb.min.z()
+                << ") d=(" << d.x() << "," << d.y() << "," << d.z() << ")";
+        }
+    }
     libvgcode::GCodeInputData data = libvgcode::convert(gcode_result, str_tool_colors, str_color_print_colors, m_viewer,
         apply_belt ? &belt_inv : nullptr);
 
@@ -4762,23 +4788,8 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
         ImGui::Dummy({ window_padding, 0 });
         ImGui::SameLine();
         ImGui::Checkbox(_u8L("Show designed view (upright) [B]").c_str(), &m_belt_show_designed);
-        // Orbit focus: where the view rotation pivots. The belt plate is up to ~2 m
-        // long, so the default plate-center pivot throws small prints off-screen.
-        // Switchable so the most useful strategy can be compared at a glance.
-        ImGui::Dummy({ window_padding, 0 });
-        ImGui::SameLine();
-        ImGui::TextUnformatted(_u8L("Orbit focus:").c_str());
-        ImGui::SameLine();
-        {
-            static const char* k_labels[] = { "Object", "Parts midpoint", "Bed center" };
-            static const char* k_keys[]   = { "object", "midpoint",       "bed" };
-            std::string cur = wxGetApp().app_config->get("belt_orbit_mode");
-            int idx = 0;
-            for (int i = 0; i < 3; ++i) if (cur == k_keys[i]) { idx = i; break; }
-            ImGui::SetNextItemWidth(150.0f);
-            if (ImGui::Combo("##belt_orbit_mode", &idx, k_labels, 3))
-                wxGetApp().app_config->set("belt_orbit_mode", k_keys[idx]);
-        }
+        // Orbit-focus selector lives in the 3D-navigator canvas menu (the 3-line button
+        // next to the view cube), alongside the other view options, rather than here.
     }
 
     legend_height = ImGui::GetCurrentWindow()->Size.y;

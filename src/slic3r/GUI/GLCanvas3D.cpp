@@ -4590,7 +4590,9 @@ void GLCanvas3D::on_mouse(wxMouseEvent& evt)
                                 // around its center throws the (small) print off-screen. Orbit
                                 // around the print instead, per the configured belt_orbit_mode.
                                 const BoundingBoxf3 tp_bb = m_gcode_viewer.get_paths_bounding_box();
-                                if (m_gcode_viewer.is_belt_view() && tp_bb.defined) {
+                                const Print* belt_print = fff_print();
+                                const bool is_belt = belt_print && belt_print->config().belt_printer.value;
+                                if (is_belt && tp_bb.defined) {
                                     const std::string mode = wxGetApp().app_config->get("belt_orbit_mode");
                                     if (mode == "bed")
                                         rotate_target = bed_bb.center();
@@ -4607,16 +4609,28 @@ void GLCanvas3D::on_mouse(wxMouseEvent& evt)
                                     rotate_target = bed_bb.center();
                             }
                             else {
-                                if (!m_selection.is_empty())
-                                    rotate_target = m_selection.get_bounding_box().center();
+                                BoundingBoxf3 obj_bb = m_selection.is_empty() ? volumes_bounding_box(true)
+                                                                              : m_selection.get_bounding_box();
+                                // Belt printers: same object-focused orbit as the preview, per
+                                // belt_orbit_mode, so a small print on the ~2 m plate stays in
+                                // view in Prepare too (otherwise the plate-center pivot wins).
+                                const Print* belt_print = fff_print();
+                                const bool is_belt = belt_print && belt_print->config().belt_printer.value;
+                                if (is_belt && obj_bb.defined) {
+                                    const std::string mode = wxGetApp().app_config->get("belt_orbit_mode");
+                                    PartPlate* plate = wxGetApp().plater()->get_partplate_list().get_curr_plate();
+                                    const BoundingBoxf3 bed_bb = plate ? plate->get_bounding_box() : obj_bb;
+                                    if (mode == "bed")
+                                        rotate_target = bed_bb.center();
+                                    else if (mode == "midpoint")
+                                        rotate_target = Vec3d(bed_bb.center().x(), 0.5 * obj_bb.max.y(), obj_bb.center().z());
+                                    else
+                                        rotate_target = obj_bb.center();
+                                }
                                 else {
-                                    // Rotate around the center of objects on current plate
-                                    auto bbox = volumes_bounding_box(true);
-                                    if (!bbox.defined) {
-                                        // Rotate around current plate center if current plate is empty
-                                        bbox = wxGetApp().plater()->get_partplate_list().get_curr_plate()->get_bounding_box();
-                                    }
-                                    rotate_target = bbox.center();
+                                    if (!obj_bb.defined)
+                                        obj_bb = wxGetApp().plater()->get_partplate_list().get_curr_plate()->get_bounding_box();
+                                    rotate_target = obj_bb.center();
                                 }
                             }
 
@@ -9289,6 +9303,28 @@ void GLCanvas3D::_render_canvas_toolbar()
             p->are_view3D_labels_shown(),
             [this, p]{p->show_view3D_labels(!p->are_view3D_labels_shown());}
         );
+
+        // Belt printers: orbit-focus selector. On the very large belt plate the default
+        // plate-center pivot throws a small print off-screen, so let the user pick what the
+        // view rotates around. Shown as radio items (only one active) and only for belt
+        // printers, where it is meaningful. Consumed in on_mouse() rotation handling.
+        {
+            const Print* belt_print = fff_print();
+            if (belt_print && belt_print->config().belt_printer.value) {
+                ImGui::Separator();
+                const std::string cur = cfg->get("belt_orbit_mode");
+                auto orbit_item = [&](const std::string& label, const std::string& key, bool is_default) {
+                    const bool active = is_default ? (cur != "midpoint" && cur != "bed") : (cur == key);
+                    create_menu_item(label, true, active, [&cfg, key]{
+                        cfg->set("belt_orbit_mode", key);
+                        cfg->save();
+                    });
+                };
+                orbit_item(_utf8(L("Belt orbit: object")),      "object",   true);
+                orbit_item(_utf8(L("Belt orbit: parts middle")),"midpoint", false);
+                orbit_item(_utf8(L("Belt orbit: bed center")),  "bed",      false);
+            }
+        }
 
         ImGui::PopItemFlag();
         ImGui::EndPopup();
