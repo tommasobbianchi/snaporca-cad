@@ -244,7 +244,8 @@ mutable bool m_no_render_path { false };
 
     bool  m_belt_view_enabled = false;
     float m_belt_angle_deg = 0.f;
-    bool  m_belt_show_designed = false;  // Toggle: show designed (upright) view via inverse shear
+    bool  m_belt_show_designed = true;   // Toggle: designed (upright, back-transformed) view by default;
+                                         // turn off (hotkey B) to inspect the raw machine-frame G-code.
     Transform3d m_belt_inverse_transform{Transform3d::Identity()};
 
     libvgcode::Viewer m_viewer;

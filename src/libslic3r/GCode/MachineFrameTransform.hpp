@@ -32,6 +32,11 @@ public:
 
     bool is_active() const { return m_active; }
 
+    // The composed shear*scale transform (identity when inactive). Exposed so the
+    // G-code viewer can build the machine->model back-transform for the upright
+    // ("designed") belt preview.
+    const Transform3d& transform() const { return m_transform; }
+
 private:
     bool        m_active    = false;
     Transform3d m_transform = Transform3d::Identity();
