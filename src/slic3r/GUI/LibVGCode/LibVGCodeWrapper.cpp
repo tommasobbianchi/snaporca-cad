@@ -275,25 +275,10 @@ GCodeInputData convert(const Slic3r::GCodeProcessorResult& result, const std::ve
     }
     ret.vertices.shrink_to_fit();
 
-    // Belt designed view: the linear back-transform recovers the correct shape
-    // and orientation, but not the constant machine-frame origin offset baked
-    // into the G-code (e.g. the start-G-code belt advance + a G92 reset leaves a
-    // ~20 mm Z residual). Anchor the lowest extrusion to the belt entry (Y=0) so
-    // the toolpaths sit on the bed under the model shell. Independent of the
-    // offset's source, so it stays general across machines.
-    if (belt_xform != nullptr && !ret.vertices.empty()) {
-        // Anchor on the OBJECT extrusions only (layer_id >= 1): the start-G-code
-        // prime lines (layer 0) print at the belt origin, while the object prints
-        // after the start-G-code belt advance, so anchoring on the global min
-        // would lock onto the prime and leave the object offset.
-        float min_y = std::numeric_limits<float>::max();
-        for (const PathVertex& v : ret.vertices)
-            if (v.type == EMoveType::Extrude && v.layer_id >= 1 && v.position[1] < min_y)
-                min_y = v.position[1];
-        if (min_y != std::numeric_limits<float>::max() && std::abs(min_y) > 1e-3f)
-            for (PathVertex& v : ret.vertices)
-                v.position[1] -= min_y;
-    }
+    // Note: the belt designed-view anchoring (recovering the per-object placement/
+    // lift translation the linear back-transform cannot) is folded into belt_xform
+    // by the caller (GCodeViewer::load_as_gcode), which anchors onto the upright
+    // model bounding box. Nothing extra to do here.
 
     ret.spiral_vase_mode = result.spiral_vase_mode;
 
