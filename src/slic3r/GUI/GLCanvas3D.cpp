@@ -9304,6 +9304,28 @@ void GLCanvas3D::_render_canvas_toolbar()
             [this, p]{p->show_view3D_labels(!p->are_view3D_labels_shown());}
         );
 
+        // Belt printers: orbit-focus selector. On the very large belt plate the default
+        // plate-center pivot throws a small print off-screen, so let the user pick what the
+        // view rotates around. Shown as radio items (only one active) and only for belt
+        // printers, where it is meaningful. Consumed in on_mouse() rotation handling.
+        {
+            const Print* belt_print = fff_print();
+            if (belt_print && belt_print->config().belt_printer.value) {
+                ImGui::Separator();
+                const std::string cur = cfg->get("belt_orbit_mode");
+                auto orbit_item = [&](const std::string& label, const std::string& key, bool is_default) {
+                    const bool active = is_default ? (cur != "midpoint" && cur != "bed") : (cur == key);
+                    create_menu_item(label, true, active, [&cfg, key]{
+                        cfg->set("belt_orbit_mode", key);
+                        cfg->save();
+                    });
+                };
+                orbit_item(_utf8(L("Belt orbit: object")),      "object",   true);
+                orbit_item(_utf8(L("Belt orbit: parts middle")),"midpoint", false);
+                orbit_item(_utf8(L("Belt orbit: bed center")),  "bed",      false);
+            }
+        }
+
         ImGui::PopItemFlag();
         ImGui::EndPopup();
     }
