@@ -1814,8 +1814,20 @@ std::vector<GCode::LayerToPrint> GCode::collect_layers_to_print(const PrintObjec
                 + std::max(0., extra_gap);
             // Negative support_contact_z is not taken into account, it can result in false positives in cases
 
-            if (has_extrusions && layer_to_print.print_z() > maximal_print_z + 2. * EPSILON)
-                warning_ranges.emplace_back(std::make_pair((last_extrusion_layer ? last_extrusion_layer->print_z() : 0.), layers_to_print.back().print_z()));
+            if (has_extrusions && layer_to_print.print_z() > maximal_print_z + 2. * EPSILON) {
+                // Belt printers: a *leading* empty range (no prior extrusion layer, so the
+                // gap starts at Z=0) is not a floating object — it is just the belt lead-in.
+                // The part rests on the conveyor as it advances, so the first material can
+                // legitimately appear well above Z=0. This empty-layer check assumes a fixed
+                // bed, where material with nothing below it is unprintable; that assumption
+                // does not hold on a belt for the lead-in. Suppress only this leading case,
+                // and keep flagging genuine *internal* gaps (which on a belt may still be an
+                // over-angle overhang that would print into air).
+                const bool belt_leading_gap = object.print()->config().belt_printer.value
+                                           && last_extrusion_layer == nullptr;
+                if (!belt_leading_gap)
+                    warning_ranges.emplace_back(std::make_pair((last_extrusion_layer ? last_extrusion_layer->print_z() : 0.), layers_to_print.back().print_z()));
+            }
         }
         // Remember last layer with extrusions.
         if (has_extrusions)
