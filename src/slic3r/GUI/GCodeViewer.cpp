@@ -4701,6 +4701,23 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
         ImGui::Dummy({ window_padding, 0 });
         ImGui::SameLine();
         ImGui::Checkbox(_u8L("Show designed view (upright) [B]").c_str(), &m_belt_show_designed);
+        // Orbit focus: where the view rotation pivots. The belt plate is up to ~2 m
+        // long, so the default plate-center pivot throws small prints off-screen.
+        // Switchable so the most useful strategy can be compared at a glance.
+        ImGui::Dummy({ window_padding, 0 });
+        ImGui::SameLine();
+        ImGui::TextUnformatted(_u8L("Orbit focus:").c_str());
+        ImGui::SameLine();
+        {
+            static const char* k_labels[] = { "Object", "Parts midpoint", "Bed center" };
+            static const char* k_keys[]   = { "object", "midpoint",       "bed" };
+            std::string cur = wxGetApp().app_config->get("belt_orbit_mode");
+            int idx = 0;
+            for (int i = 0; i < 3; ++i) if (cur == k_keys[i]) { idx = i; break; }
+            ImGui::SetNextItemWidth(150.0f);
+            if (ImGui::Combo("##belt_orbit_mode", &idx, k_labels, 3))
+                wxGetApp().app_config->set("belt_orbit_mode", k_keys[idx]);
+        }
     }
 
     legend_height = ImGui::GetCurrentWindow()->Size.y;
