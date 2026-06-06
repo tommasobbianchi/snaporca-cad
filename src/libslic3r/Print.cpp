@@ -1415,6 +1415,14 @@ StringObjectException Print::validate(StringObjectException *warning, Polygons* 
     // Checks that the print does not exceed the max print height
     for (size_t print_object_idx = 0; print_object_idx < m_objects.size(); ++ print_object_idx) {
         const PrintObject &print_object = *m_objects[print_object_idx];
+        // Belt printers: the sliced (virtual) Z is belt travel along the conveyor,
+        // not build-volume height. generate_object_layers() returns the full belt
+        // path length (e.g. ~1300mm for a long object), which always exceeds
+        // printable_height and would wrongly reject any object longer than the bed.
+        // Belt height is bounded by the gantry/nozzle clearance, checked elsewhere.
+        // (Mirrors ShidaoSlicer's hardware-validated belt handling.)
+        if (m_config.belt_printer.value)
+            continue;
         //FIXME It is quite expensive to generate object layers just to get the print height!
         if (auto layers = generate_object_layers(print_object.slicing_parameters(), layer_height_profile(print_object_idx), print_object.config().precise_z_height.value);
             !layers.empty()) {
