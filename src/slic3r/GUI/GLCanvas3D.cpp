@@ -4585,8 +4585,26 @@ void GLCanvas3D::on_mouse(wxMouseEvent& evt)
                             Vec3d rotate_target = Vec3d::Zero();
                             if (m_canvas_type == ECanvasType::CanvasPreview) {
                                 PartPlate *plate = wxGetApp().plater()->get_partplate_list().get_curr_plate();
-                                if (plate)
-                                    rotate_target = plate->get_bounding_box().center();
+                                const BoundingBoxf3 bed_bb = plate ? plate->get_bounding_box() : BoundingBoxf3();
+                                // Belt printers: the plate is up to ~2 m long, so orbiting
+                                // around its center throws the (small) print off-screen. Orbit
+                                // around the print instead, per the configured belt_orbit_mode.
+                                const BoundingBoxf3 tp_bb = m_gcode_viewer.get_paths_bounding_box();
+                                if (m_gcode_viewer.is_belt_view() && tp_bb.defined) {
+                                    const std::string mode = wxGetApp().app_config->get("belt_orbit_mode");
+                                    if (mode == "bed")
+                                        rotate_target = bed_bb.center();
+                                    else if (mode == "midpoint")
+                                        // Orbit around the mid-point of how far the parts reach
+                                        // along the belt (Y), centered on the bed in X.
+                                        rotate_target = Vec3d(bed_bb.defined ? bed_bb.center().x() : tp_bb.center().x(),
+                                                              0.5 * tp_bb.max.y(),
+                                                              tp_bb.center().z());
+                                    else // "object" (default): the print's bounding-box center
+                                        rotate_target = tp_bb.center();
+                                }
+                                else if (plate)
+                                    rotate_target = bed_bb.center();
                             }
                             else {
                                 if (!m_selection.is_empty())
