@@ -248,6 +248,11 @@ class Print;
         // Belt printer: physical tilt magnitude (deg) parsed from the slicing-rotation
         // header comment; used to enable the preview's belt view.
         float belt_tilt_angle{ 0.f };
+        // Belt printer: machine-Z origin offset (mm) left in m_origin[Z] by the start
+        // G-code (purge-blob belt advance + G92 Z0 resets). Move positions are stored
+        // as gcode_Z + this offset, so the designed-view back-transform must subtract it
+        // to recover the model's belt coordinate. (belt-cnv)
+        float belt_z_origin{ 0.f };
         RemapAxis preslice_remap_x{ RemapAxis::PosX };
         RemapAxis preslice_remap_y{ RemapAxis::PosY };
         RemapAxis preslice_remap_z{ RemapAxis::PosZ };
@@ -317,6 +322,7 @@ class Print;
             filament_change_count_map = other.filament_change_count_map;
             initial_layer_time = other.initial_layer_time;
             belt_tilt_angle = other.belt_tilt_angle;
+            belt_z_origin = other.belt_z_origin;
             preslice_remap_x = other.preslice_remap_x;
             preslice_remap_y = other.preslice_remap_y;
             preslice_remap_z = other.preslice_remap_z;

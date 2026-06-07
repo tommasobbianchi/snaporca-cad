@@ -1231,6 +1231,14 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
     const bool is_belt = print.config().belt_printer.value;
     Transform3d belt_inv = (is_belt && m_belt_show_designed)
         ? compute_belt_back_transform(print.config()) : Transform3d::Identity();
+    // Belt: move positions are stored as gcode_Z + belt_z_origin (the start G-code's
+    // purge-blob advance baked into the machine-Z origin by its G92 Z0 resets). Subtract
+    // that constant before the linear back-transform so every toolpath maps to the model's
+    // belt coordinate. Without it the back-transform mixes the offset with the gantry-Y
+    // term, leaving a per-move designed-Y error that min-corner anchoring cannot remove
+    // when a bridge/keel move happens to cancel it at the bbox minimum (belt-cnv).
+    if (is_belt && m_belt_show_designed && gcode_result.belt_z_origin != 0.0f)
+        belt_inv = belt_inv * Transform3d(Eigen::Translation3d(Vec3d(0.0, 0.0, -double(gcode_result.belt_z_origin))));
     const bool apply_belt = is_belt && m_belt_show_designed
         && !belt_inv.matrix().isApprox(Transform3d::Identity().matrix());
     if (apply_belt) {
@@ -1246,10 +1254,29 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
         for (const PrintObject* po : print.objects())
             for (const ModelInstance* mi : po->model_object()->instances)
                 model_bb.merge(po->model_object()->instance_bounding_box(*mi));
-        BoundingBoxf3 tp_bb;
+        // Build the anchor bbox from surface toolpaths only. After the belt_z_origin
+        // correction the surface back-transforms onto the model, but a few elevated
+        // features (bridges/overhangs over the chevron gap) are mis-mapped by the linear
+        // inverse to well outside the model body; if one becomes the bbox minimum it
+        // drags the min-corner anchor by ~20mm. Drop moves that land clearly outside the
+        // (correct) model bbox — a geometric filter, not a role guess (belt-cnv).
+        BoundingBoxf3 tp_bb_clip, tp_bb_full;
+        const double y_lo = model_bb.defined ? model_bb.min.y() - 10.0 : -1e30;
+        const double y_hi = model_bb.defined ? model_bb.max.y() + 10.0 :  1e30;
         for (const GCodeProcessorResult::MoveVertex& mv : gcode_result.moves)
-            if (mv.type == EMoveType::Extrude && mv.layer_id >= 1) // skip layer-0 prime/skirt
-                tp_bb.merge(Vec3d(belt_inv * mv.position.cast<double>()));
+            if (mv.type == EMoveType::Extrude && mv.layer_id >= 1) { // skip layer-0 prime/skirt
+                const Vec3d p = belt_inv * mv.position.cast<double>();
+                tp_bb_full.merge(p);
+                if (p.y() >= y_lo && p.y() <= y_hi)
+                    tp_bb_clip.merge(p);
+            }
+        // Use the clipped bbox only when it still holds the bulk of the body (outliers
+        // removed). If the object sits far from the belt entry the toolpaths are grossly
+        // offset and the clip would drop most of them — fall back to the full bbox so the
+        // min-corner anchor still recovers that gross translation rather than breaking.
+        const BoundingBoxf3& tp_bb =
+            (tp_bb_clip.defined && tp_bb_full.defined &&
+             tp_bb_clip.size().y() >= 0.5 * tp_bb_full.size().y()) ? tp_bb_clip : tp_bb_full;
         if (model_bb.defined && tp_bb.defined) {
             // Anchor the back-transformed toolpath body onto the upright model bbox by
             // its MIN corner. (Center anchoring was tried and regressed badly when the
@@ -1264,6 +1291,9 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
             // viewer anchor.
             const Vec3d d = model_bb.min - tp_bb.min;
             belt_inv = Transform3d(Eigen::Translation3d(d)) * belt_inv;
+            BOOST_LOG_TRIVIAL(debug) << "[BELT-PREVIEW] z_origin=" << gcode_result.belt_z_origin
+                << " model_bb.y=[" << model_bb.min.y() << "," << model_bb.max.y()
+                << "] tp_bb.y=[" << tp_bb.min.y() << "," << tp_bb.max.y() << "] d.y=" << d.y();
         }
     }
     libvgcode::GCodeInputData data = libvgcode::convert(gcode_result, str_tool_colors, str_color_print_colors, m_viewer,

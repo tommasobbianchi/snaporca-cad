@@ -4933,6 +4933,10 @@ void GCodeProcessor::process_G92(const GCodeReader::GCodeLine& line)
     if (line.has_z()) {
         m_origin[Z] = m_end_position[Z] - line.z() * lengths_scale_factor;
         any_found = true;
+        // Belt: the start G-code's purge-blob advance + G92 Z0 resets leave a constant
+        // machine-Z origin offset here; the designed-view back-transform subtracts it so
+        // toolpaths map to the model's belt coordinate (gcode Z). (belt-cnv)
+        m_result.belt_z_origin = m_origin[Z];
     }
 
     if (line.has_e()) {
