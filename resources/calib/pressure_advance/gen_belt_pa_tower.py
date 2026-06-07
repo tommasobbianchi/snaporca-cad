@@ -48,9 +48,10 @@ LAYER_H_NOM = 0.2    # nominal belt-normal layer height the asset is sized for
 VPITCH = LAYER_H_NOM / np.cos(np.radians(45))   # virtual-Z pitch per layer ~0.283
 WALL_H = round(READING_LAYERS * VPITCH, 3)       # model-Z height of the test wall
 BASE_H     = 0.6     # connector base thickness in Z (mm) — thin raft (~2-3 belt layers)
-NUM_W      = 15.0    # X span available for the number, beside the wall
+NUM_W      = 22.0    # X span available for the number, beside the wall
 NUM_GAP    = 3.0     # X gap between wall end and number region
 NUM_H      = 4.0     # digit cap-height in designed-Y (mm)
+NUM_WIDTH_SCALE = 1.5  # stretch digits 50% wider in X (more legible) without growing the Y pitch
 CUT_OVER   = 0.6     # overshoot beyond both base faces for a clean THROUGH (full) cut
 BRIDGE_W   = 0.6     # stencil-bridge width keeping each counter island (0/4/6/8/9) attached
 GAP_Y      = 3.5     # designed-Y gap between provini (kept above the ~2.6mm min so the tall
@@ -123,6 +124,7 @@ def number_cutter(y0, pa):
     Flat number in the model XY plane (reads upright off the part), cut clean through the whole
     base for a high-contrast, legible void. Spans z [-CUT_OVER, BASE_H+CUT_OVER]."""
     t = text_mesh(f"{pa:.2f}", NUM_H, BASE_H + 2 * CUT_OVER)   # z in [0, BASE_H+2*CUT_OVER]
+    t.apply_scale([NUM_WIDTH_SCALE, 1.0, 1.0])                 # 50% wider in X (centered at origin)
     xc = WALL_LEN + NUM_GAP + NUM_W / 2.0
     t.apply_translation([xc, y0 + PROV_Y / 2.0, -CUT_OVER])
     return t

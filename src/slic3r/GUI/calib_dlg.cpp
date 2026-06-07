@@ -98,9 +98,9 @@ PA_Calibration_Dlg::PA_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plater* 
         m_is_belt = pcfg.has("belt_printer") && pcfg.opt_bool("belt_printer");
     }
     m_belt_note = new wxStaticText(this, wxID_ANY,
-        _L("Belt printer: the Pressure Advance test prints a row of discrete test bars "
-           "(PA 0.00-0.08, value engraved in the base). The method and range options below "
-           "do not apply."));
+        _L("Belt printer: a fixed 13-bar discrete Pressure Advance test. Set Start PA and PA "
+           "step below (End is derived); the other options do not apply. The numbers engraved "
+           "on the bars match the default Start 0.00 / step 0.01."));
     m_belt_note->Wrap(FromDIP(360));
     m_belt_note->SetForegroundColour(wxColour("#009688"));
     v_sizer->Add(m_belt_note, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
@@ -281,24 +281,41 @@ void PA_Calibration_Dlg::reset_params() {
         }
     }
 
-    // Belt: the discrete-provino PA test ignores these; grey them out so the dialog is honest.
+    // Belt: a fixed 13-bar discrete test. Start PA + PA step are editable; End is derived
+    // (Start + 12*Step) and the cartesian-only controls are greyed out. Defaults match the
+    // engraved asset labels (0.00 .. 0.12 at step 0.01).
     if (m_is_belt) {
         m_rbExtruderType->Enable(false);
         m_rbMethod->Enable(false);
-        m_tiStartPA->Enable(false);
+        m_tiStartPA->Enable(true);
+        m_tiPAStep->Enable(true);
         m_tiEndPA->Enable(false);
-        m_tiPAStep->Enable(false);
         m_cbPrintNum->Enable(false);
         m_tiBMAccels->Enable(false);
         m_tiBMSpeeds->Enable(false);
+        m_tiStartPA->GetTextCtrl()->SetValue(wxString::FromDouble(0.0));
+        m_tiPAStep->GetTextCtrl()->SetValue(wxString::FromDouble(0.01));
+        m_tiEndPA->GetTextCtrl()->SetValue(wxString::FromDouble(0.12));   // 0.00 + 12*0.01
     }
 }
 
 void PA_Calibration_Dlg::on_start(wxCommandEvent& event) {
     if (m_is_belt) {
-        // Belt: fixed discrete-provino PA test; the cartesian method/range inputs are disabled
-        // and ignored by Plater::calib_pa. Skip their validation and run directly.
-        m_params.mode = CalibMode::Calib_PA_Tower;
+        // Belt: fixed 13-bar discrete test. Read Start PA + PA step; End is derived (13 bars).
+        double pa_start = 0.0, pa_step = 0.01;
+        if (!m_tiStartPA->GetTextCtrl()->GetValue().ToDouble(&pa_start) ||
+            !m_tiPAStep->GetTextCtrl()->GetValue().ToDouble(&pa_step) ||
+            pa_start < 0 || pa_step < 10 * EPSILON) {
+            MessageDialog msg_dlg(nullptr,
+                _L("Please input valid values:\nStart PA: >= 0.0\nPA step: >= 0.001"),
+                wxEmptyString, wxICON_WARNING | wxOK);
+            msg_dlg.ShowModal();
+            return;
+        }
+        m_params.mode  = CalibMode::Calib_PA_Tower;
+        m_params.start = pa_start;
+        m_params.step  = pa_step;
+        m_params.end   = pa_start + 12 * pa_step;   // 13 provini == fixed asset bars
         m_plater->calib_pa(m_params);
         EndModal(wxID_OK);
         return;

@@ -12618,9 +12618,13 @@ void Plater::calib_pa(const Calib_Params& params)
         const double angle = printer_config->has("belt_slice_rotation_angle")
             ? printer_config->opt_float("belt_slice_rotation_angle") : 45.0;
         const double zone_topz = PITCH_Y * std::cos(angle * M_PI / 180.0);
-        // PA value per provino, matching the engraved numbers baked into the asset.
+        // PA value per provino from the dialog: Start + i*Step over the 13 fixed bars. The
+        // default Start=0.00, Step=0.01 gives 0.00..0.12 == the numbers engraved in the asset;
+        // a custom range still prints/injects correctly but the engraved labels won't match.
+        const double pa_start = params.start;
+        const double pa_step  = (params.step > 1e-6) ? params.step : 0.01;
         std::vector<double> pas;
-        for (int i = 0; i < 13; ++i) pas.push_back(0.01 * i);  // 0.00 .. 0.12 (matches asset)
+        for (int i = 0; i < 13; ++i) pas.push_back(pa_start + i * pa_step);  // 13 == asset bars
         // Fire each PA change a couple of layers INTO provino i's wall (not in the thin base
         // before it): an event landing in the very first base layers near print_z 0 gets
         // dropped (provino 0's PA=0.000 went missing at INTO=0.25). Landing inside the wall —
