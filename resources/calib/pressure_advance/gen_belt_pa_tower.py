@@ -51,8 +51,8 @@ BASE_H     = 0.6     # connector base thickness in Z (mm) — thin raft (~2-3 be
 NUM_W      = 15.0    # X span available for the number, beside the wall
 NUM_GAP    = 3.0     # X gap between wall end and number region
 NUM_H      = 4.0     # digit cap-height in designed-Y (mm)
-CUT_D      = 0.3     # depth the number is cut into the base top (leaves BASE_H-CUT_D=0.3 floor)
-CUT_OVER   = 0.6     # overshoot above the base top for a clean boolean cut
+CUT_OVER   = 0.6     # overshoot beyond both base faces for a clean THROUGH (full) cut
+BRIDGE_W   = 0.6     # stencil-bridge width keeping each counter island (0/4/6/8/9) attached
 GAP_Y      = 6.0     # designed-Y gap between provini (PA-change settling zone)
 EMBED      = 0.3     # how far walls dip into the base (union robustness)
 
@@ -78,8 +78,12 @@ def wall(y0):
 
 
 def text_mesh(s, size, height):
-    """Centered extruded mesh of string s (handles letter holes), z in [0, height]."""
-    tp = TextPath((0, 0), s, size=size, prop=FontProperties(family='DejaVu Sans'))
+    """Centered extruded mesh of string s, z in [0, height].
+
+    Bold MONOSPACE font for legibility. Each counter (the enclosed hole of 0/4/6/8/9) gets a
+    thin STENCIL BRIDGE down through the glyph bottom, so a full-depth THROUGH cut leaves no
+    detached island (the counter stays joined to the surrounding base)."""
+    tp = TextPath((0, 0), s, size=size, prop=FontProperties(family='DejaVu Sans Mono', weight='bold'))
     rings = [ShPoly(p) for p in tp.to_polygons() if len(p) >= 3]
     rings.sort(key=lambda r: r.area, reverse=True)
     used = [False] * len(rings); parts = []
@@ -91,7 +95,21 @@ def text_mesh(s, size, height):
             if not used[j] and o.contains(rings[j]):
                 holes.append(rings[j].exterior.coords); used[j] = True
         parts.append(ShPoly(o.exterior.coords, holes)); used[i] = True
-    poly = unary_union(parts)
+    # stencil-ize: notch the bottom stroke under each counter so the island stays connected
+    bridged = []
+    for p in parts:
+        if p.interiors:
+            y_bot = p.bounds[1]
+            bars = []
+            for h in p.interiors:
+                hc = ShPoly(h).centroid
+                bars.append(ShPoly([(hc.x - BRIDGE_W / 2, y_bot - 1.0),
+                                    (hc.x + BRIDGE_W / 2, y_bot - 1.0),
+                                    (hc.x + BRIDGE_W / 2, hc.y),
+                                    (hc.x - BRIDGE_W / 2, hc.y)]))
+            p = p.buffer(0).difference(unary_union(bars).buffer(0))
+        bridged.append(p)
+    poly = unary_union(bridged)
     geoms = list(poly.geoms) if poly.geom_type == 'MultiPolygon' else [poly]
     m = trimesh.util.concatenate(
         [trimesh.creation.extrude_polygon(g, height=height) for g in geoms])
@@ -99,13 +117,13 @@ def text_mesh(s, size, height):
 
 
 def number_cutter(y0, pa):
-    """Cutter solid for the PA value, recessed into the base top beside the wall.
+    """Cutter solid for the PA value, FULL (through) cut in the base beside the wall.
 
-    Flat number in the model XY plane (reads upright off the part), cut CUT_D deep from the
-    base top with CUT_OVER overshoot. Spans z [BASE_H-CUT_D, BASE_H+CUT_OVER]."""
-    t = text_mesh(f"{pa:.2f}", NUM_H, CUT_D + CUT_OVER)   # centered in xy, z in [0, CUT_D+CUT_OVER]
+    Flat number in the model XY plane (reads upright off the part), cut clean through the whole
+    base for a high-contrast, legible void. Spans z [-CUT_OVER, BASE_H+CUT_OVER]."""
+    t = text_mesh(f"{pa:.2f}", NUM_H, BASE_H + 2 * CUT_OVER)   # z in [0, BASE_H+2*CUT_OVER]
     xc = WALL_LEN + NUM_GAP + NUM_W / 2.0
-    t.apply_translation([xc, y0 + PROV_Y / 2.0, BASE_H - CUT_D])
+    t.apply_translation([xc, y0 + PROV_Y / 2.0, -CUT_OVER])
     return t
 
 
