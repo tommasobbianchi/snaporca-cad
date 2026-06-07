@@ -21,7 +21,10 @@ from shapely.ops import unary_union
 HERE = os.path.dirname(os.path.abspath(__file__))
 UNIT = os.path.join(HERE, 'belt_wip', 'unit_single.stl')   # closed provino, keel-first
 SURF_GAP = 25.0            # surface-to-surface gap between provini (mm) — user spec
-TEXT_H = 9.0; TEXT_DEPTH = 0.8
+TEXT_H = 9.0
+TEXT_DEPTH = 0.8           # engraving depth (numbers are CUT into the face, not raised:
+                          # a raised number is an unsupported Y-overhang on the belt — belt-bz6)
+TEXT_OVERSHOOT = 0.6       # extra height poking out of the face for a clean boolean cut
 
 # Temperature ranges (start, end) per filament family, 5 C step. File name encodes them.
 RANGES = [(230,190),(270,230),(250,230),(280,240),(240,210),(320,280)]
@@ -52,18 +55,23 @@ def text_mesh(s):
         parts.append(ShPoly(o.exterior.coords,holes)); used[i]=True
     poly = unary_union(parts)
     geoms = list(poly.geoms) if poly.geom_type=='MultiPolygon' else [poly]
-    m = trimesh.util.concatenate([trimesh.creation.extrude_polygon(g,height=TEXT_DEPTH) for g in geoms])
+    m = trimesh.util.concatenate([trimesh.creation.extrude_polygon(g,height=TEXT_DEPTH+TEXT_OVERSHOOT) for g in geoms])
     c = m.bounds.mean(axis=0); m.apply_translation([-c[0],-c[1],0]); return m
 
 for t_start, t_end in RANGES:
     temps = list(range(t_start, t_end-1, -5))
     parts=[]
     for i,T in enumerate(temps):
-        c = unit.copy(); c.apply_translation([0, i*PITCH, 0]); parts.append(c)
+        c = unit.copy(); c.apply_translation([0, i*PITCH, 0])
         t = text_mesh(str(T)); M=np.eye(4); M[:3,:3]=R; t.apply_transform(M)
-        t.apply_translation(face_c + n*(TEXT_DEPTH*0.4) + np.array([0,i*PITCH,0])); parts.append(t)
+        # place the text spanning from TEXT_DEPTH inside the face to TEXT_OVERSHOOT outside,
+        # then CUT it out of the provino (engrave) — no raised material, no Y-overhang.
+        t.apply_translation(face_c - n*TEXT_DEPTH + np.array([0,i*PITCH,0]))
+        c = trimesh.boolean.difference([c, t], engine='manifold')
+        parts.append(c)
     asset = trimesh.util.concatenate(parts)
     out = os.path.join(HERE, f"belt_temp_tower_{t_start}_{t_end}.stl")
     asset.export(out)
     dims = np.round(asset.bounds[1]-asset.bounds[0],1)
-    print(f"  {t_start}->{t_end}: {len(temps)} zones  bbox={dims}  watertight_unit={unit.is_watertight}  -> {os.path.basename(out)}")
+    wt = all(p.is_watertight for p in parts)
+    print(f"  {t_start}->{t_end}: {len(temps)} zones  bbox={dims}  watertight={wt}  -> {os.path.basename(out)}")
