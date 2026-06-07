@@ -99,8 +99,8 @@ PA_Calibration_Dlg::PA_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plater* 
     }
     m_belt_note = new wxStaticText(this, wxID_ANY,
         _L("Belt printer: a fixed 13-bar discrete Pressure Advance test. Set Start PA and PA "
-           "step below (End is derived); the other options do not apply. The numbers engraved "
-           "on the bars match the default Start 0.00 / step 0.01."));
+           "step below (End is derived); the other options do not apply. Each bar's PA value "
+           "is engraved into its base."));
     m_belt_note->Wrap(FromDIP(360));
     m_belt_note->SetForegroundColour(wxColour("#009688"));
     v_sizer->Add(m_belt_note, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));

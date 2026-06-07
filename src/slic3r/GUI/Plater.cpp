@@ -49,6 +49,7 @@
 
 #include "libslic3r/libslic3r.h"
 #include "libslic3r/Format/STL.hpp"
+#include "libslic3r/MeshBoolean.hpp"
 #include "libslic3r/Format/DRC.hpp"
 #include "libslic3r/Format/STEP.hpp"
 #include "libslic3r/Format/AMF.hpp"
@@ -12618,9 +12619,9 @@ void Plater::calib_pa(const Calib_Params& params)
         const double angle = printer_config->has("belt_slice_rotation_angle")
             ? printer_config->opt_float("belt_slice_rotation_angle") : 45.0;
         const double zone_topz = PITCH_Y * std::cos(angle * M_PI / 180.0);
-        // PA value per provino from the dialog: Start + i*Step over the 13 fixed bars. The
-        // default Start=0.00, Step=0.01 gives 0.00..0.12 == the numbers engraved in the asset;
-        // a custom range still prints/injects correctly but the engraved labels won't match.
+        // PA value per provino from the dialog: Start + i*Step over the 13 fixed bars. The value
+        // is also engraved into each bar's base below (cut from per-character glyph meshes), so
+        // the printed number always matches whatever Start/Step the user picks.
         const double pa_start = params.start;
         const double pa_step  = (params.step > 1e-6) ? params.step : 0.01;
         std::vector<double> pas;
@@ -12632,10 +12633,60 @@ void Plater::calib_pa(const Calib_Params& params)
         // the bottom ~2 of the 8 wall layers print at the previous PA. Verify by slicing.
         constexpr double INTO = 0.85;
 
-        add_model(false, Slic3r::resources_dir() + "/calib/pressure_advance/belt_pa_tower.stl");
+        add_model(false, Slic3r::resources_dir() + "/calib/pressure_advance/belt_pa_tower_bars.stl");
+
+        ModelObject* obj = model().objects[0];
+
+        // Cut the PA value into the base beside each bar dynamically, so the engraved number
+        // always matches the dialog (Start + i*Step). Per-character full-cut glyph cutters are
+        // assembled and subtracted from the bars body (no runtime text rendering). The layout
+        // constants are the shared contract with gen_belt_pa_tower.py (printed when it runs).
+        {
+            constexpr double PROV_Y = 4.5, NUM_CX = 54.0, CELL_W = 3.844;
+            const std::string gdir = Slic3r::resources_dir() + "/calib/pressure_advance/glyphs/";
+            std::map<char, TriangleMesh> glyph_cache;
+            auto load_glyph = [&](char c) -> const TriangleMesh& {
+                auto it = glyph_cache.find(c);
+                if (it != glyph_cache.end()) return it->second;
+                const std::string name = (c == '.') ? "dot" : std::string(1, c);
+                Model gm;
+                load_stl((gdir + "glyph_" + name + ".stl").c_str(), &gm);
+                TriangleMesh m = (!gm.objects.empty() && !gm.objects[0]->volumes.empty())
+                                 ? gm.objects[0]->volumes[0]->mesh() : TriangleMesh();
+                return glyph_cache.emplace(c, std::move(m)).first->second;
+            };
+            ModelVolume* vol = obj->volumes.empty() ? nullptr : obj->volumes[0];
+            if (vol) {
+                // Add each digit as a NEGATIVE_VOLUME so the slicer subtracts it per-layer (a 2D
+                // boolean, robust to the thin stencil geometry — a 3D CGAL boolean throws on it).
+                // Positions are in the asset's original keel-first coords; add_model re-centered
+                // the loaded mesh, so anchor to the volume mesh's bbox min (the (0,0,0) keel
+                // corner) and give each cutter the bars volume's transform so it lands on the base.
+                const Vec3d o = vol->mesh().bounding_box().min;
+                const Transform3d vt = vol->get_transformation().get_matrix();
+                int nglyph = 0;
+                char buf[16];
+                for (int i = 0; i < 13; ++i) {
+                    snprintf(buf, sizeof(buf), "%.3f", pas[i]);     // "0.XYZ"
+                    std::string s(buf);
+                    for (char& ch : s) if (ch == ',') ch = '.';     // locale-safe
+                    const double y = double(i) * PITCH_Y + PROV_Y / 2.0;
+                    for (size_t k = 0; k < s.size(); ++k) {
+                        TriangleMesh g = load_glyph(s[k]);          // copy
+                        const double x = NUM_CX + (double(k) - double(s.size() - 1) / 2.0) * CELL_W;
+                        g.translate(float(o.x() + x), float(o.y() + y), float(o.z()));
+                        ModelVolume* nv = obj->add_volume(std::move(g), ModelVolumeType::NEGATIVE_VOLUME, false);
+                        nv->set_transformation(vt);
+                        nv->name = "pa_digit";
+                        ++nglyph;
+                    }
+                }
+                BOOST_LOG_TRIVIAL(info) << "[belt_pa] added " << nglyph << " negative-volume digit cutters"
+                                        << " bbmin=(" << o.x() << "," << o.y() << "," << o.z() << ")";
+            }
+        }
 
         // Place keel-first asset at the belt entry (designed Y = 0), centered laterally.
-        ModelObject* obj = model().objects[0];
         obj->ensure_on_bed();
         BoundingBoxf3 obb = obj->bounding_box_exact();
         auto bed_shape = printer_config->option<ConfigOptionPoints>("printable_area")->values;

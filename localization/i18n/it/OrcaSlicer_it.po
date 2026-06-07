@@ -21102,12 +21102,12 @@ msgstr "Metodo"
 
 msgid ""
 "Belt printer: a fixed 13-bar discrete Pressure Advance test. Set Start PA and "
-"PA step below (End is derived); the other options do not apply. The numbers "
-"engraved on the bars match the default Start 0.00 / step 0.01."
+"PA step below (End is derived); the other options do not apply. Each bar's PA "
+"value is engraved into its base."
 msgstr ""
 "Stampante belt: test Pressure Advance discreto a 13 barre fisse. Imposta Start "
-"PA e PA step qui sotto (End e' derivato); le altre opzioni non si applicano. I "
-"numeri incisi sulle barre corrispondono al default Start 0.00 / step 0.01."
+"PA e PA step qui sotto (End e' derivato); le altre opzioni non si applicano. Il "
+"valore PA di ogni barra e' inciso nella sua base."
 
 #, c-format, boost-format
 msgid "%s is not compatible with %s"

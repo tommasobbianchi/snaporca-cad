@@ -118,44 +118,58 @@ def text_mesh(s, size, height):
     c = m.bounds.mean(axis=0); m.apply_translation([-c[0], -c[1], 0]); return m
 
 
-def number_cutter(y0, pa):
-    """Cutter solid for the PA value, FULL (through) cut in the base beside the wall.
-
-    Flat number in the model XY plane (reads upright off the part), cut clean through the whole
-    base for a high-contrast, legible void. Spans z [-CUT_OVER, BASE_H+CUT_OVER]."""
-    t = text_mesh(f"{pa:.2f}", NUM_H, BASE_H + 2 * CUT_OVER)   # z in [0, BASE_H+2*CUT_OVER]
-    t.apply_scale([NUM_WIDTH_SCALE, 1.0, 1.0])                 # 50% wider in X (centered at origin)
-    xc = WALL_LEN + NUM_GAP + NUM_W / 2.0
-    t.apply_translation([xc, y0 + PROV_Y / 2.0, -CUT_OVER])
+def glyph_cutter(ch):
+    """Single-character full-cut cutter, centered in X and Y, Z spanning the whole base
+    [-CUT_OVER, BASE_H+CUT_OVER]. calib_pa places one per character per the dialog Start/Step,
+    so the engraved value always matches what is printed."""
+    t = text_mesh(ch, NUM_H, BASE_H + 2 * CUT_OVER)
+    t.apply_scale([NUM_WIDTH_SCALE, 1.0, 1.0])     # 50% wider in X
+    t.apply_translation([0.0, 0.0, -CUT_OVER])     # centered in XY, Z spans the through-cut
     return t
 
 
-def build(out):
+GLYPH_CHARS = "0123456789."
+GLYPH_NAME = {**{str(d): str(d) for d in range(10)}, ".": "dot"}
+
+
+def build_bars(out):
+    """Bars + base only — the numbers are cut in dynamically by the C++ calib branch."""
     ny = (len(PA_VALUES) - 1) * PITCH + PROV_Y
     base = trimesh.creation.box(extents=[RIB_X, ny, BASE_H])
     base.apply_translation([RIB_X / 2.0, ny / 2.0, BASE_H / 2.0])
-    parts = [base]
-    cutters = []
-    for i, pa in enumerate(PA_VALUES):
-        y0 = i * PITCH
-        parts.append(wall(y0))
-        cutters.append(number_cutter(y0, pa))
+    parts = [base] + [wall(i * PITCH) for i in range(len(PA_VALUES))]
     asset = trimesh.boolean.union(parts, engine='manifold')
-    asset = trimesh.boolean.difference([asset, trimesh.util.concatenate(cutters)], engine='manifold')
     asset.export(out)
-    dims = np.round(asset.extents, 2)
-    ncomp = len(asset.split(only_watertight=False))
-    print(f"[straight blades + base-cut numbers] PA {PA_VALUES[0]:.2f}->{PA_VALUES[-1]:.2f}  "
-          f"PITCH={PITCH:.3f} (C++ contract: provino i at designed-Y = i*{PITCH:.3f})")
-    print(f"   bbox(X,Y,Z)={dims.tolist()}  watertight={asset.is_watertight}  components={ncomp}  "
-          f"read~{WALL_H/VPITCH:.0f} belt layers  "
-          f"min(Y+Z)={(asset.vertices[:,1]+asset.vertices[:,2]).min():.3f} (keel-first)")
-    print(f"   -> {out}")
+    print(f"[bars+base, no numbers] bbox={np.round(asset.extents, 2).tolist()} "
+          f"watertight={asset.is_watertight} read~{WALL_H/VPITCH:.0f} layers "
+          f"min(Y+Z)={(asset.vertices[:,1]+asset.vertices[:,2]).min():.3f} -> {out}")
+
+
+def build_glyphs(outdir):
+    """Export one full-cut cutter STL per character; return the widest glyph X span."""
+    os.makedirs(outdir, exist_ok=True)
+    maxw = 0.0
+    for ch in GLYPH_CHARS:
+        g = glyph_cutter(ch)
+        maxw = max(maxw, float(g.extents[0]))
+        assert g.is_watertight, f"glyph {ch} not watertight"
+        g.export(os.path.join(outdir, f"glyph_{GLYPH_NAME[ch]}.stl"))
+    return maxw
 
 
 if __name__ == '__main__':
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument('--out', default=os.path.join(HERE, 'belt_pa_tower.stl'))
+    ap.add_argument('--out', default=os.path.join(HERE, 'belt_pa_tower_bars.stl'))
+    ap.add_argument('--glyphs', default=os.path.join(HERE, 'glyphs'))
     a = ap.parse_args()
-    build(a.out)
+    build_bars(a.out)
+    maxw = build_glyphs(a.glyphs)
+    cell_w = round(maxw + 0.8, 3)                       # per-char advance >= widest glyph + margin
+    num_cx = WALL_LEN + NUM_GAP + NUM_W / 2.0
+    print("=== C++ contract (Plater.cpp belt calib_pa) — keep in sync ===")
+    print(f"  PITCH_Y = {PITCH:.3f}   (provino i designed-Y = i*PITCH_Y)")
+    print(f"  PROV_Y  = {PROV_Y:.3f}   (number Y-center = i*PITCH_Y + PROV_Y/2)")
+    print(f"  NUM_CX  = {num_cx:.3f}   (X center of the 5-char number '0.XYZ')")
+    print(f"  CELL_W  = {cell_w:.3f}   (per-char X advance; widest glyph {maxw:.2f}); "
+          f"char k at NUM_CX + (k-(n-1)/2)*CELL_W")
