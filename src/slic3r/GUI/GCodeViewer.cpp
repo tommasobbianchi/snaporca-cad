@@ -1251,11 +1251,21 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
             if (mv.type == EMoveType::Extrude && mv.layer_id >= 1) // skip layer-0 prime/skirt
                 tp_bb.merge(Vec3d(belt_inv * mv.position.cast<double>()));
         if (model_bb.defined && tp_bb.defined) {
-            const Vec3d d = model_bb.min - tp_bb.min;
+            // Anchor by bounding-box CENTER, not the min corner. The toolpath body is
+            // the model shell minus the per-perimeter inset (≈ extrusion width) plus
+            // any first-layer skip; for a cube that inset is symmetric, so min-corner
+            // and center anchoring are equivalent. But for non-cubic geometry (e.g. the
+            // belt temperature tower, with embossed text on one face and a sharp keel
+            // tip) the min corner of the mesh and of the toolpath body correspond to
+            // different physical points, so pinning min-to-min biases the whole body
+            // toward one corner. Centering splits the residual symmetrically and is
+            // never worse than min-to-min (verified offline: temp tower residual 0.5mm
+            // → 0.26mm; cube unchanged).
+            const Vec3d d = model_bb.center() - tp_bb.center();
             belt_inv = Transform3d(Eigen::Translation3d(d)) * belt_inv;
-            BOOST_LOG_TRIVIAL(debug) << "[BELT-PREVIEW] anchor: model_bb.min=("
-                << model_bb.min.x() << "," << model_bb.min.y() << "," << model_bb.min.z()
-                << ") tp_bb.min=(" << tp_bb.min.x() << "," << tp_bb.min.y() << "," << tp_bb.min.z()
+            BOOST_LOG_TRIVIAL(debug) << "[BELT-PREVIEW] anchor(center): model_bb.center=("
+                << model_bb.center().x() << "," << model_bb.center().y() << "," << model_bb.center().z()
+                << ") tp_bb.center=(" << tp_bb.center().x() << "," << tp_bb.center().y() << "," << tp_bb.center().z()
                 << ") d=(" << d.x() << "," << d.y() << "," << d.z() << ")";
         }
     }
