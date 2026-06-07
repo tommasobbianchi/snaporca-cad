@@ -13117,7 +13117,81 @@ void Plater::calib_temp(const Calib_Params& params) {
     wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
     if (params.mode != CalibMode::Calib_Temp_Tower)
         return;
-    
+
+    // Belt printers build along the conveyor, not vertically — a tall tower cannot
+    // be sliced. Instead lay a row of DISCRETE provini (one per temperature) along
+    // the belt and change temperature in discrete steps via custom per-layer G-code
+    // (M104), injected in the empty gap just before each provino so the nozzle is
+    // settled by the time that provino prints. We deliberately do NOT call
+    // set_calib_params here: its per-layer interpolation (interpolate_value_across_
+    // layers) would overwrite these discrete M104 events.
+    {
+        auto belt_printer_config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+        if (belt_printer_config->has("belt_printer") && belt_printer_config->opt_bool("belt_printer")) {
+            constexpr int    TEMP_STEP = 5;        // matches Temp_Calibration_Dlg
+            // Shared geometry contract with the offline asset generator
+            // (resources/calib/temperature_tower/gen_belt_temp_tower.py): provini are
+            // replicated along the belt (designed Y) at this pitch. The slicing plane
+            // is oblique (belt_slice_rotation_angle), so the per-zone advance in the
+            // layer print_z space the custom-gcode matcher uses is PITCH*cos(theta).
+            constexpr double PITCH_Y = 74.718;     // designed-Y pitch == gen PITCH
+            const double angle = belt_printer_config->has("belt_slice_rotation_angle")
+                ? belt_printer_config->opt_float("belt_slice_rotation_angle") : 45.0;
+            const double zone_topz = PITCH_Y * std::cos(angle * M_PI / 180.0);
+
+            const int t_start = (int) lround(params.start);
+            const int t_end   = (int) lround(params.end);
+            std::vector<int> temps;
+            const int tstep = (t_start >= t_end) ? -TEMP_STEP : TEMP_STEP;
+            for (int t = t_start; (tstep < 0) ? (t >= t_end) : (t <= t_end); t += tstep)
+                temps.push_back(t);
+            if (temps.empty()) temps.push_back(t_start);
+
+            const std::string calib_dir = Slic3r::resources_dir() + "/calib/temperature_tower/";
+            std::string asset = calib_dir + "belt_temp_tower_" + std::to_string(t_start) + "_" + std::to_string(t_end) + ".stl";
+            if (!boost::filesystem::exists(asset)) {
+                BOOST_LOG_TRIVIAL(warning) << "[belt_temp] no embossed provini for " << t_start << "->" << t_end
+                                           << ", falling back to 230_190 (embossed numbers will not match)";
+                asset = calib_dir + "belt_temp_tower_230_190.stl";
+            }
+            add_model(false, asset);
+
+            // Place keel-first asset at the belt entry (designed Y = 0) so Z_gcode
+            // starts at 0, centered laterally on the bed, resting on the conveyor.
+            ModelObject* obj = model().objects[0];
+            obj->ensure_on_bed();
+            BoundingBoxf3 obb = obj->bounding_box_exact();
+            auto bed_shape = belt_printer_config->option<ConfigOptionPoints>("printable_area")->values;
+            BoundingBoxf bed_ext = get_extents(bed_shape);
+            obj->translate_instances(Vec3d(bed_ext.center().x() - obb.center().x(), -obb.min.y(), 0.0));
+
+            auto belt_filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
+            belt_filament_config->set_key_value("nozzle_temperature_initial_layer", new ConfigOptionInts(1, temps.front()));
+            belt_filament_config->set_key_value("nozzle_temperature", new ConfigOptionInts(1, temps.front()));
+            obj->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
+            obj->config.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+            obj->config.set_key_value("overhang_reverse", new ConfigOptionBool(false));
+            belt_printer_config->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+
+            const int plate_idx = get_partplate_list().get_curr_plate_index();
+            model().curr_plate_index = plate_idx;
+            CustomGCode::Info &cg_info = model().plates_custom_gcodes[plate_idx];
+            cg_info.mode = CustomGCode::Mode::SingleExtruder;
+            cg_info.gcodes.clear();
+            for (size_t i = 1; i < temps.size(); ++i) {
+                const double pz = double(i) * zone_topz;   // lands in the empty gap before provino i
+                cg_info.gcodes.push_back(CustomGCode::Item{
+                    pz, CustomGCode::Custom, 1, "",
+                    "M104 S" + std::to_string(temps[i]) + " ; belt temp zone " + std::to_string(temps[i]) });
+            }
+
+            changed_objects({ 0 });
+            wxGetApp().get_tab(Preset::TYPE_FILAMENT)->update_dirty();
+            wxGetApp().get_tab(Preset::TYPE_FILAMENT)->reload_config();
+            return;
+        }
+    }
+
     add_model(false, Slic3r::resources_dir() + "/calib/temperature_tower/temperature_tower.drc");
     auto printer_config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
     auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
