@@ -12620,7 +12620,7 @@ void Plater::calib_pa(const Calib_Params& params)
         const double zone_topz = PITCH_Y * std::cos(angle * M_PI / 180.0);
         // PA value per provino, matching the engraved numbers baked into the asset.
         std::vector<double> pas;
-        for (int i = 0; i < 9; ++i) pas.push_back(0.01 * i);   // 0.00 .. 0.08
+        for (int i = 0; i < 13; ++i) pas.push_back(0.01 * i);  // 0.00 .. 0.12 (matches asset)
         // Fire each PA change a couple of layers INTO provino i's wall (not in the thin base
         // before it): an event landing in the very first base layers near print_z 0 gets
         // dropped (provino 0's PA=0.000 went missing at INTO=0.25). Landing inside the wall —

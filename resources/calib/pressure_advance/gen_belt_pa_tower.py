@@ -43,7 +43,7 @@ WALL_LEN   = 40.0    # X length of each wall (mm)
 WALL_THK   = 0.45    # single-perimeter wall thickness (mm) ~ 0.4 nozzle
 # reading height = N belt layers. Every layer reads (the along-X speed modulation puts the PA
 # artifact in each layer's trace); only the 1st layer after the SET_PRESSURE_ADVANCE settles.
-READING_LAYERS = 8
+READING_LAYERS = 24
 LAYER_H_NOM = 0.2    # nominal belt-normal layer height the asset is sized for
 VPITCH = LAYER_H_NOM / np.cos(np.radians(45))   # virtual-Z pitch per layer ~0.283
 WALL_H = round(READING_LAYERS * VPITCH, 3)       # model-Z height of the test wall
@@ -61,7 +61,7 @@ PITCH  = PROV_Y + GAP_Y                   # designed-Y pitch  (C++ contract)
 RIB_X  = WALL_LEN + NUM_GAP + NUM_W       # base X extent
 
 # default PA sweep (parametric). True per-machine range comes from the calib dialog later.
-PA_VALUES = [round(0.01 * i, 2) for i in range(9)]   # 0.00 .. 0.08 step 0.01
+PA_VALUES = [round(0.01 * i, 2) for i in range(13)]  # 0.00 .. 0.12 step 0.01
 
 
 def wall(y0):
