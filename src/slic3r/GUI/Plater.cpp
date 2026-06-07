@@ -7105,6 +7105,28 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
 
 #endif /* AUTOPLACEMENT_ON_LOAD */
 
+    // Belt printers: a freshly loaded model belongs at the belt's Y origin (where printing
+    // starts) by its LEADING EDGE, centred only in X — not centred on the bed like a cartesian
+    // printer (the conveyor Y is "infinite" = Z in belt space). Override, for every just-loaded
+    // object, the bed-centre placement done above. We move the edge, never the centre, in Y.
+    {
+        const auto& pcfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+        if (pcfg.has("belt_printer") && pcfg.opt_bool("belt_printer")) {
+            const double cx = this->bed.build_volume().bed_center().x();
+            for (size_t idx : obj_idxs) {
+                if (idx >= model.objects.size()) continue;
+                ModelObject* o = model.objects[idx];
+                for (size_t i = 0; i < o->instances.size(); ++i) {
+                    const BoundingBoxf3 bb = o->instance_bounding_box(i);
+                    Vec3d off = o->instances[i]->get_offset();
+                    off.x() += cx - bb.center().x();   // centre in X
+                    off.y() += 0.0 - bb.min.y();        // leading edge at the belt Y origin
+                    o->instances[i]->set_offset(off);
+                }
+            }
+        }
+    }
+
     //BBS: remove the auto scaled_down logic when load models
     //if (scaled_down) {
     //    GUI::show_info(q,
