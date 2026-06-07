@@ -47,11 +47,11 @@ READING_LAYERS = 8
 LAYER_H_NOM = 0.2    # nominal belt-normal layer height the asset is sized for
 VPITCH = LAYER_H_NOM / np.cos(np.radians(45))   # virtual-Z pitch per layer ~0.283
 WALL_H = round(READING_LAYERS * VPITCH, 3)       # model-Z height of the test wall
-BASE_H     = 1.5     # connector base thickness in Z (mm)
+BASE_H     = 0.6     # connector base thickness in Z (mm) — thin raft (~2-3 belt layers)
 NUM_W      = 15.0    # X span available for the number, beside the wall
 NUM_GAP    = 3.0     # X gap between wall end and number region
 NUM_H      = 4.0     # digit cap-height in designed-Y (mm)
-CUT_D      = 1.0     # depth the number is cut into the base top (leaves BASE_H-CUT_D floor)
+CUT_D      = 0.3     # depth the number is cut into the base top (leaves BASE_H-CUT_D=0.3 floor)
 CUT_OVER   = 0.6     # overshoot above the base top for a clean boolean cut
 GAP_Y      = 6.0     # designed-Y gap between provini (PA-change settling zone)
 EMBED      = 0.3     # how far walls dip into the base (union robustness)

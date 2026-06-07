@@ -21100,6 +21100,15 @@ msgstr "Modello"
 msgid "Method"
 msgstr "Metodo"
 
+msgid ""
+"Belt printer: the Pressure Advance test prints a row of discrete test bars "
+"(PA 0.00-0.08, value engraved in the base). The method and range options "
+"below do not apply."
+msgstr ""
+"Stampante belt: il test Pressure Advance stampa una fila di provini discreti "
+"(PA 0.00-0.08, valore inciso nella base). Le opzioni di metodo e intervallo "
+"qui sotto non si applicano."
+
 #, c-format, boost-format
 msgid "%s is not compatible with %s"
 msgstr "%s non è compatibile con %s"

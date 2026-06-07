@@ -12623,9 +12623,10 @@ void Plater::calib_pa(const Calib_Params& params)
         for (int i = 0; i < 9; ++i) pas.push_back(0.01 * i);   // 0.00 .. 0.08
         // Fire each PA change in the CONTINUOUS base just before provino i's wall. Unlike the
         // temp tower the base has no empty inter-provino gap, so the event always attaches to a
-        // real layer. INTO stays inside the base (< base_top*cos(theta) ~1.06mm) and ahead of
-        // the wall so the whole wall prints at the new PA. Verify the landing by slicing.
-        constexpr double INTO = 0.6;
+        // real layer. INTO stays inside the thin base (< base_top*cos(theta) ~0.42mm for the
+        // 0.6mm raft) and ahead of the wall so the whole wall prints at the new PA. Verify the
+        // landing by slicing.
+        constexpr double INTO = 0.25;
 
         add_model(false, Slic3r::resources_dir() + "/calib/pressure_advance/belt_pa_tower.stl");
 

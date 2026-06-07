@@ -98,7 +98,7 @@ PA_Calibration_Dlg::PA_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plater* 
         m_is_belt = pcfg.has("belt_printer") && pcfg.opt_bool("belt_printer");
     }
     m_belt_note = new wxStaticText(this, wxID_ANY,
-        _L("Belt printer: the Pressure Advance test prints a row of discrete provini "
+        _L("Belt printer: the Pressure Advance test prints a row of discrete test bars "
            "(PA 0.00-0.08, value engraved in the base). The method and range options below "
            "do not apply."));
     m_belt_note->Wrap(FromDIP(360));
