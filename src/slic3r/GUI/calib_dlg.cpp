@@ -90,6 +90,22 @@ PA_Calibration_Dlg::PA_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plater* 
     wxBoxSizer* v_sizer = new wxBoxSizer(wxVERTICAL);
     SetSizer(v_sizer);
 
+    // Belt printers run a fixed discrete-provino PA test (Plater::calib_pa belt branch): the
+    // cartesian method/range options below do not apply. Detect it once, show a note, and
+    // disable those controls (done at the end of reset_params).
+    {
+        const auto& pcfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+        m_is_belt = pcfg.has("belt_printer") && pcfg.opt_bool("belt_printer");
+    }
+    m_belt_note = new wxStaticText(this, wxID_ANY,
+        _L("Belt printer: the Pressure Advance test prints a row of discrete provini "
+           "(PA 0.00-0.08, value engraved in the base). The method and range options below "
+           "do not apply."));
+    m_belt_note->Wrap(FromDIP(360));
+    m_belt_note->SetForegroundColour(wxColour("#009688"));
+    v_sizer->Add(m_belt_note, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
+    m_belt_note->Show(m_is_belt);
+
     // Extruder type Radio Group
     auto labeled_box_type = new LabeledStaticBox(this, _L("Extruder type"));
     auto type_box = new wxStaticBoxSizer(labeled_box_type, wxHORIZONTAL);
@@ -264,9 +280,29 @@ void PA_Calibration_Dlg::reset_params() {
             m_tiPAStep->GetTextCtrl()->SetValue(wxString::FromDouble(0.02));
         }
     }
+
+    // Belt: the discrete-provino PA test ignores these; grey them out so the dialog is honest.
+    if (m_is_belt) {
+        m_rbExtruderType->Enable(false);
+        m_rbMethod->Enable(false);
+        m_tiStartPA->Enable(false);
+        m_tiEndPA->Enable(false);
+        m_tiPAStep->Enable(false);
+        m_cbPrintNum->Enable(false);
+        m_tiBMAccels->Enable(false);
+        m_tiBMSpeeds->Enable(false);
+    }
 }
 
 void PA_Calibration_Dlg::on_start(wxCommandEvent& event) {
+    if (m_is_belt) {
+        // Belt: fixed discrete-provino PA test; the cartesian method/range inputs are disabled
+        // and ignored by Plater::calib_pa. Skip their validation and run directly.
+        m_params.mode = CalibMode::Calib_PA_Tower;
+        m_plater->calib_pa(m_params);
+        EndModal(wxID_OK);
+        return;
+    }
     bool read_double = false;
     read_double = m_tiStartPA->GetTextCtrl()->GetValue().ToDouble(&m_params.start);
     read_double = read_double && m_tiEndPA->GetTextCtrl()->GetValue().ToDouble(&m_params.end);
