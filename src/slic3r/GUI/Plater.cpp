@@ -13138,6 +13138,16 @@ void Plater::calib_temp(const Calib_Params& params) {
             const double angle = belt_printer_config->has("belt_slice_rotation_angle")
                 ? belt_printer_config->opt_float("belt_slice_rotation_angle") : 45.0;
             const double zone_topz = PITCH_Y * std::cos(angle * M_PI / 180.0);
+            // The custom-gcode matcher attaches each event to a real sliced layer. The
+            // empty inter-provino gap has NO layers, so an event placed there is silently
+            // dropped. Fire it 70 layers ABOVE provino i's start instead — inside the
+            // provino body, past the gap and the overlap with provino i-1's tail, so the
+            // temperature change attaches and applies cleanly. (layer print_z steps by the
+            // process layer height.)
+            auto belt_print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
+            const double layer_h = belt_print_config->has("layer_height")
+                ? belt_print_config->opt_float("layer_height") : 0.2;
+            const double into_provino = 70.0 * layer_h;
 
             const int t_start = (int) lround(params.start);
             const int t_end   = (int) lround(params.end);
@@ -13179,7 +13189,7 @@ void Plater::calib_temp(const Calib_Params& params) {
             cg_info.mode = CustomGCode::Mode::SingleExtruder;
             cg_info.gcodes.clear();
             for (size_t i = 1; i < temps.size(); ++i) {
-                const double pz = double(i) * zone_topz;   // lands in the empty gap before provino i
+                const double pz = double(i) * zone_topz + into_provino;   // 70 layers into provino i
                 cg_info.gcodes.push_back(CustomGCode::Item{
                     pz, CustomGCode::Custom, 1, "",
                     "M104 S" + std::to_string(temps[i]) + " ; belt temp zone " + std::to_string(temps[i]) });
