@@ -12611,10 +12611,10 @@ void Plater::calib_pa(const Calib_Params& params)
     // deliberately do NOT call set_calib_params (return early): its per-layer PA interpolation
     // would overwrite these discrete SET_PRESSURE_ADVANCE events.  (mirrors calib_temp belt)
     if (printer_config->has("belt_printer") && printer_config->opt_bool("belt_printer")) {
-        // Shared geometry contract with gen_belt_pa_tower.py: 9 provini engraved 0.00..0.08 at
+        // Shared geometry contract with gen_belt_pa_tower.py: 13 provini engraved 0.00..0.12 at
         // designed-Y pitch PITCH_Y. The slicing plane is oblique (belt_slice_rotation_angle),
         // so the per-provino advance in layer print_z is PITCH_Y*cos(theta).
-        constexpr double PITCH_Y = 10.5;                 // designed-Y pitch == gen PITCH
+        constexpr double PITCH_Y = 8.0;                  // designed-Y pitch == gen PITCH
         const double angle = printer_config->has("belt_slice_rotation_angle")
             ? printer_config->opt_float("belt_slice_rotation_angle") : 45.0;
         const double zone_topz = PITCH_Y * std::cos(angle * M_PI / 180.0);

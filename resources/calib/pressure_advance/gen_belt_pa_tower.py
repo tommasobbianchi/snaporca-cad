@@ -53,7 +53,8 @@ NUM_GAP    = 3.0     # X gap between wall end and number region
 NUM_H      = 4.0     # digit cap-height in designed-Y (mm)
 CUT_OVER   = 0.6     # overshoot beyond both base faces for a clean THROUGH (full) cut
 BRIDGE_W   = 0.6     # stencil-bridge width keeping each counter island (0/4/6/8/9) attached
-GAP_Y      = 6.0     # designed-Y gap between provini (PA-change settling zone)
+GAP_Y      = 3.5     # designed-Y gap between provini (kept above the ~2.6mm min so the tall
+                     # walls don't overlap in print_z, which would make the per-layer PA ambiguous)
 EMBED      = 0.3     # how far walls dip into the base (union robustness)
 
 PROV_Y = max(WALL_THK, NUM_H + 0.5)      # designed-Y footprint of one provino
