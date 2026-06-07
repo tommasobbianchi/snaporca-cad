@@ -12601,6 +12601,69 @@ void Plater::calib_pa(const Calib_Params& params)
     print_config->set_key_value("overhang_reverse", new ConfigOptionBool(false));
     print_config->set_key_value("precise_z_height", new ConfigOptionBool(false));
     printer_config->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+
+    // Belt printers build along the conveyor: a vertical PA tower can't be sliced and a flat
+    // cartesian line pattern with in-plane corners would oscillate the belt (model-Y drives
+    // machine Z = belt). Instead lay a row of DISCRETE straight-wall provini
+    // (resources/calib/pressure_advance/belt_pa_tower.stl, from gen_belt_pa_tower.py), one
+    // Pressure-Advance value each, and switch PA in discrete steps via custom per-layer G-code
+    // (SET_PRESSURE_ADVANCE, Klipper). PA reads at each wall's machine-X end reversals. We
+    // deliberately do NOT call set_calib_params (return early): its per-layer PA interpolation
+    // would overwrite these discrete SET_PRESSURE_ADVANCE events.  (mirrors calib_temp belt)
+    if (printer_config->has("belt_printer") && printer_config->opt_bool("belt_printer")) {
+        // Shared geometry contract with gen_belt_pa_tower.py: 9 provini engraved 0.00..0.08 at
+        // designed-Y pitch PITCH_Y. The slicing plane is oblique (belt_slice_rotation_angle),
+        // so the per-provino advance in layer print_z is PITCH_Y*cos(theta).
+        constexpr double PITCH_Y = 10.5;                 // designed-Y pitch == gen PITCH
+        const double angle = printer_config->has("belt_slice_rotation_angle")
+            ? printer_config->opt_float("belt_slice_rotation_angle") : 45.0;
+        const double zone_topz = PITCH_Y * std::cos(angle * M_PI / 180.0);
+        // PA value per provino, matching the engraved numbers baked into the asset.
+        std::vector<double> pas;
+        for (int i = 0; i < 9; ++i) pas.push_back(0.01 * i);   // 0.00 .. 0.08
+        // Fire each PA change in the CONTINUOUS base just before provino i's wall. Unlike the
+        // temp tower the base has no empty inter-provino gap, so the event always attaches to a
+        // real layer. INTO stays inside the base (< base_top*cos(theta) ~1.06mm) and ahead of
+        // the wall so the whole wall prints at the new PA. Verify the landing by slicing.
+        constexpr double INTO = 0.6;
+
+        add_model(false, Slic3r::resources_dir() + "/calib/pressure_advance/belt_pa_tower.stl");
+
+        // Place keel-first asset at the belt entry (designed Y = 0), centered laterally.
+        ModelObject* obj = model().objects[0];
+        obj->ensure_on_bed();
+        BoundingBoxf3 obb = obj->bounding_box_exact();
+        auto bed_shape = printer_config->option<ConfigOptionPoints>("printable_area")->values;
+        BoundingBoxf bed_ext = get_extents(bed_shape);
+        obj->translate_instances(Vec3d(bed_ext.center().x() - obb.center().x(), -obb.min.y(), 0.0));
+
+        obj->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
+        obj->config.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+        obj->config.set_key_value("overhang_reverse", new ConfigOptionBool(false));
+        // keep the read zone clean: no wipe, no retract-on-layer-change noise on the thin walls
+        auto belt_filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
+        belt_filament_config->set_key_value("filament_wipe", new ConfigOptionBoolsNullable{false});
+        printer_config->set_key_value("wipe", new ConfigOptionBools{false});
+        printer_config->set_key_value("retract_when_changing_layer", new ConfigOptionBools{false});
+
+        const int plate_idx = get_partplate_list().get_curr_plate_index();
+        model().curr_plate_index = plate_idx;
+        CustomGCode::Info& cg_info = model().plates_custom_gcodes[plate_idx];
+        cg_info.mode = CustomGCode::Mode::SingleExtruder;
+        cg_info.gcodes.clear();
+        for (size_t i = 0; i < pas.size(); ++i) {
+            const double pz = double(i) * zone_topz + INTO;
+            char val[16];
+            snprintf(val, sizeof(val), "%.3f", pas[i]);
+            cg_info.gcodes.push_back(CustomGCode::Item{
+                pz, CustomGCode::Custom, 1, "",
+                std::string("SET_PRESSURE_ADVANCE ADVANCE=") + val + " ; belt PA " + val });
+        }
+
+        changed_objects({ 0 });
+        return;   // do NOT call set_calib_params (would override the discrete SET_PRESSURE_ADVANCE)
+    }
+
     switch (params.mode) {
         case CalibMode::Calib_PA_Line:
             add_model(false, Slic3r::resources_dir() + "/calib/pressure_advance/pressure_advance_test.drc");
