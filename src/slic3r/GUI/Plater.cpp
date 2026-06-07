@@ -12621,12 +12621,12 @@ void Plater::calib_pa(const Calib_Params& params)
         // PA value per provino, matching the engraved numbers baked into the asset.
         std::vector<double> pas;
         for (int i = 0; i < 9; ++i) pas.push_back(0.01 * i);   // 0.00 .. 0.08
-        // Fire each PA change in the CONTINUOUS base just before provino i's wall. Unlike the
-        // temp tower the base has no empty inter-provino gap, so the event always attaches to a
-        // real layer. INTO stays inside the thin base (< base_top*cos(theta) ~0.42mm for the
-        // 0.6mm raft) and ahead of the wall so the whole wall prints at the new PA. Verify the
-        // landing by slicing.
-        constexpr double INTO = 0.25;
+        // Fire each PA change a couple of layers INTO provino i's wall (not in the thin base
+        // before it): an event landing in the very first base layers near print_z 0 gets
+        // dropped (provino 0's PA=0.000 went missing at INTO=0.25). Landing inside the wall —
+        // which always has material — makes every event, including i=0, attach reliably; only
+        // the bottom ~2 of the 8 wall layers print at the previous PA. Verify by slicing.
+        constexpr double INTO = 0.85;
 
         add_model(false, Slic3r::resources_dir() + "/calib/pressure_advance/belt_pa_tower.stl");
 
@@ -12656,6 +12656,9 @@ void Plater::calib_pa(const Calib_Params& params)
             const double pz = double(i) * zone_topz + INTO;
             char val[16];
             snprintf(val, sizeof(val), "%.3f", pas[i]);
+            // G-code needs a '.' decimal separator regardless of the UI locale: snprintf("%f")
+            // honours LC_NUMERIC, so on an it_IT session it emits "0,010" which Klipper rejects.
+            for (char* p = val; *p; ++p) if (*p == ',') *p = '.';
             cg_info.gcodes.push_back(CustomGCode::Item{
                 pz, CustomGCode::Custom, 1, "",
                 std::string("SET_PRESSURE_ADVANCE ADVANCE=") + val + " ; belt PA " + val });
