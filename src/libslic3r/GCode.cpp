@@ -4669,6 +4669,10 @@ LayerResult GCode::process_layer(
         }
         case CalibMode::Calib_Vol_speed_Tower: {
             auto _speed = print.calib_params().start + print_z * print.calib_params().step;
+            // belt: clamp flat at base_speed for the lead-in base layers, then the linear ramp
+            // takes over (base_speed=0 on the cartesian path → no clamp, unchanged behaviour)
+            if (print.calib_params().base_speed > 0.0)
+                _speed = std::max(print.calib_params().base_speed, _speed);
             m_calib_config.set_key_value("outer_wall_speed", new ConfigOptionFloat(std::round(_speed)));
             break;
         }
