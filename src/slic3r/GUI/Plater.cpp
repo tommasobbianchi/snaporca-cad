@@ -13422,6 +13422,89 @@ void Plater::calib_max_vol_speed(const Calib_Params& params)
     wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
     if (params.mode != CalibMode::Calib_Vol_speed_Tower)
         return;
+
+    // Belt printers: the cartesian tower can't be sliced. Instead lay a constant-cross-section
+    // vase tube along the belt (model-Y = the conveyor) and let the outer-wall speed ramp with
+    // print_z (= belt advance). Same vase/flow config + set_calib_params as the cartesian path;
+    // only the model and placement differ. The asset (belt_vol_speed.stl) is authored
+    // WEDGE-DOWN: its 45° wedge face is the flat bottom (min model-Z), so it rests flat on the
+    // 45° belt — the orientation HW-validated by the user. Placement therefore only centres X and
+    // puts the leading edge at the belt Y origin; it must NOT rotate or re-drop the part.
+    {
+        auto belt_print_cfg    = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
+        auto belt_filament_cfg = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
+        auto belt_printer_cfg  = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+        if (belt_printer_cfg->has("belt_printer") && belt_printer_cfg->opt_bool("belt_printer")) {
+            add_model(false, Slic3r::resources_dir() + "/calib/volumetric_speed/belt_vol_speed.stl");
+            ModelObject* obj = model().objects[0];
+            // leading edge at the belt Y origin, centred in X (asset is already keel-first,
+            // min Z = 0 on the wedge face — ensure_on_bed is a no-op that just re-asserts it)
+            obj->ensure_on_bed();
+            BoundingBoxf3 obb = obj->bounding_box_exact();
+            BoundingBoxf bed_ext = get_extents(belt_printer_cfg->option<ConfigOptionPoints>("printable_area")->values);
+            obj->translate_instances(Vec3d(bed_ext.center().x() - obb.center().x(), -obb.min.y(), 0.0));
+
+            const double nozzle = belt_printer_cfg->option<ConfigOptionFloats>("nozzle_diameter")->values[0];
+            const double line_width = nozzle * 1.75, layer_height = nozzle * 0.8;
+            auto& obj_cfg = obj->config;
+            belt_filament_cfg->set_key_value("filament_max_volumetric_speed", new ConfigOptionFloats{200});
+            belt_filament_cfg->set_key_value("slow_down_layer_time", new ConfigOptionFloats{0.0});
+            belt_printer_cfg->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+            obj_cfg.set_key_value("enable_overhang_speed", new ConfigOptionBool{false});
+            obj_cfg.set_key_value("wall_loops", new ConfigOptionInt(1));
+            obj_cfg.set_key_value("top_shell_layers", new ConfigOptionInt(0));
+            obj_cfg.set_key_value("bottom_shell_layers", new ConfigOptionInt(0));
+            obj_cfg.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
+            obj_cfg.set_key_value("outer_wall_line_width", new ConfigOptionFloatOrPercent(line_width, false));
+            obj_cfg.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
+            belt_print_cfg->set_key_value("spiral_mode", new ConfigOptionBool(true));
+            belt_print_cfg->set_key_value("max_volumetric_extrusion_rate_slope", new ConfigOptionFloat(0));
+            // belt prints are inherently sequential (one object leaves the conveyor before the
+            // next) — the flow test is a single vase object, print it by object.
+            belt_print_cfg->set_key_value("print_sequence", new ConfigOptionEnum<PrintSequence>(PrintSequence::ByObject));
+
+            changed_objects({0});
+            wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
+            wxGetApp().get_tab(Preset::TYPE_FILAMENT)->update_dirty();
+            wxGetApp().get_tab(Preset::TYPE_PRINTER)->update_dirty();
+            wxGetApp().get_tab(Preset::TYPE_PRINT)->reload_config();
+            wxGetApp().get_tab(Preset::TYPE_FILAMENT)->reload_config();
+            wxGetApp().get_tab(Preset::TYPE_PRINTER)->reload_config();
+
+            // print_z span of the tube under the belt forward transform (Z_virt = Y + Z). The
+            // GCode ramp runs print_z from 0 to this span; we stretch the start..end sweep across
+            // it so the flow reaches 'end' exactly at the trailing edge. The cartesian path cuts
+            // the tower to the ramp height to avoid overshoot; we can't 45°-cut the belt tube, so
+            // we scale 'step' to the span instead (otherwise the ramp overshoots 'end' and clips
+            // flat against filament_max_volumetric_speed for most of the print).
+            double pz_min = std::numeric_limits<double>::max();
+            double pz_max = std::numeric_limits<double>::lowest();
+            const Transform3d inst_m = obj->instances.front()->get_matrix();
+            for (const ModelVolume* vol : obj->volumes) {
+                if (!vol->is_model_part()) continue;
+                const Transform3d m = inst_m * vol->get_matrix();
+                for (const auto& v : vol->mesh().its.vertices) {
+                    const Vec3d p = m * v.cast<double>();
+                    const double s = p.y() + p.z();
+                    pz_min = std::min(pz_min, s);
+                    pz_max = std::max(pz_max, s);
+                }
+            }
+            const double pz_span = std::max(1.0, pz_max - pz_min);
+
+            auto new_params = params;   // the per-layer ramp (GCode.cpp) IS the mechanism here
+            auto mm3_per_mm = Flow(line_width, layer_height, nozzle).mm3_per_mm()
+                * belt_filament_cfg->option<ConfigOptionFloatsNullable>("filament_flow_ratio")->get_at(0);
+            new_params.start = params.start / mm3_per_mm;
+            new_params.end   = params.end / mm3_per_mm;
+            // dialog 'step' (mm3/s per mm of cartesian Z height) is meaningless on belt — the ramp
+            // axis is print_z = Y+Z. Derive the per-print_z step so start..end spans the whole tube.
+            new_params.step  = (new_params.end - new_params.start) / pz_span;
+            p->background_process.fff_print()->set_calib_params(new_params);
+            return;
+        }
+    }
+
     add_model(false, Slic3r::resources_dir() + "/calib/volumetric_speed/SpeedTestStructure.drc");
 
     auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
