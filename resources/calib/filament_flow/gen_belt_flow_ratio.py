@@ -42,8 +42,20 @@ Geometry contract shared with the C++ calib_flowrate belt branch (Plater.cpp):
   sparse. Keep them in sync.
 """
 import numpy as np, trimesh, os
+from matplotlib.textpath import TextPath
+from matplotlib.font_manager import FontProperties
+from shapely.geometry import Polygon as ShPoly
+from shapely.ops import unary_union
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# Flow modifiers used by the cartesian passes (flowrate-test-pass1/2.3mf): one labeled
+# pad STL per value. C++ loads belt_flow_ratio_<suffix>.stl (suffix: m20..m1,0,5..20).
+MODS_ALL = [-20, -15, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 5, 10, 15, 20]
+TEXT_H        = 5.0    # engraved digit height (mm)
+TEXT_DEPTH    = 0.8    # cut INTO the lateral face (engraved, not embossed -> belt-safe)
+TEXT_OVERSHOOT= 0.6    # poke out of the face for a clean boolean cut
+TEXT_CY, TEXT_CZ = 7.0, 6.0   # engraving centre on the wedge body (Y,Z), below the read slab
 
 # --- parameters -------------------------------------------------------------
 PAD_X       = 30.0     # lateral (model-X) width of the reading area
@@ -83,6 +95,48 @@ def build():
     return prism
 
 
+def text_mesh(s):
+    """2D text -> solid extruded along local +Z, centred in X/Y (from gen_belt_temp_tower)."""
+    tp = TextPath((0, 0), s, size=TEXT_H, prop=FontProperties(family='DejaVu Sans'))
+    rings = [ShPoly(p) for p in tp.to_polygons() if len(p) >= 3]
+    rings.sort(key=lambda r: r.area, reverse=True)
+    used = [False] * len(rings); parts = []
+    for i, o in enumerate(rings):
+        if used[i]: continue
+        holes = []
+        for j in range(i + 1, len(rings)):
+            if not used[j] and o.contains(rings[j]): holes.append(rings[j].exterior.coords); used[j] = True
+        parts.append(ShPoly(o.exterior.coords, holes)); used[i] = True
+    poly = unary_union(parts)
+    geoms = list(poly.geoms) if poly.geom_type == 'MultiPolygon' else [poly]
+    m = trimesh.util.concatenate([trimesh.creation.extrude_polygon(g, height=TEXT_DEPTH + TEXT_OVERSHOOT) for g in geoms])
+    c = m.bounds.mean(axis=0); m.apply_translation([-c[0], -c[1], 0]); return m
+
+
+def engrave(prism, label):
+    """CUT `label` into the +X lateral face (a vertical print-space wall -> belt-safe; the
+    top read face is untouched). Basis maps text rightward to -Y so it reads upright when
+    viewed from +X; extrudes along +X, straddling the face for a clean boolean difference."""
+    x_face = prism.vertices[:, 0].max()
+    t = text_mesh(label)
+    # local (lx,ly,lz) -> model: x=lz (depth), y=-lx (text width, reads correct from +X), z=ly
+    R = np.array([[0.0, 0.0, 1.0],
+                  [-1.0, 0.0, 0.0],
+                  [0.0, 1.0, 0.0]])
+    M = np.eye(4); M[:3, :3] = R; t.apply_transform(M)
+    # straddle the face: model-X from (x_face - DEPTH) .. (x_face + OVERSHOOT); centre on body
+    t.apply_translation([x_face - TEXT_DEPTH, TEXT_CY, TEXT_CZ])
+    out = trimesh.boolean.difference([prism, t], engine='manifold')
+    return out
+
+
+def label_for(mod):
+    return "0" if mod == 0 else f"{mod:+d}"          # "-20", "0", "+20"
+
+def suffix_for(mod):
+    return ("m%d" % -mod) if mod < 0 else str(mod)   # m20..m1, 0, 5..20  (matches C++)
+
+
 def overhang_report(m):
     """Flag faces steeper than 45 deg overhang in belt gravity g=(0,-1,-1)/sqrt2,
     excluding the belt-contact bottom. Returns (max_overhang_deg, n_bad)."""
@@ -101,14 +155,20 @@ def overhang_report(m):
 
 
 if __name__ == "__main__":
-    m = build()
-    bb = np.round(m.bounds, 2)
-    s = m.vertices[:, 1] + m.vertices[:, 2]
-    mo, nbad = overhang_report(m)
+    base = build()
+    bb = np.round(base.bounds, 2)
+    mo, nbad = overhang_report(base)
     print(f"PITCH={PITCH:.4f}  T_READ={T_READ:.3f}  READ_LAYERS={READ_LAYERS}")
-    print(f"bbox min={bb[0]}  max={bb[1]}  extents={np.round(m.extents,2)}")
-    print(f"print_z (Y+Z) span: {s.min():.3f} .. {s.max():.3f}  ({(s.max()-s.min())/PITCH:.0f} layers)")
-    print(f"read window: top {READ_LAYERS} layers, face ~{WB*np.sqrt(2):.1f}mm x {PAD_X:.0f}mm")
-    print(f"watertight={m.is_watertight}  overhang_max={mo:.1f}deg  bad_faces={nbad}")
-    m.export(OUT)
-    print(f"-> {OUT}")
+    print(f"base bbox min={bb[0]} max={bb[1]}  read face ~{WB*np.sqrt(2):.1f}x{PAD_X:.0f}mm  "
+          f"watertight={base.is_watertight} overhang_max={mo:.1f}deg")
+    base.export(OUT)                       # unlabeled fallback (belt_flow_ratio.stl)
+    print(f"-> {os.path.basename(OUT)}")
+
+    # one labeled pad per flow modifier (flow % engraved on the +X lateral face)
+    for mod in MODS_ALL:
+        m = engrave(build(), label_for(mod))
+        out = os.path.join(HERE, f"belt_flow_ratio_{suffix_for(mod)}.stl")
+        m.export(out)
+        s = m.vertices[:, 1] + m.vertices[:, 2]
+        print(f"  {label_for(mod):>4}: watertight={m.is_watertight}  "
+              f"print_z {s.min():.2f}..{s.max():.2f}  -> {os.path.basename(out)}")

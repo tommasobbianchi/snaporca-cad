@@ -13251,9 +13251,15 @@ void Plater::calib_flowrate(bool is_linear, int pass, InfillPattern pattern) {
                 : std::vector<int>{-20, -15, -10, -5, 0, 5, 10, 15, 20};
             const size_t N = mods.size();
 
-            const std::string asset = Slic3r::resources_dir() + "/calib/filament_flow/belt_flow_ratio.stl";
-            for (size_t i = 0; i < N; ++i)
-                add_model(false, asset);
+            // one labeled pad per modifier (flow % engraved on the lateral face, so the pads
+            // are identifiable after they convey off the belt); fall back to the unlabeled pad.
+            const std::string dir = Slic3r::resources_dir() + "/calib/filament_flow/";
+            for (size_t i = 0; i < N; ++i) {
+                const std::string suf = mods[i] < 0 ? "m" + std::to_string(-mods[i]) : std::to_string(mods[i]);
+                std::string a = dir + "belt_flow_ratio_" + suf + ".stl";
+                if (!boost::filesystem::exists(a)) a = dir + "belt_flow_ratio.stl";
+                add_model(false, a);
+            }
 
             BoundingBoxf bed_ext = get_extents(belt_printer_cfg->option<ConfigOptionPoints>("printable_area")->values);
             // Pads laid out along the belt (model-Y): on a belt print_z = Y + Z grows with the
