@@ -13223,6 +13223,61 @@ void Plater::calib_flowrate(bool is_linear, int pass, InfillPattern pattern) {
 
     wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
 
+    // Belt printers: the cartesian flow-ratio pads (flat plates read on their top
+    // solid infill) cannot be reproduced lying flat on a 45 deg belt — the slicer
+    // cuts constant print_z = (Y_model + Z_model) planes, so a thin flat pad's "top"
+    // is a smeared diagonal sliver, not a flat readable area. The belt-native asset
+    // (belt_flow_ratio.stl, gen_belt_flow_ratio.py) tilts the reading pad 45 deg about
+    // model-X so its face normal becomes the belt-normal (0,1,1)/sqrt2: that face is a
+    // plane of CONSTANT print_z and prints as ONE flat top layer (the top READ_LAYERS
+    // below it = the top solid infill = the read window), laid down LAST. Under it sits
+    // a triangular wedge rooted on the belt (keel-first), sliced as sparse infill (fast,
+    // little filament); only the pad is solid. Single pad at flow ratio 100% for now
+    // (geometry validation); the multi-pad sweep is a follow-up.
+    {
+        auto belt_printer_cfg = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+        if (belt_printer_cfg->has("belt_printer") && belt_printer_cfg->opt_bool("belt_printer")) {
+            auto belt_print_cfg    = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
+            constexpr int READ_LAYERS = 12;   // == gen_belt_flow_ratio.py contract (slab = solid top window)
+
+            add_model(false, Slic3r::resources_dir() + "/calib/filament_flow/belt_flow_ratio.stl");
+            ModelObject* obj = model().objects[0];
+            // keel-first asset (min print_z = 0, min Z = 0); centre on the bed in X, leading edge at Y origin
+            obj->ensure_on_bed();
+            BoundingBoxf3 obb = obj->bounding_box_exact();
+            BoundingBoxf bed_ext = get_extents(belt_printer_cfg->option<ConfigOptionPoints>("printable_area")->values);
+            obj->translate_instances(Vec3d(bed_ext.center().x() - obb.center().x(), -obb.min.y(), 0.0));
+
+            auto& oc = obj->config;
+            oc.set_key_value("wall_loops", new ConfigOptionInt(2));                  // contain the sparse body + pad
+            oc.set_key_value("top_shell_layers", new ConfigOptionInt(READ_LAYERS));  // solid read window == the pad
+            oc.set_key_value("bottom_shell_layers", new ConfigOptionInt(2));
+            oc.set_key_value("top_shell_thickness", new ConfigOptionFloat(0));
+            oc.set_key_value("sparse_infill_density", new ConfigOptionPercent(10));  // fast, little filament body
+            oc.set_key_value("sparse_infill_pattern", new ConfigOptionEnum<InfillPattern>(ipGrid));
+            oc.set_key_value("only_one_wall_top", new ConfigOptionBool(true));
+            oc.set_key_value("top_surface_pattern", new ConfigOptionEnum<InfillPattern>(pattern));  // ORCA: read pattern
+            oc.set_key_value("top_solid_infill_flow_ratio", new ConfigOptionFloat(1.0f));
+            oc.set_key_value("print_flow_ratio", new ConfigOptionFloat(1.0f));       // single pad @ 100% flow
+            oc.set_key_value("layer_height", new ConfigOptionFloat(0.2));
+            oc.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(IroningType::NoIroning));
+            oc.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+            oc.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
+            oc.set_key_value("overhang_reverse", new ConfigOptionBool(false));
+            // belt prints are sequential (one object leaves the conveyor before the next) — matters for the sweep
+            belt_print_cfg->set_key_value("print_sequence", new ConfigOptionEnum<PrintSequence>(PrintSequence::ByObject));
+            belt_print_cfg->set_key_value("max_volumetric_extrusion_rate_slope", new ConfigOptionFloat(0));
+            belt_printer_cfg->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+
+            changed_objects({0});
+            wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
+            wxGetApp().get_tab(Preset::TYPE_PRINTER)->update_dirty();
+            wxGetApp().get_tab(Preset::TYPE_PRINT)->reload_config();
+            wxGetApp().get_tab(Preset::TYPE_PRINTER)->reload_config();
+            return;
+        }
+    }
+
     if (is_linear) {
         if (pass == 1)
             add_model(false,
@@ -13470,9 +13525,11 @@ void Plater::calib_max_vol_speed(const Calib_Params& params)
             obj_cfg.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
             obj_cfg.set_key_value("outer_wall_line_width", new ConfigOptionFloatOrPercent(line_width, false));
             obj_cfg.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
-            // single stacked wall (NOT spiral): the belt-validated mechanism. Spiral vase needs a
-            // closed contour; a belt-safe wall is an open straight trace, so spiral does not apply.
-            belt_print_cfg->set_key_value("spiral_mode", new ConfigOptionBool(false));
+            // v4 is a closed cross-section, so print it as a spiral vase (single continuous
+            // perimeter, no per-layer seam) — continuous extrusion is what a flow test needs.
+            // Smooth spiral on to remove the Z-seam ripple from the read surface.
+            belt_print_cfg->set_key_value("spiral_mode", new ConfigOptionBool(true));
+            belt_print_cfg->set_key_value("spiral_mode_smooth", new ConfigOptionBool(true));
             belt_print_cfg->set_key_value("max_volumetric_extrusion_rate_slope", new ConfigOptionFloat(0));
             // belt prints are inherently sequential (one object leaves the conveyor before the next)
             belt_print_cfg->set_key_value("print_sequence", new ConfigOptionEnum<PrintSequence>(PrintSequence::ByObject));
