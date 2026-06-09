@@ -13091,7 +13091,7 @@ void Plater::_calib_pa_select_added_objects() {
 // Adjust settings for flowrate calibration
 // For linear mode, pass 1 means normal version while pass 2 mean "for perfectionists" version
 // ORCA: Add pattern parameter
-void adjust_settings_for_flowrate_calib(ModelObjectPtrs& objects, bool linear, int pass, InfillPattern pattern)
+void adjust_settings_for_flowrate_calib(ModelObjectPtrs& objects, bool linear, int pass, InfillPattern pattern, bool skip_scale = false)
 {
     auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
     auto printerConfig = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
@@ -13109,19 +13109,25 @@ void adjust_settings_for_flowrate_calib(ModelObjectPtrs& objects, bool linear, i
     double layer_height = nozzle_diameter / 2.0; // prefer 0.2 layer height for 0.4 nozzle
     first_layer_height = std::max(first_layer_height, layer_height);
 
-    const auto canvas    = wxGetApp().plater()->canvas3D();
-    auto&      selection = canvas->get_selection();
-    selection.setup_cache();
-    TransformationType transformation_type;
-    transformation_type.set_relative();
-    float zscale = (first_layer_height + 9 * layer_height) / 2;
-    // only enlarge
-    if (xyScale > 1.2) {
-        selection.scale({xyScale, xyScale, zscale}, transformation_type);
-    } else {
-        selection.scale({1, 1, zscale}, transformation_type);
+    // Belt: the asset is already keel-first and correctly sized — this cartesian
+    // mesh Z-scaling (built for the flat pad 3MFs) would deform the 45 deg wedge and
+    // break the constant-print_z reading face. Skip only the scaling; every read-
+    // governing setting below is applied identically so the top layers match.
+    if (!skip_scale) {
+        const auto canvas    = wxGetApp().plater()->canvas3D();
+        auto&      selection = canvas->get_selection();
+        selection.setup_cache();
+        TransformationType transformation_type;
+        transformation_type.set_relative();
+        float zscale = (first_layer_height + 9 * layer_height) / 2;
+        // only enlarge
+        if (xyScale > 1.2) {
+            selection.scale({xyScale, xyScale, zscale}, transformation_type);
+        } else {
+            selection.scale({1, 1, zscale}, transformation_type);
+        }
+        canvas->do_scale("");
     }
-    canvas->do_scale("");
 
     auto cur_flowrate = filament_config->option<ConfigOptionFloats>("filament_flow_ratio")->get_at(0);
     Flow infill_flow = Flow(nozzle_diameter * 1.2f, layer_height, nozzle_diameter);
@@ -13237,8 +13243,7 @@ void Plater::calib_flowrate(bool is_linear, int pass, InfillPattern pattern) {
     {
         auto belt_printer_cfg = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
         if (belt_printer_cfg->has("belt_printer") && belt_printer_cfg->opt_bool("belt_printer")) {
-            auto belt_print_cfg    = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
-            constexpr int READ_LAYERS = 12;   // == gen_belt_flow_ratio.py contract (slab = solid top window)
+            auto belt_print_cfg = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
 
             add_model(false, Slic3r::resources_dir() + "/calib/filament_flow/belt_flow_ratio.stl");
             ModelObject* obj = model().objects[0];
@@ -13248,31 +13253,32 @@ void Plater::calib_flowrate(bool is_linear, int pass, InfillPattern pattern) {
             BoundingBoxf bed_ext = get_extents(belt_printer_cfg->option<ConfigOptionPoints>("printable_area")->values);
             obj->translate_instances(Vec3d(bed_ext.center().x() - obb.center().x(), -obb.min.y(), 0.0));
 
+            // Lay the read window IDENTICALLY to the cartesian flow pad: reuse the SAME
+            // settings function (1 top wall, top_shell_layers=5, top-surface line width &
+            // pattern, calib_flowrate_topinfill_special_order, infill directions, capped
+            // top/solid-infill speeds, 35% sparse + 100% internal-bridge for matching sag).
+            // Only the cartesian mesh Z-scaling is skipped — it is built for the flat-pad
+            // 3MFs and would deform the 45 deg wedge / break the constant-print_z read face.
+            // The top 5 layers of the keel-first slab become that top solid infill, printed
+            // last as one flat face — so a belt read correlates to flow exactly like cartesian.
+            adjust_settings_for_flowrate_calib(model().objects, is_linear, pass, pattern, /*skip_scale=*/true);
+
+            // belt-specific overrides (none touch the read-layer disposition above)
             auto& oc = obj->config;
-            oc.set_key_value("wall_loops", new ConfigOptionInt(2));                  // contain the sparse body + pad
-            oc.set_key_value("top_shell_layers", new ConfigOptionInt(READ_LAYERS));  // solid read window == the pad
-            oc.set_key_value("bottom_shell_layers", new ConfigOptionInt(2));
-            oc.set_key_value("top_shell_thickness", new ConfigOptionFloat(0));
-            oc.set_key_value("sparse_infill_density", new ConfigOptionPercent(10));  // fast, little filament body
-            oc.set_key_value("sparse_infill_pattern", new ConfigOptionEnum<InfillPattern>(ipGrid));
-            oc.set_key_value("only_one_wall_top", new ConfigOptionBool(true));
-            oc.set_key_value("top_surface_pattern", new ConfigOptionEnum<InfillPattern>(pattern));  // ORCA: read pattern
-            oc.set_key_value("top_solid_infill_flow_ratio", new ConfigOptionFloat(1.0f));
-            oc.set_key_value("print_flow_ratio", new ConfigOptionFloat(1.0f));       // single pad @ 100% flow
-            oc.set_key_value("layer_height", new ConfigOptionFloat(0.2));
-            oc.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(IroningType::NoIroning));
-            oc.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+            oc.set_key_value("print_flow_ratio", new ConfigOptionFloat(1.0f));   // single pad @ 100% flow (sweep is a follow-up)
             oc.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
+            oc.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
             oc.set_key_value("overhang_reverse", new ConfigOptionBool(false));
             // belt prints are sequential (one object leaves the conveyor before the next) — matters for the sweep
             belt_print_cfg->set_key_value("print_sequence", new ConfigOptionEnum<PrintSequence>(PrintSequence::ByObject));
-            belt_print_cfg->set_key_value("max_volumetric_extrusion_rate_slope", new ConfigOptionFloat(0));
             belt_printer_cfg->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
 
             changed_objects({0});
             wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
+            wxGetApp().get_tab(Preset::TYPE_FILAMENT)->update_dirty();
             wxGetApp().get_tab(Preset::TYPE_PRINTER)->update_dirty();
             wxGetApp().get_tab(Preset::TYPE_PRINT)->reload_config();
+            wxGetApp().get_tab(Preset::TYPE_FILAMENT)->reload_config();
             wxGetApp().get_tab(Preset::TYPE_PRINTER)->reload_config();
             return;
         }

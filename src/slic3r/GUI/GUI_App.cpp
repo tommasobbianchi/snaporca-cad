@@ -3041,6 +3041,45 @@ bool GUI_App::on_init_inner()
 #endif
     if (scrn) { scrn->SetText(_L("Showing main window") + dots); wxYield(); }
     mainframe->Show(true);
+
+    // ORCABELT: env-gated headless calibration driver. Lets an agent drive the REAL GUI
+    // calibration code path (Plater::calib_flowrate etc.) under Xvfb with no human — for
+    // belt-calib validation when nobody is at the machine. Never active without the env, so
+    // it does not affect the PR. A polling timer waits for the agent to drop the trigger file
+    // /tmp/orcabelt_calib_trigger (content = which test) AFTER any startup dialog is gone, so
+    // the calib runs in a CLEAN main loop, never nested inside a modal's event loop (which is
+    // what made a bare CallAfter abort: calib_flowrate's new_project returned cancel under the
+    // restore prompt). ORCABELT_CALIB_SLICE additionally kicks a background slice (gcode -> /tmp).
+    if (::getenv("ORCABELT_RUN_CALIB")) {
+        static bool s_calib_timer_started = false;
+        if (!s_calib_timer_started) {
+            s_calib_timer_started = true;
+            static wxTimer s_calib_timer;
+            static bool s_calib_done = false;
+            s_calib_timer.Bind(wxEVT_TIMER, [](wxTimerEvent&) {
+                if (s_calib_done) return;
+                FILE* f = std::fopen("/tmp/orcabelt_calib_trigger", "r");
+                if (!f) return;  // wait until the agent drops the trigger (after dialogs gone)
+                char buf[64] = {0};
+                std::fread(buf, 1, sizeof(buf) - 1, f);
+                std::fclose(f);
+                std::remove("/tmp/orcabelt_calib_trigger");
+                s_calib_done = true;
+                std::string which(buf);
+                while (!which.empty() && (which.back() == '\n' || which.back() == '\r' || which.back() == ' '))
+                    which.pop_back();
+                BOOST_LOG_TRIVIAL(warning) << "[ORCABELT] headless calib trigger: '" << which << "'";
+                auto* pl = wxGetApp().plater();
+                if (which == "flowrate_pass2")
+                    pl->calib_flowrate(false, 2, Slic3r::ipArchimedeanChords);
+                else
+                    pl->calib_flowrate(false, 1, Slic3r::ipArchimedeanChords);
+                if (::getenv("ORCABELT_CALIB_SLICE"))
+                    wxGetApp().CallAfter([pl] { pl->reslice(); });
+            });
+            s_calib_timer.Start(1500);
+        }
+    }
     // Close the splash now that the main UI is visible.
     if (scrn) { scrn->Destroy(); scrn = nullptr; }
     BOOST_LOG_TRIVIAL(info) << "main frame firstly shown";
