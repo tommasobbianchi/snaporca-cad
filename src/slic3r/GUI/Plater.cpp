@@ -13238,20 +13238,44 @@ void Plater::calib_flowrate(bool is_linear, int pass, InfillPattern pattern) {
     // plane of CONSTANT print_z and prints as ONE flat top layer (the top READ_LAYERS
     // below it = the top solid infill = the read window), laid down LAST. Under it sits
     // a triangular wedge rooted on the belt (keel-first), sliced as sparse infill (fast,
-    // little filament); only the pad is solid. Single pad at flow ratio 100% for now
-    // (geometry validation); the multi-pad sweep is a follow-up.
+    // little filament); only the pad is solid. ONE such pad per flow modifier, laid out
+    // sequentially along the belt (the sweep), each with its own print_flow_ratio.
     {
         auto belt_printer_cfg = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
         if (belt_printer_cfg->has("belt_printer") && belt_printer_cfg->opt_bool("belt_printer")) {
-            auto belt_print_cfg = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
+            // Flow modifiers matching the cartesian passes (flowrate-test-pass1/2.3mf object
+            // names): print_flow_ratio = 1 + modifier/100. Pass 1 = coarse 9 pads (-20..+20),
+            // Pass 2 = fine 10 pads (0..-9). One belt wedge+pad per modifier.
+            const std::vector<int> mods = (pass == 2)
+                ? std::vector<int>{0, -1, -2, -3, -4, -5, -6, -7, -8, -9}
+                : std::vector<int>{-20, -15, -10, -5, 0, 5, 10, 15, 20};
+            const size_t N = mods.size();
 
-            add_model(false, Slic3r::resources_dir() + "/calib/filament_flow/belt_flow_ratio.stl");
-            ModelObject* obj = model().objects[0];
-            // keel-first asset (min print_z = 0, min Z = 0); centre on the bed in X, leading edge at Y origin
-            obj->ensure_on_bed();
-            BoundingBoxf3 obb = obj->bounding_box_exact();
+            const std::string asset = Slic3r::resources_dir() + "/calib/filament_flow/belt_flow_ratio.stl";
+            for (size_t i = 0; i < N; ++i)
+                add_model(false, asset);
+
             BoundingBoxf bed_ext = get_extents(belt_printer_cfg->option<ConfigOptionPoints>("printable_area")->values);
-            obj->translate_instances(Vec3d(bed_ext.center().x() - obb.center().x(), -obb.min.y(), 0.0));
+            // Pads laid out along the belt (model-Y): on a belt print_z = Y + Z grows with the
+            // conveyor advance, so pads at increasing Y occupy non-overlapping print_z ranges and
+            // print one-after-another under the default by-layer order (no ByObject, which would
+            // inject cartesian per-object clearance moves). pitch = pad Y extent + clearance gap.
+            model().objects[0]->ensure_on_bed();
+            const double pad_y   = model().objects[0]->bounding_box_exact().size().y();
+            const double pitch_y = pad_y + 15.0;
+            for (size_t i = 0; i < N; ++i) {
+                ModelObject* o = model().objects[i];
+                o->ensure_on_bed();
+                BoundingBoxf3 ob = o->bounding_box_exact();
+                // centre in X, place pad i at belt-Y = i * pitch (keel of pad 0 at the Y origin)
+                o->translate_instances(Vec3d(bed_ext.center().x() - ob.center().x(),
+                                             -ob.min.y() + double(i) * pitch_y, 0.0));
+                // name EXACTLY like the cartesian flow objects (flowrate_m20 .. flowrate_20) so
+                // adjust_settings_for_flowrate_calib derives print_flow_ratio (=1+mod/100) from
+                // the name, identical to cartesian. Print order along the belt = read order.
+                o->name = std::string("flowrate_") +
+                          (mods[i] < 0 ? "m" + std::to_string(-mods[i]) : std::to_string(mods[i]));
+            }
 
             // Lay the read window IDENTICALLY to the cartesian flow pad: reuse the SAME
             // settings function (1 top wall, top_shell_layers=5, top-surface line width &
@@ -13263,17 +13287,20 @@ void Plater::calib_flowrate(bool is_linear, int pass, InfillPattern pattern) {
             // last as one flat face — so a belt read correlates to flow exactly like cartesian.
             adjust_settings_for_flowrate_calib(model().objects, is_linear, pass, pattern, /*skip_scale=*/true);
 
-            // belt-specific overrides (none touch the read-layer disposition above)
-            auto& oc = obj->config;
-            oc.set_key_value("print_flow_ratio", new ConfigOptionFloat(1.0f));   // single pad @ 100% flow (sweep is a follow-up)
-            oc.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
-            oc.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
-            oc.set_key_value("overhang_reverse", new ConfigOptionBool(false));
-            // belt prints are sequential (one object leaves the conveyor before the next) — matters for the sweep
-            belt_print_cfg->set_key_value("print_sequence", new ConfigOptionEnum<PrintSequence>(PrintSequence::ByObject));
+            // per-pad flow ratio (the sweep) + belt overrides (none touch the read-layer layout)
+            std::vector<size_t> all_idx;
+            for (size_t i = 0; i < N; ++i) {
+                auto& oc = model().objects[i]->config;
+                // print_flow_ratio is set per object by adjust_settings_for_flowrate_calib from
+                // the flowrate_<mod> name above (1 + mod/100) — exactly as the cartesian test.
+                oc.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
+                oc.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+                oc.set_key_value("overhang_reverse", new ConfigOptionBool(false));
+                all_idx.push_back(i);
+            }
             belt_printer_cfg->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
 
-            changed_objects({0});
+            changed_objects(all_idx);
             wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
             wxGetApp().get_tab(Preset::TYPE_FILAMENT)->update_dirty();
             wxGetApp().get_tab(Preset::TYPE_PRINTER)->update_dirty();
