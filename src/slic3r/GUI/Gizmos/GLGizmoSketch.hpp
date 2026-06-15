@@ -4,6 +4,7 @@
 #include "GLGizmoBase.hpp"
 #include "GLGizmosCommon.hpp"
 #include "libslic3r/SketchEngine.hpp"
+#include <imgui/imgui.h>
 
 namespace Slic3r {
 namespace GUI {
