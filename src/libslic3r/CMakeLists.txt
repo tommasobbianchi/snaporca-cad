@@ -531,6 +531,7 @@ target_include_directories(libslic3r SYSTEM PUBLIC ${OpenCASCADE_INCLUDE_DIR})
 find_package(JPEG REQUIRED)
 
 set(OCCT_LIBS
+    TKFillet
     TKXDESTEP
     TKSTEP
     TKSTEP209
