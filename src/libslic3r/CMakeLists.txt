@@ -265,6 +265,8 @@ set(lisbslic3r_sources
     Geometry/VoronoiUtils.cpp
     Geometry/VoronoiUtils.hpp
     Geometry/VoronoiVisualUtils.hpp
+    GeometryEngine.cpp
+    GeometryEngine.hpp
     Int128.hpp
     KDTreeIndirect.hpp
     Layer.cpp
@@ -377,6 +379,8 @@ set(lisbslic3r_sources
     SLA/JobController.hpp
     SLA/Pad.cpp
     SLA/Pad.hpp
+    SketchEngine.cpp
+    SketchEngine.hpp
     SLAPrint.cpp
     SLAPrint.hpp
     SLAPrintSteps.cpp
