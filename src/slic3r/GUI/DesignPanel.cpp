@@ -4,6 +4,7 @@
 #include <wx/button.h>
 #include <wx/stattext.h>
 #include <wx/choice.h>
+#include <wx/checkbox.h>
 #include <wx/spinctrl.h>
 #include <wx/listbox.h>
 
@@ -37,10 +38,10 @@ static SketchPlane plane_from_index(int i)
 }
 
 DesignPanel::DesignPanel(wxWindow* parent)
-    : wxPanel(parent, wxID_ANY)
+    : wxScrolledWindow(parent, wxID_ANY)
 {
     auto* root = new wxBoxSizer(wxVERTICAL);
-    root->Add(new wxStaticText(this, wxID_ANY, _L("Design (CAD) — Sketch + Extrude + Fillet/Chamfer")),
+    root->Add(new wxStaticText(this, wxID_ANY, _L("Design (CAD) — Sketch + Extrude + Fillet/Chamfer + Hole")),
               0, wxALL, 12);
 
     auto* form = new wxFlexGridSizer(2, 6, 8);
@@ -119,6 +120,44 @@ DesignPanel::DesignPanel(wxWindow* parent)
     add_du->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_dressup(); });
     root->Add(add_du, 0, wxALL, 12);
 
+    // --- Hole (positioned circular cut) ---
+    auto* hform = new wxFlexGridSizer(2, 6, 8);
+
+    m_hole_plane = new wxChoice(this, wxID_ANY);
+    m_hole_plane->Append("XY");
+    m_hole_plane->Append("XZ");
+    m_hole_plane->Append("YZ");
+    m_hole_plane->SetSelection(0);
+    hform->Add(new wxStaticText(this, wxID_ANY, _L("Hole plane")), 0, wxALIGN_CENTER_VERTICAL);
+    hform->Add(m_hole_plane);
+
+    m_hole_diameter = make_spin(this, 6.0);
+    hform->Add(new wxStaticText(this, wxID_ANY, _L("Diameter")), 0, wxALIGN_CENTER_VERTICAL);
+    hform->Add(m_hole_diameter);
+
+    m_hole_depth = make_spin(this, 10.0);
+    hform->Add(new wxStaticText(this, wxID_ANY, _L("Depth (blind)")), 0, wxALIGN_CENTER_VERTICAL);
+    hform->Add(m_hole_depth);
+
+    m_hole_x = make_spin(this, 0.0, -1000.0, 1000.0);
+    hform->Add(new wxStaticText(this, wxID_ANY, _L("Pos X")), 0, wxALIGN_CENTER_VERTICAL);
+    hform->Add(m_hole_x);
+
+    m_hole_y = make_spin(this, 0.0, -1000.0, 1000.0);
+    hform->Add(new wxStaticText(this, wxID_ANY, _L("Pos Y")), 0, wxALIGN_CENTER_VERTICAL);
+    hform->Add(m_hole_y);
+
+    m_hole_through = new wxCheckBox(this, wxID_ANY, _L("Through"));
+    m_hole_through->SetValue(true);
+    hform->Add(new wxStaticText(this, wxID_ANY, _L("Mode")), 0, wxALIGN_CENTER_VERTICAL);
+    hform->Add(m_hole_through);
+
+    root->Add(hform, 0, wxLEFT | wxRIGHT, 12);
+
+    auto* add_hole = new wxButton(this, wxID_ANY, _L("Add Hole"));
+    add_hole->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_hole(); });
+    root->Add(add_hole, 0, wxALL, 12);
+
     root->Add(new wxStaticText(this, wxID_ANY, _L("Feature tree")), 0, wxLEFT | wxTOP, 12);
     m_tree = new wxListBox(this, wxID_ANY, wxDefaultPosition, wxSize(-1, 140));
     root->Add(m_tree, 0, wxEXPAND | wxALL, 12);
@@ -134,6 +173,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
     on_shape_changed();
 
     SetSizer(root);
+    FitInside();
+    SetScrollRate(10, 10);
 }
 
 void DesignPanel::on_shape_changed()
@@ -189,6 +230,31 @@ void DesignPanel::on_add_dressup()
         m_doc.add_fillet(sz, fg, "Fillet" + std::to_string(m_feature_counter));
     else
         m_doc.add_chamfer(sz, fg, "Chamfer" + std::to_string(m_feature_counter));
+
+    if (!m_doc.recompute())
+        m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
+    else
+        set_status_ok();
+
+    refresh_tree();
+}
+
+void DesignPanel::on_add_hole()
+{
+    if (m_doc.body.IsNull()) {
+        m_status->SetLabel(_L("Add a solid (sketch + extrude) first"));
+        return;
+    }
+    SketchPlane plane   = plane_from_index(m_hole_plane->GetSelection());
+    double      dia     = m_hole_diameter->GetValue();
+    double      depth   = m_hole_depth->GetValue();
+    bool        through = m_hole_through->GetValue();
+    double      px      = m_hole_x->GetValue();
+    double      py      = m_hole_y->GetValue();
+
+    m_feature_counter++;
+    m_doc.add_hole(dia, depth, through, px, py, plane,
+                   "Hole" + std::to_string(m_feature_counter));
 
     if (!m_doc.recompute())
         m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));

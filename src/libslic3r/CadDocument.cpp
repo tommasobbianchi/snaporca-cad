@@ -63,6 +63,23 @@ int CadDocument::add_chamfer(double distance, FaceGroup faces, const std::string
     return int(features.size()) - 1;
 }
 
+int CadDocument::add_hole(double diameter, double depth, bool through,
+                          double x, double y, const SketchPlane& plane,
+                          const std::string& name)
+{
+    CadFeature f;
+    f.type          = CadFeatureType::Hole;
+    f.name          = name;
+    f.plane         = plane;
+    f.hole_diameter = diameter;
+    f.hole_depth    = depth;
+    f.hole_through  = through;
+    f.hole_x        = x;
+    f.hole_y        = y;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
 void CadDocument::clear()
 {
     features.clear();
@@ -136,6 +153,26 @@ bool CadDocument::recompute()
                 if (!have_body) throw std::runtime_error("chamfer needs a body");
                 result = GeometryEngine::apply_chamfer(result, f.dressup_size, f.face_group);
                 break;
+            case CadFeatureType::Hole: {
+                if (!have_body) throw std::runtime_error("hole needs a body");
+                // Circle wire centered at the positioned point on the plane
+                Vec3d c = f.plane.to_world(Vec2d(f.hole_x, f.hole_y));
+                gp_Pnt o(c.x(), c.y(), c.z());
+                gp_Dir n(f.plane.normal.x(), f.plane.normal.y(), f.plane.normal.z());
+                gp_Circ circ(gp_Ax2(o, n), f.hole_diameter * 0.5);
+                TopoDS_Edge e = BRepBuilderAPI_MakeEdge(circ).Edge();
+                BRepBuilderAPI_MakeWire wm(e);
+                if (!wm.IsDone()) throw std::runtime_error("hole wire failed");
+                // Through = symmetric huge cut (passes fully through any body);
+                // Blind = +normal extrude of hole_depth into the body.
+                TopoDS_Shape tool = f.hole_through
+                    ? SketchEngine::make_extrude(wm.Wire(), f.plane, 1.0e5, true, 0.0)
+                    : SketchEngine::make_extrude(wm.Wire(), f.plane, f.hole_depth, false, 0.0);
+                BRepAlgoAPI_Cut cut(result, tool);
+                if (!cut.IsDone()) throw std::runtime_error("hole cut failed");
+                result = cut.Shape();
+                break;
+            }
             }
         }
     } catch (const std::exception& e) {

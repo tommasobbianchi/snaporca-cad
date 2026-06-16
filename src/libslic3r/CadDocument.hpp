@@ -12,7 +12,7 @@
 
 namespace Slic3r {
 
-enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer };
+enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole };
 enum class SketchShape    { Rectangle, Circle };
 enum class BooleanMode    { New, Add, Cut };
 
@@ -37,6 +37,13 @@ struct CadFeature {
     // Dress-up params (Fillet/Chamfer) — applied to the current body in order
     double      dressup_size{1.0};         // fillet radius or chamfer distance
     FaceGroup   face_group{FaceGroup::All};
+
+    // Hole params (positioned circular cut into the current body)
+    double      hole_diameter{5};
+    double      hole_depth{10};
+    bool        hole_through{true};        // true = symmetric through-cut, ignores hole_depth
+    double      hole_x{0};                 // position on the plane (plane u/x axis)
+    double      hole_y{0};                 // position on the plane (plane v/y axis)
 };
 
 // OCCT-only feature tree backing the Design tab. No GUI dependencies (lives in libslic3r).
@@ -57,6 +64,9 @@ public:
                      BooleanMode mode, const std::string& name);
     int  add_fillet(double radius, FaceGroup faces, const std::string& name);
     int  add_chamfer(double distance, FaceGroup faces, const std::string& name);
+    int  add_hole(double diameter, double depth, bool through,
+                  double x, double y, const SketchPlane& plane,
+                  const std::string& name);
     void clear();
     bool recompute();   // replay features -> body + display_mesh; false on error
 
