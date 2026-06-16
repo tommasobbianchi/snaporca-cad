@@ -11,6 +11,8 @@ class wxCheckBox;
 class wxSpinCtrlDouble;
 class wxListBox;
 class wxStaticText;
+class wxSizer;
+class wxButton;
 
 namespace Slic3r { namespace GUI {
 
@@ -25,6 +27,10 @@ public:
     explicit DesignPanel(wxWindow* parent);
 
 private:
+    // The active tool determines which dialog is shown and what a candidate
+    // feature is previewed/committed. Mirrors Onshape's one-tool-at-a-time model.
+    enum class Tool { None, Sketch, Dressup, Hole, Thread };
+
     void on_shape_changed();
     void on_add_feature();
     void on_add_dressup();
@@ -34,7 +40,22 @@ private:
     void refresh_tree();
     void set_status_ok();
 
+    // Onshape loop: Button -> open_tool (show dialog) -> refresh_preview (ghost) ->
+    // confirm_tool (commit) / cancel_tool (abort).
+    void       open_tool(Tool t);
+    void       close_tool();
+    void       refresh_preview();
+    void       confirm_tool();
+    void       cancel_tool();
+    CadFeature build_candidate(Tool t) const;
+
     CadDocument m_doc;
+
+    Tool      m_active{Tool::None};
+    wxSizer*  m_box_sketch{nullptr};
+    wxSizer*  m_box_dressup{nullptr};
+    wxSizer*  m_box_hole{nullptr};
+    wxSizer*  m_box_thread{nullptr};
 
     wxScrolledWindow* m_form{nullptr};
     DesignViewport*   m_viewport{nullptr};

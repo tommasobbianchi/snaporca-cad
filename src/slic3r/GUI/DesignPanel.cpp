@@ -49,6 +49,22 @@ DesignPanel::DesignPanel(wxWindow* parent)
     root->Add(new wxStaticText(m_form, wxID_ANY, _L("Design (CAD) — Sketch + Extrude + Fillet/Chamfer + Hole + Thread")),
               0, wxALL, 12);
 
+    // Toolbar of trigger buttons (declare intent; each opens its tool dialog).
+    auto* tbar = new wxBoxSizer(wxVERTICAL);
+    auto* b_sketch = new wxButton(m_form, wxID_ANY, _L("Sketch + Extrude"));
+    b_sketch->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Sketch); });
+    tbar->Add(b_sketch, 0, wxEXPAND | wxBOTTOM, 4);
+    auto* b_dressup = new wxButton(m_form, wxID_ANY, _L("Fillet / Chamfer"));
+    b_dressup->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Dressup); });
+    tbar->Add(b_dressup, 0, wxEXPAND | wxBOTTOM, 4);
+    auto* b_hole = new wxButton(m_form, wxID_ANY, _L("Hole"));
+    b_hole->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Hole); });
+    tbar->Add(b_hole, 0, wxEXPAND | wxBOTTOM, 4);
+    auto* b_thread = new wxButton(m_form, wxID_ANY, _L("Thread"));
+    b_thread->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Thread); });
+    tbar->Add(b_thread, 0, wxEXPAND | wxBOTTOM, 4);
+    root->Add(tbar, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 12);
+
     auto* form = new wxFlexGridSizer(2, 6, 8);
 
     m_shape = new wxChoice(m_form, wxID_ANY);
@@ -90,11 +106,19 @@ DesignPanel::DesignPanel(wxWindow* parent)
     form->Add(new wxStaticText(m_form, wxID_ANY, _L("Mode")), 0, wxALIGN_CENTER_VERTICAL);
     form->Add(m_mode);
 
-    root->Add(form, 0, wxALL, 12);
-
-    auto* add = new wxButton(m_form, wxID_ANY, _L("Add Sketch + Extrude"));
-    add->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_feature(); });
-    root->Add(add, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
+    m_box_sketch = new wxBoxSizer(wxVERTICAL);
+    m_box_sketch->Add(form, 0, wxALL, 12);
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
+        row->Add(ok, 0, wxRIGHT, 8);
+        row->Add(no, 0);
+        m_box_sketch->Add(row, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
+    }
+    root->Add(m_box_sketch, 0, wxEXPAND);
 
     // --- Dress-up (Fillet / Chamfer) ---
     auto* dform = new wxFlexGridSizer(2, 6, 8);
@@ -119,11 +143,19 @@ DesignPanel::DesignPanel(wxWindow* parent)
     dform->Add(new wxStaticText(m_form, wxID_ANY, _L("Size (r/dist)")), 0, wxALIGN_CENTER_VERTICAL);
     dform->Add(m_dressup_size);
 
-    root->Add(dform, 0, wxLEFT | wxRIGHT, 12);
-
-    auto* add_du = new wxButton(m_form, wxID_ANY, _L("Add Fillet/Chamfer"));
-    add_du->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_dressup(); });
-    root->Add(add_du, 0, wxALL, 12);
+    m_box_dressup = new wxBoxSizer(wxVERTICAL);
+    m_box_dressup->Add(dform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
+        row->Add(ok, 0, wxRIGHT, 8);
+        row->Add(no, 0);
+        m_box_dressup->Add(row, 0, wxALL, 12);
+    }
+    root->Add(m_box_dressup, 0, wxEXPAND);
 
     // --- Hole (positioned circular cut) ---
     auto* hform = new wxFlexGridSizer(2, 6, 8);
@@ -157,11 +189,19 @@ DesignPanel::DesignPanel(wxWindow* parent)
     hform->Add(new wxStaticText(m_form, wxID_ANY, _L("Mode")), 0, wxALIGN_CENTER_VERTICAL);
     hform->Add(m_hole_through);
 
-    root->Add(hform, 0, wxLEFT | wxRIGHT, 12);
-
-    auto* add_hole = new wxButton(m_form, wxID_ANY, _L("Add Hole"));
-    add_hole->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_hole(); });
-    root->Add(add_hole, 0, wxALL, 12);
+    m_box_hole = new wxBoxSizer(wxVERTICAL);
+    m_box_hole->Add(hform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
+        row->Add(ok, 0, wxRIGHT, 8);
+        row->Add(no, 0);
+        m_box_hole->Add(row, 0, wxALL, 12);
+    }
+    root->Add(m_box_hole, 0, wxEXPAND);
 
     // --- Thread (helical) ---
     auto* tform = new wxFlexGridSizer(2, 6, 8);
@@ -203,11 +243,19 @@ DesignPanel::DesignPanel(wxWindow* parent)
     tform->Add(new wxStaticText(m_form, wxID_ANY, _L("Internal")), 0, wxALIGN_CENTER_VERTICAL);
     tform->Add(m_thread_internal);
 
-    root->Add(tform, 0, wxLEFT | wxRIGHT, 12);
-
-    auto* add_thread = new wxButton(m_form, wxID_ANY, _L("Add Thread"));
-    add_thread->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_thread(); });
-    root->Add(add_thread, 0, wxALL, 12);
+    m_box_thread = new wxBoxSizer(wxVERTICAL);
+    m_box_thread->Add(tform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
+        row->Add(ok, 0, wxRIGHT, 8);
+        row->Add(no, 0);
+        m_box_thread->Add(row, 0, wxALL, 12);
+    }
+    root->Add(m_box_thread, 0, wxEXPAND);
 
     root->Add(new wxStaticText(m_form, wxID_ANY, _L("Feature tree")), 0, wxLEFT | wxTOP, 12);
     m_tree = new wxListBox(m_form, wxID_ANY, wxDefaultPosition, wxSize(-1, 140));
@@ -220,10 +268,23 @@ DesignPanel::DesignPanel(wxWindow* parent)
     commit->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_commit(); });
     root->Add(commit, 0, wxALL, 12);
 
-    m_shape->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { on_shape_changed(); });
+    m_shape->Bind(wxEVT_CHOICE, [this](wxCommandEvent& e) { on_shape_changed(); e.Skip(); });
     on_shape_changed();
 
+    // Any parameter edit refreshes the translucent preview. Command events from the
+    // spin/choice/checkbox children propagate up to m_form, so one binding each suffices.
+    m_form->Bind(wxEVT_SPINCTRLDOUBLE, [this](wxSpinDoubleEvent& e) { refresh_preview(); e.Skip(); });
+    m_form->Bind(wxEVT_CHOICE,         [this](wxCommandEvent& e)    { refresh_preview(); e.Skip(); });
+    m_form->Bind(wxEVT_CHECKBOX,       [this](wxCommandEvent& e)    { refresh_preview(); e.Skip(); });
+
     m_form->SetSizer(root);
+
+    // Start with every tool dialog hidden (only the toolbar + tree + Commit show).
+    root->Show(m_box_sketch,  false, true);
+    root->Show(m_box_dressup, false, true);
+    root->Show(m_box_hole,    false, true);
+    root->Show(m_box_thread,  false, true);
+
     m_form->FitInside();
     m_form->SetScrollRate(10, 10);
     m_form->SetMinSize(wxSize(380, -1));
@@ -369,6 +430,118 @@ void DesignPanel::on_commit()
 
     if (wxGetApp().mainframe != nullptr)
         wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
+}
+
+CadFeature DesignPanel::build_candidate(Tool t) const
+{
+    CadFeature f;
+    switch (t) {
+    case Tool::Sketch:
+        f.type       = CadFeatureType::Extrude;
+        f.sketch_ref = -1; // self-contained: apply_feature uses f's inline sketch params
+        f.shape      = (m_shape->GetSelection() == 0) ? SketchShape::Rectangle : SketchShape::Circle;
+        f.plane      = plane_from_index(m_plane->GetSelection());
+        f.width      = m_width->GetValue();
+        f.height     = m_height->GetValue();
+        f.radius     = m_radius->GetValue();
+        f.distance   = m_distance->GetValue();
+        f.symmetric  = false;
+        f.mode       = (m_mode->GetSelection() == 0) ? BooleanMode::New
+                     : (m_mode->GetSelection() == 1) ? BooleanMode::Add
+                                                     : BooleanMode::Cut;
+        break;
+    case Tool::Dressup:
+        f.type         = (m_dressup_type->GetSelection() == 0) ? CadFeatureType::Fillet
+                                                               : CadFeatureType::Chamfer;
+        f.dressup_size = m_dressup_size->GetValue();
+        f.face_group   = static_cast<FaceGroup>(m_face_group->GetSelection());
+        break;
+    case Tool::Hole:
+        f.type          = CadFeatureType::Hole;
+        f.plane         = plane_from_index(m_hole_plane->GetSelection());
+        f.hole_diameter = m_hole_diameter->GetValue();
+        f.hole_depth    = m_hole_depth->GetValue();
+        f.hole_through  = m_hole_through->GetValue();
+        f.hole_x        = m_hole_x->GetValue();
+        f.hole_y        = m_hole_y->GetValue();
+        break;
+    case Tool::Thread:
+        f.type            = CadFeatureType::Thread;
+        f.plane           = plane_from_index(m_thread_plane->GetSelection());
+        f.thread_radius   = m_thread_radius->GetValue();
+        f.thread_pitch    = m_thread_pitch->GetValue();
+        f.thread_height   = m_thread_height->GetValue();
+        f.thread_depth    = m_thread_depth->GetValue();
+        f.thread_internal = m_thread_internal->GetValue();
+        f.thread_x        = m_thread_x->GetValue();
+        f.thread_y        = m_thread_y->GetValue();
+        break;
+    case Tool::None:
+        break;
+    }
+    return f;
+}
+
+void DesignPanel::refresh_preview()
+{
+    if (m_active == Tool::None) { m_viewport->clear_preview(); return; }
+
+    CadFeature   cand = build_candidate(m_active);
+    TriangleMesh mesh;
+    std::string  err;
+    if (m_doc.preview(cand, mesh, err)) {
+        m_viewport->set_preview_mesh(mesh);
+        m_status->SetForegroundColour(wxColour(120, 210, 120)); // ok = green
+        m_status->SetLabel(wxString::Format(_L("Preview — %zu triangles"), mesh.its.indices.size()));
+    } else {
+        m_viewport->clear_preview();
+        m_status->SetForegroundColour(wxColour(235, 110, 110)); // invalid = red
+        m_status->SetLabel(_L("Invalid: ") + wxString::FromUTF8(err));
+    }
+    m_status->Refresh();
+}
+
+void DesignPanel::open_tool(Tool t)
+{
+    m_active = t;
+    wxSizer* s = m_form->GetSizer();
+    s->Show(m_box_sketch,  t == Tool::Sketch,  true);
+    s->Show(m_box_dressup, t == Tool::Dressup, true);
+    s->Show(m_box_hole,    t == Tool::Hole,    true);
+    s->Show(m_box_thread,  t == Tool::Thread,  true);
+    m_form->Layout();
+    m_form->FitInside();
+    refresh_preview();
+}
+
+void DesignPanel::close_tool()
+{
+    m_active = Tool::None;
+    wxSizer* s = m_form->GetSizer();
+    s->Show(m_box_sketch,  false, true);
+    s->Show(m_box_dressup, false, true);
+    s->Show(m_box_hole,    false, true);
+    s->Show(m_box_thread,  false, true);
+    m_viewport->clear_preview();
+    m_form->Layout();
+    m_form->FitInside();
+}
+
+void DesignPanel::confirm_tool()
+{
+    switch (m_active) {
+    case Tool::Sketch:  on_add_feature(); break;
+    case Tool::Dressup: on_add_dressup(); break;
+    case Tool::Hole:    on_add_hole();    break;
+    case Tool::Thread:  on_add_thread();  break;
+    case Tool::None:    return;
+    }
+    close_tool(); // also clears the preview ghost; the committed body is now shown
+}
+
+void DesignPanel::cancel_tool()
+{
+    close_tool();
 }
 
 }} // namespace Slic3r::GUI
