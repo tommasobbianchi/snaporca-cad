@@ -86,8 +86,20 @@ void DesignViewport::clear_preview()
 void DesignViewport::fit_view()
 {
     // Re-arm the one-shot framing: the next render() re-centres and zoom-fits the
-    // camera on whichever geometry is present (committed body preferred).
-    m_camera_framed = false;
+    // camera on whichever geometry is present (committed body preferred). Keep the
+    // current orientation — Fit view only changes zoom/centring, not the angle.
+    m_apply_named_view = false;
+    m_camera_framed    = false;
+    if (m_canvas != nullptr)
+        m_canvas->Refresh();
+}
+
+void DesignViewport::set_view(const std::string& view_name)
+{
+    // Snap to a named standard view ("iso"/"front"/"top"/...) and zoom-fit.
+    m_view_request     = view_name;
+    m_apply_named_view = true;
+    m_camera_framed    = false;
     if (m_canvas != nullptr)
         m_canvas->Refresh();
 }
@@ -190,7 +202,12 @@ void DesignViewport::render()
         if ((m_has_mesh || m_has_preview) && fb.defined) {
             m_camera.set_scene_box(fb);
             m_camera.set_target(fb.center());
-            m_camera.select_view("iso");
+            // Apply the requested standard view (iso on first frame); Fit view and
+            // edit-driven reframes keep the current orientation.
+            if (m_apply_named_view) {
+                m_camera.select_view(m_view_request);
+                m_apply_named_view = false;
+            }
             m_camera.zoom_to_box(fb);
             m_camera_framed = true;
         }

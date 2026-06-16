@@ -3,6 +3,8 @@
 
 #include <wx/panel.h>
 
+#include <string>
+
 #include "slic3r/GUI/Camera.hpp"
 #include "slic3r/GUI/GLModel.hpp"
 #include "libslic3r/TriangleMesh.hpp"
@@ -37,7 +39,10 @@ public:
 
     // Re-frame the camera on the current geometry (the "fit view" / reset-view
     // action). Reuses render()'s first-geometry framing by re-arming the flag.
+    // fit_view keeps the current orientation; set_view snaps to a named standard
+    // view ("iso"/"front"/"rear"/"left"/"right"/"top"/"bottom") then fits.
     void fit_view();
+    void set_view(const std::string& view_name);
 
 private:
     void on_paint(wxPaintEvent& evt);
@@ -55,6 +60,10 @@ private:
     bool          m_mesh_dirty{false};
     bool          m_has_mesh{false};
     bool          m_camera_framed{false};
+    // Next framing applies this named view when m_apply_named_view is set; Fit view
+    // leaves orientation alone (m_apply_named_view=false) and only zoom-fits.
+    std::string   m_view_request{"iso"};
+    bool          m_apply_named_view{true};
 
     GLModel       m_preview_model;
     TriangleMesh  m_pending_preview;

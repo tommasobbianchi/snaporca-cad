@@ -325,7 +325,19 @@ DesignPanel::DesignPanel(wxWindow* parent)
     auto* vbar = new wxBoxSizer(wxHORIZONTAL);
     auto* b_fit = new wxButton(this, wxID_ANY, _L("⊹ Fit view"));
     b_fit->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { m_viewport->fit_view(); });
-    vbar->Add(b_fit, 0);
+    vbar->Add(b_fit, 0, wxRIGHT, 8);
+    // Standard-view shortcuts (a minimal view-cube): snap the camera to a named
+    // orientation, reusing Camera::select_view via DesignViewport::set_view.
+    struct { const char* label; const char* view; } views[] = {
+        { "Iso", "iso" }, { "Front", "front" }, { "Top", "top" }, { "Right", "right" },
+    };
+    for (const auto& v : views) {
+        std::string view = v.view;
+        // Auto-size: translated labels (e.g. IT "Dall'alto") overflow a fixed width.
+        auto* b = new wxButton(this, wxID_ANY, _L(v.label));
+        b->Bind(wxEVT_BUTTON, [this, view](wxCommandEvent&) { m_viewport->set_view(view); });
+        vbar->Add(b, 0, wxRIGHT, 4);
+    }
     vcol->Add(vbar, 0, wxALL, 4);
     vcol->Add(m_viewport, 1, wxEXPAND);
 
