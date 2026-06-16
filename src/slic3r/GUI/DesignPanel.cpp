@@ -122,6 +122,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         auto* row = new wxBoxSizer(wxHORIZONTAL);
         auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
         ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        m_confirm_btns.push_back(ok);
         auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
         no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
         row->Add(ok, 0, wxRIGHT, 8);
@@ -159,6 +160,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         auto* row = new wxBoxSizer(wxHORIZONTAL);
         auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
         ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        m_confirm_btns.push_back(ok);
         auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
         no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
         row->Add(ok, 0, wxRIGHT, 8);
@@ -205,6 +207,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         auto* row = new wxBoxSizer(wxHORIZONTAL);
         auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
         ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        m_confirm_btns.push_back(ok);
         auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
         no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
         row->Add(ok, 0, wxRIGHT, 8);
@@ -259,6 +262,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         auto* row = new wxBoxSizer(wxHORIZONTAL);
         auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
         ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        m_confirm_btns.push_back(ok);
         auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
         no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
         row->Add(ok, 0, wxRIGHT, 8);
@@ -722,6 +726,10 @@ void DesignPanel::refresh_preview()
         m_status->SetForegroundColour(wxColour(235, 110, 110)); // invalid = red
         m_status->SetLabel(_L("Invalid: ") + wxString::FromUTF8(err));
     }
+    // Onshape parity: a broken candidate cannot be committed. Grey the active dialog's
+    // Confirm so the user sees the gate before clicking; the red status says why.
+    for (wxButton* b : m_confirm_btns)
+        if (b != nullptr) b->Enable(ok);
     m_status->Refresh();
 }
 

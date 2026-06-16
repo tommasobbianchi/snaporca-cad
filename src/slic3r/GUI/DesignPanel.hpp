@@ -4,6 +4,8 @@
 #include <wx/panel.h>
 #include <wx/scrolwin.h>
 
+#include <vector>
+
 #include "libslic3r/CadDocument.hpp"
 
 class wxChoice;
@@ -99,6 +101,11 @@ private:
     wxListBox*        m_tree{nullptr};
     wxStaticText*     m_status{nullptr};
     int               m_feature_counter{0};
+
+    // The per-tool "✓ Confirm" buttons. refresh_preview() greys these out while the
+    // candidate is invalid (Onshape parity: cannot commit a broken feature). Only one
+    // dialog is visible at a time, so gating all of them together is safe.
+    std::vector<wxButton*> m_confirm_btns;
 
     // Edit-in-place state. add-mode = all -1. Single-feature edit: m_edit_index
     // is the row to replace. Box (Sketch+Extrude) edit: m_edit_sketch/m_edit_extrude
