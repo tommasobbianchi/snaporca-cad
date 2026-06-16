@@ -289,12 +289,21 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_form->SetScrollRate(10, 10);
     m_form->SetMinSize(wxSize(380, -1));
 
-    // Right column: the live 3D viewport that mirrors the CadDocument body.
+    // Right column: a small view toolbar over the live 3D viewport that mirrors
+    // the CadDocument body.
     m_viewport = new DesignViewport(this);
 
+    auto* vcol = new wxBoxSizer(wxVERTICAL);
+    auto* vbar = new wxBoxSizer(wxHORIZONTAL);
+    auto* b_fit = new wxButton(this, wxID_ANY, _L("⊹ Fit view"));
+    b_fit->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { m_viewport->fit_view(); });
+    vbar->Add(b_fit, 0);
+    vcol->Add(vbar, 0, wxALL, 4);
+    vcol->Add(m_viewport, 1, wxEXPAND);
+
     auto* outer = new wxBoxSizer(wxHORIZONTAL);
-    outer->Add(m_form,     0, wxEXPAND);
-    outer->Add(m_viewport, 1, wxEXPAND);
+    outer->Add(m_form, 0, wxEXPAND);
+    outer->Add(vcol,   1, wxEXPAND);
     SetSizer(outer);
 }
 
@@ -542,6 +551,11 @@ void DesignPanel::confirm_tool()
 void DesignPanel::cancel_tool()
 {
     close_tool();
+    // Cancel discards the candidate: clear the stale "Preview …"/"Invalid …"
+    // label and restore the neutral idle colour (Confirm keeps its "OK" status).
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(wxString());
+    m_status->Refresh();
 }
 
 }} // namespace Slic3r::GUI

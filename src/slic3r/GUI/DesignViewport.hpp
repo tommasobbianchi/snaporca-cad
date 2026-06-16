@@ -35,6 +35,10 @@ public:
     void set_preview_mesh(const TriangleMesh& mesh);
     void clear_preview();
 
+    // Re-frame the camera on the current geometry (the "fit view" / reset-view
+    // action). Reuses render()'s first-geometry framing by re-arming the flag.
+    void fit_view();
+
 private:
     void on_paint(wxPaintEvent& evt);
     void on_size(wxSizeEvent& evt);

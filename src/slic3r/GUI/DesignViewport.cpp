@@ -83,6 +83,15 @@ void DesignViewport::clear_preview()
         m_canvas->Refresh();
 }
 
+void DesignViewport::fit_view()
+{
+    // Re-arm the one-shot framing: the next render() re-centres and zoom-fits the
+    // camera on whichever geometry is present (committed body preferred).
+    m_camera_framed = false;
+    if (m_canvas != nullptr)
+        m_canvas->Refresh();
+}
+
 void DesignViewport::on_paint(wxPaintEvent& /*evt*/)
 {
     // A wxPaintDC is mandatory inside an EVT_PAINT handler to validate the region.
