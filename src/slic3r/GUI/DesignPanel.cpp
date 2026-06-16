@@ -261,6 +261,21 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_tree = new wxListBox(m_form, wxID_ANY, wxDefaultPosition, wxSize(-1, 140));
     root->Add(m_tree, 0, wxEXPAND | wxALL, 12);
 
+    // Feature-tree edit row: act on the selected feature (delete / reorder).
+    {
+        auto* trow = new wxBoxSizer(wxHORIZONTAL);
+        auto* del  = new wxButton(m_form, wxID_ANY, _L("Delete"));
+        del->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_delete_feature(); });
+        auto* up   = new wxButton(m_form, wxID_ANY, _L("↑"), wxDefaultPosition, wxSize(40, -1));
+        up->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_move_feature(-1); });
+        auto* down = new wxButton(m_form, wxID_ANY, _L("↓"), wxDefaultPosition, wxSize(40, -1));
+        down->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_move_feature(+1); });
+        trow->Add(del, 0, wxRIGHT, 8);
+        trow->Add(up,  0, wxRIGHT, 4);
+        trow->Add(down, 0);
+        root->Add(trow, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
+    }
+
     m_status = new wxStaticText(m_form, wxID_ANY, "");
     root->Add(m_status, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
 
@@ -424,6 +439,56 @@ void DesignPanel::refresh_tree()
     m_tree->Clear();
     for (const auto& f : m_doc.features)
         m_tree->Append(wxString::FromUTF8(f.name));
+}
+
+void DesignPanel::after_tree_edit(bool ok)
+{
+    refresh_tree();
+    if (!ok) {
+        // The edit was rolled back (recompute failed); the body is unchanged.
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Edit rejected: ") + wxString::FromUTF8(m_doc.error));
+        m_status->Refresh();
+        return;
+    }
+    m_status->SetForegroundColour(wxNullColour);
+    if (m_doc.display_mesh.its.indices.empty()) {
+        if (m_viewport != nullptr) m_viewport->clear_mesh();
+        m_status->SetLabel(wxString());
+    } else {
+        set_status_ok();
+    }
+    m_status->Refresh();
+}
+
+void DesignPanel::on_delete_feature()
+{
+    int sel = m_tree->GetSelection();
+    if (sel == wxNOT_FOUND) {
+        m_status->SetLabel(_L("Select a feature in the tree first"));
+        m_status->Refresh();
+        return;
+    }
+    after_tree_edit(m_doc.remove_feature(sel));
+}
+
+void DesignPanel::on_move_feature(int delta)
+{
+    int sel = m_tree->GetSelection();
+    if (sel == wxNOT_FOUND) {
+        m_status->SetLabel(_L("Select a feature in the tree first"));
+        m_status->Refresh();
+        return;
+    }
+    int target = sel + delta;
+    if (target < 0 || target >= int(m_doc.features.size()))
+        return; // already at the end
+    if (m_doc.move_feature(sel, delta)) {
+        after_tree_edit(true);
+        m_tree->SetSelection(target); // keep the moved feature selected
+    } else {
+        after_tree_edit(false);
+    }
 }
 
 void DesignPanel::on_commit()

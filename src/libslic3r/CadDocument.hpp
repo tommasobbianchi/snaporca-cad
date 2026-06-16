@@ -83,6 +83,20 @@ public:
     void clear();
     bool recompute();   // replay features -> body + display_mesh; false on error
 
+    // Feature-tree editing (Onshape-style). All are transactional: they snapshot
+    // features, mutate, recompute(), and roll back to the snapshot (re-recomputing)
+    // if the result is invalid — so a failed edit never leaves a broken body.
+    //
+    // remove_feature: erase features[index]; deleting a Sketch cascades to the
+    //   Extrude(s) that consume it; surviving sketch_ref indices are remapped.
+    // move_feature:   shift features[index] by delta (-1 up / +1 down), clamped;
+    //   sketch_ref indices of the two swapped slots are remapped.
+    // replace_feature: overwrite features[index] with `edited` (its name and, for
+    //   an Extrude, its sketch_ref are preserved from the original).
+    bool remove_feature(int index);
+    bool move_feature(int index, int delta);
+    bool replace_feature(int index, const CadFeature& edited);
+
     // Apply ONE candidate feature on top of the current committed body and
     // tessellate the result into out_mesh, WITHOUT modifying features/body/
     // display_mesh. Returns false (with err set) if the candidate is invalid.

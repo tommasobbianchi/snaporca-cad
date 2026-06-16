@@ -21,6 +21,7 @@
 #include <gp_Vec.hxx>
 #include <cmath>
 #include <stdexcept>
+#include <algorithm>
 
 namespace Slic3r {
 
@@ -155,6 +156,114 @@ void CadDocument::clear()
     body = TopoDS_Shape();
     display_mesh = TriangleMesh{};
     error.clear();
+}
+
+// Re-run recompute(); if it fails for a GENUINE geometry error, restore `snapshot`
+// and recompute that instead, so a rejected edit leaves the document exactly as it
+// was. recompute() also returns false for the BENIGN case where the edit simply
+// leaves no solid-producing feature (empty document, or only a sketch) — that is a
+// valid result of a deletion, not a failure, so we accept it with an empty body.
+static bool commit_or_rollback(CadDocument& doc, std::vector<CadFeature>& snapshot)
+{
+    if (doc.recompute())
+        return true;
+
+    bool has_solid_feature = false;
+    for (const auto& f : doc.features)
+        if (f.enabled && f.type != CadFeatureType::Sketch) { has_solid_feature = true; break; }
+    if (!has_solid_feature) {
+        doc.body         = TopoDS_Shape();
+        doc.display_mesh = TriangleMesh{};
+        doc.error.clear();
+        return true;
+    }
+
+    std::string fail_err = doc.error;   // why the attempted edit failed
+    doc.features.swap(snapshot);
+    doc.recompute();                    // restore the previous good body (clears error)
+    doc.error = fail_err.empty() ? std::string("feature is used by a later feature")
+                                 : fail_err;
+    return false;
+}
+
+bool CadDocument::remove_feature(int index)
+{
+    if (index < 0 || index >= int(features.size()))
+        return false;
+
+    std::vector<CadFeature> snapshot = features;
+
+    // Deleting a Sketch cascades to every Extrude that consumes it (a dangling
+    // Extrude would have no wire). A lone Sketch, by contrast, is harmless.
+    std::vector<int> remove{index};
+    if (features[index].type == CadFeatureType::Sketch) {
+        for (int j = 0; j < int(features.size()); ++j)
+            if (features[j].type == CadFeatureType::Extrude && features[j].sketch_ref == index)
+                remove.push_back(j);
+    }
+    std::sort(remove.begin(), remove.end());
+    remove.erase(std::unique(remove.begin(), remove.end()), remove.end());
+
+    // Erase high-to-low so earlier indices stay valid.
+    for (auto it = remove.rbegin(); it != remove.rend(); ++it)
+        features.erase(features.begin() + *it);
+
+    // Remap surviving sketch_ref through the deletions: subtract the count of
+    // removed indices that sat before it; orphaned refs (target removed) -> -1.
+    for (auto& f : features) {
+        if (f.type != CadFeatureType::Extrude || f.sketch_ref < 0)
+            continue;
+        if (std::binary_search(remove.begin(), remove.end(), f.sketch_ref)) {
+            f.sketch_ref = -1;
+        } else {
+            int shift = 0;
+            for (int r : remove)
+                if (r < f.sketch_ref) ++shift;
+            f.sketch_ref -= shift;
+        }
+    }
+
+    return commit_or_rollback(*this, snapshot);
+}
+
+bool CadDocument::move_feature(int index, int delta)
+{
+    if (index < 0 || index >= int(features.size()))
+        return false;
+    int target = index + delta;
+    if (target < 0 || target >= int(features.size()))
+        return true; // clamped at the ends — no-op, not a failure
+
+    std::vector<CadFeature> snapshot = features;
+    std::swap(features[index], features[target]);
+
+    // The two slots traded places: fix any sketch_ref that pointed at either.
+    for (auto& f : features) {
+        if (f.type != CadFeatureType::Extrude) continue;
+        if (f.sketch_ref == index)       f.sketch_ref = target;
+        else if (f.sketch_ref == target) f.sketch_ref = index;
+    }
+
+    return commit_or_rollback(*this, snapshot);
+}
+
+bool CadDocument::replace_feature(int index, const CadFeature& edited)
+{
+    if (index < 0 || index >= int(features.size()))
+        return false;
+
+    std::vector<CadFeature> snapshot = features;
+
+    // Preserve identity (name) and the structural link (sketch_ref) from the
+    // original; only the user-editable parameters come from `edited`.
+    CadFeature f      = edited;
+    f.name            = features[index].name;
+    f.type            = features[index].type;
+    if (f.type == CadFeatureType::Extrude)
+        f.sketch_ref  = features[index].sketch_ref;
+    features[index]   = f;
+
+    return commit_or_rollback(*this, snapshot);
 }
 
 TopoDS_Wire CadDocument::build_sketch_wire(const CadFeature& sketch) const

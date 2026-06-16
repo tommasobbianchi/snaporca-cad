@@ -40,6 +40,11 @@ private:
     void refresh_tree();
     void set_status_ok();
 
+    // Feature-tree editing (Onshape-style): act on the selected tree row.
+    void on_delete_feature();
+    void on_move_feature(int delta);   // -1 = up, +1 = down
+    void after_tree_edit(bool ok);     // shared post-op refresh of tree/viewport/status
+
     // Onshape loop: Button -> open_tool (show dialog) -> refresh_preview (ghost) ->
     // confirm_tool (commit) / cancel_tool (abort).
     void       open_tool(Tool t);
