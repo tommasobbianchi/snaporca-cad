@@ -41,6 +41,28 @@ int CadDocument::add_extrude(int sketch_ref, double distance, bool symmetric,
     return int(features.size()) - 1;
 }
 
+int CadDocument::add_fillet(double radius, FaceGroup faces, const std::string& name)
+{
+    CadFeature f;
+    f.type         = CadFeatureType::Fillet;
+    f.name         = name;
+    f.dressup_size = radius;
+    f.face_group   = faces;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
+int CadDocument::add_chamfer(double distance, FaceGroup faces, const std::string& name)
+{
+    CadFeature f;
+    f.type         = CadFeatureType::Chamfer;
+    f.name         = name;
+    f.dressup_size = distance;
+    f.face_group   = faces;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
 void CadDocument::clear()
 {
     features.clear();
@@ -79,34 +101,48 @@ bool CadDocument::recompute()
     try {
         for (const CadFeature& f : features) {
             if (!f.enabled) continue;
-            if (f.type != CadFeatureType::Extrude) continue;
-            if (f.sketch_ref < 0 || f.sketch_ref >= int(features.size()))
-                throw std::runtime_error("extrude references an invalid sketch");
-            const CadFeature& sk = features[f.sketch_ref];
-            if (sk.type != CadFeatureType::Sketch)
-                throw std::runtime_error("extrude reference is not a sketch");
+            switch (f.type) {
+            case CadFeatureType::Sketch:
+                continue; // consumed by an extrude via sketch_ref
+            case CadFeatureType::Extrude: {
+                if (f.sketch_ref < 0 || f.sketch_ref >= int(features.size()))
+                    throw std::runtime_error("extrude references an invalid sketch");
+                const CadFeature& sk = features[f.sketch_ref];
+                if (sk.type != CadFeatureType::Sketch)
+                    throw std::runtime_error("extrude reference is not a sketch");
 
-            TopoDS_Wire  wire = build_sketch_wire(sk);
-            TopoDS_Shape tool = SketchEngine::make_extrude(wire, sk.plane, f.distance, f.symmetric, 0.0);
+                TopoDS_Wire  wire = build_sketch_wire(sk);
+                TopoDS_Shape tool = SketchEngine::make_extrude(wire, sk.plane, f.distance, f.symmetric, 0.0);
 
-            if (!have_body || f.mode == BooleanMode::New) {
-                result = tool;
-                have_body = true;
-            } else if (f.mode == BooleanMode::Add) {
-                BRepAlgoAPI_Fuse fuse(result, tool);
-                if (!fuse.IsDone()) throw std::runtime_error("fuse failed");
-                result = fuse.Shape();
-            } else { // Cut
-                BRepAlgoAPI_Cut cut(result, tool);
-                if (!cut.IsDone()) throw std::runtime_error("cut failed");
-                result = cut.Shape();
+                if (!have_body || f.mode == BooleanMode::New) {
+                    result = tool;
+                    have_body = true;
+                } else if (f.mode == BooleanMode::Add) {
+                    BRepAlgoAPI_Fuse fuse(result, tool);
+                    if (!fuse.IsDone()) throw std::runtime_error("fuse failed");
+                    result = fuse.Shape();
+                } else { // Cut
+                    BRepAlgoAPI_Cut cut(result, tool);
+                    if (!cut.IsDone()) throw std::runtime_error("cut failed");
+                    result = cut.Shape();
+                }
+                break;
+            }
+            case CadFeatureType::Fillet:
+                if (!have_body) throw std::runtime_error("fillet needs a body");
+                result = GeometryEngine::apply_fillet(result, f.dressup_size, f.face_group);
+                break;
+            case CadFeatureType::Chamfer:
+                if (!have_body) throw std::runtime_error("chamfer needs a body");
+                result = GeometryEngine::apply_chamfer(result, f.dressup_size, f.face_group);
+                break;
             }
         }
     } catch (const std::exception& e) {
         error = e.what();
         return false;
     }
-    if (!have_body) { error = "no extrude features"; return false; }
+    if (!have_body) { error = "no solid-producing features"; return false; }
 
     body = result;
     display_mesh = SketchEngine::tessellate(body, linear_deflection, angular_deflection);

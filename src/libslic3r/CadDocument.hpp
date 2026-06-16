@@ -3,6 +3,7 @@
 
 #include "TriangleMesh.hpp"
 #include "SketchEngine.hpp"
+#include "GeometryEngine.hpp"   // FaceGroup
 
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Wire.hxx>
@@ -11,7 +12,7 @@
 
 namespace Slic3r {
 
-enum class CadFeatureType { Sketch, Extrude };
+enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer };
 enum class SketchShape    { Rectangle, Circle };
 enum class BooleanMode    { New, Add, Cut };
 
@@ -32,6 +33,10 @@ struct CadFeature {
     double      distance{10};
     bool        symmetric{false};
     BooleanMode mode{BooleanMode::New};
+
+    // Dress-up params (Fillet/Chamfer) — applied to the current body in order
+    double      dressup_size{1.0};         // fillet radius or chamfer distance
+    FaceGroup   face_group{FaceGroup::All};
 };
 
 // OCCT-only feature tree backing the Design tab. No GUI dependencies (lives in libslic3r).
@@ -50,6 +55,8 @@ public:
                     const std::string& name);
     int  add_extrude(int sketch_ref, double distance, bool symmetric,
                      BooleanMode mode, const std::string& name);
+    int  add_fillet(double radius, FaceGroup faces, const std::string& name);
+    int  add_chamfer(double distance, FaceGroup faces, const std::string& name);
     void clear();
     bool recompute();   // replay features -> body + display_mesh; false on error
 

@@ -40,7 +40,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     : wxPanel(parent, wxID_ANY)
 {
     auto* root = new wxBoxSizer(wxVERTICAL);
-    root->Add(new wxStaticText(this, wxID_ANY, _L("Design (CAD) — Sketch + Extrude")),
+    root->Add(new wxStaticText(this, wxID_ANY, _L("Design (CAD) — Sketch + Extrude + Fillet/Chamfer")),
               0, wxALL, 12);
 
     auto* form = new wxFlexGridSizer(2, 6, 8);
@@ -90,6 +90,35 @@ DesignPanel::DesignPanel(wxWindow* parent)
     add->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_feature(); });
     root->Add(add, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
 
+    // --- Dress-up (Fillet / Chamfer) ---
+    auto* dform = new wxFlexGridSizer(2, 6, 8);
+
+    m_dressup_type = new wxChoice(this, wxID_ANY);
+    m_dressup_type->Append("Fillet");
+    m_dressup_type->Append("Chamfer");
+    m_dressup_type->SetSelection(0);
+    dform->Add(new wxStaticText(this, wxID_ANY, _L("Dress-up")), 0, wxALIGN_CENTER_VERTICAL);
+    dform->Add(m_dressup_type);
+
+    m_face_group = new wxChoice(this, wxID_ANY);
+    m_face_group->Append("Top");      // index 0 -> FaceGroup::Top
+    m_face_group->Append("Bottom");   // 1 -> Bottom
+    m_face_group->Append("Lateral");  // 2 -> Lateral
+    m_face_group->Append("All");      // 3 -> All
+    m_face_group->SetSelection(3);
+    dform->Add(new wxStaticText(this, wxID_ANY, _L("Edges")), 0, wxALIGN_CENTER_VERTICAL);
+    dform->Add(m_face_group);
+
+    m_dressup_size = make_spin(this, 2.0);
+    dform->Add(new wxStaticText(this, wxID_ANY, _L("Size (r/dist)")), 0, wxALIGN_CENTER_VERTICAL);
+    dform->Add(m_dressup_size);
+
+    root->Add(dform, 0, wxLEFT | wxRIGHT, 12);
+
+    auto* add_du = new wxButton(this, wxID_ANY, _L("Add Fillet/Chamfer"));
+    add_du->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_dressup(); });
+    root->Add(add_du, 0, wxALL, 12);
+
     root->Add(new wxStaticText(this, wxID_ANY, _L("Feature tree")), 0, wxLEFT | wxTOP, 12);
     m_tree = new wxListBox(this, wxID_ANY, wxDefaultPosition, wxSize(-1, 140));
     root->Add(m_tree, 0, wxEXPAND | wxALL, 12);
@@ -115,6 +144,12 @@ void DesignPanel::on_shape_changed()
     m_radius->Enable(!rect);
 }
 
+void DesignPanel::set_status_ok()
+{
+    m_status->SetLabel(wxString::Format(_L("OK — %zu triangles"),
+                                        m_doc.display_mesh.its.indices.size()));
+}
+
 void DesignPanel::on_add_feature()
 {
     SketchShape shape = (m_shape->GetSelection() == 1) ? SketchShape::Circle
@@ -134,7 +169,31 @@ void DesignPanel::on_add_feature()
     if (!m_doc.recompute())
         m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
     else
-        m_status->SetLabel(_L("OK"));
+        set_status_ok();
+
+    refresh_tree();
+}
+
+void DesignPanel::on_add_dressup()
+{
+    if (m_doc.body.IsNull()) {
+        m_status->SetLabel(_L("Add a solid (sketch + extrude) first"));
+        return;
+    }
+    FaceGroup fg = static_cast<FaceGroup>(m_face_group->GetSelection()); // Top=0..All=3
+    double    sz = m_dressup_size->GetValue();
+    bool      fillet = (m_dressup_type->GetSelection() == 0);
+
+    m_feature_counter++;
+    if (fillet)
+        m_doc.add_fillet(sz, fg, "Fillet" + std::to_string(m_feature_counter));
+    else
+        m_doc.add_chamfer(sz, fg, "Chamfer" + std::to_string(m_feature_counter));
+
+    if (!m_doc.recompute())
+        m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
+    else
+        set_status_ok();
 
     refresh_tree();
 }
