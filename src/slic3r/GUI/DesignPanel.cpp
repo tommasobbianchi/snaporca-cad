@@ -1,5 +1,5 @@
 #include "DesignPanel.hpp"
-#include "DesignViewport.hpp"
+#include "DesignCanvas.hpp"
 
 #include <wx/sizer.h>
 #include <wx/button.h>
@@ -323,7 +323,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
 
     // Right column: a small view toolbar over the live 3D viewport that mirrors
     // the CadDocument body.
-    m_viewport = new DesignViewport(this);
+    m_viewport = new DesignCanvas(this);
 
     auto* vcol = new wxBoxSizer(wxVERTICAL);
     auto* vbar = new wxBoxSizer(wxHORIZONTAL);
@@ -331,7 +331,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     b_fit->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { m_viewport->fit_view(); });
     vbar->Add(b_fit, 0, wxRIGHT, 8);
     // Standard-view shortcuts (a minimal view-cube): snap the camera to a named
-    // orientation, reusing Camera::select_view via DesignViewport::set_view.
+    // orientation, reusing Camera::select_view via DesignCanvas::set_view.
     struct { const char* label; const char* view; } views[] = {
         { "Iso", "iso" }, { "Front", "front" }, { "Top", "top" }, { "Right", "right" },
     };

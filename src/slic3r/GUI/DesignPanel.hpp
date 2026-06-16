@@ -18,7 +18,7 @@ class wxButton;
 
 namespace Slic3r { namespace GUI {
 
-class DesignViewport;
+class DesignCanvas;
 
 // Design (CAD) tab: a form-driven sketch + extrude + fillet/chamfer + hole that
 // feeds a CadDocument feature tree, then commits the resulting solid to the
@@ -68,7 +68,7 @@ private:
     wxSizer*  m_box_thread{nullptr};
 
     wxScrolledWindow* m_form{nullptr};
-    DesignViewport*   m_viewport{nullptr};
+    DesignCanvas*     m_viewport{nullptr};
 
     wxChoice*         m_shape{nullptr};
     wxChoice*         m_plane{nullptr};

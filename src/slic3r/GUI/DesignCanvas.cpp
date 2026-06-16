@@ -31,7 +31,10 @@ DesignCanvas::DesignCanvas(wxWindow* parent)
     m_canvas->allow_multisample(OpenGLManager::can_multisample());
     m_canvas->set_config(wxGetApp().plater()->config());
     m_canvas->set_model(&m_model);
-    m_canvas->set_process(nullptr);
+    // Reuse the editor's shared slicing process: GLCanvas3D::render() (via
+    // _max_bounding_box) dereferences the process when canvas type == View3D.
+    // Passing nullptr segfaults; this mirrors View3D/Preview/AssembleView.
+    m_canvas->set_process(wxGetApp().plater()->get_background_process());
     m_canvas->set_type(GLCanvas3D::ECanvasType::CanvasView3D);
 
     m_canvas->enable_picking(false);

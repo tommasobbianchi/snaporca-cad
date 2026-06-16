@@ -1145,11 +1145,13 @@ void MainFrame::init_tabpanel() {
       
     }
     m_plater = new Plater(this, this);
+    // Register the plater with the app BEFORE constructing DesignPanel: its
+    // DesignCanvas reads wxGetApp().plater()->config() at construction time
+    // (to share the editor config + bed shape with the native GLCanvas3D).
+    wxGetApp().plater_ = m_plater;
     m_design_panel = new DesignPanel(this);
     m_plater->SetBackgroundColour(*wxWHITE);
     m_plater->Hide();
-
-    wxGetApp().plater_ = m_plater;
 
     create_preset_tabs();
 
