@@ -30,6 +30,11 @@ public:
     void set_mesh(const TriangleMesh& mesh);
     void clear_mesh();
 
+    // Translucent "ghost" of a candidate feature, rendered over the committed body
+    // without committing it (the Onshape-style preview). clear_preview() removes it.
+    void set_preview_mesh(const TriangleMesh& mesh);
+    void clear_preview();
+
 private:
     void on_paint(wxPaintEvent& evt);
     void on_size(wxSizeEvent& evt);
@@ -46,6 +51,12 @@ private:
     bool          m_mesh_dirty{false};
     bool          m_has_mesh{false};
     bool          m_camera_framed{false};
+
+    GLModel       m_preview_model;
+    TriangleMesh  m_pending_preview;
+    BoundingBoxf3 m_preview_bbox;
+    bool          m_preview_dirty{false};
+    bool          m_has_preview{false};
 
     bool          m_dragging{false};
     Vec2d         m_last_mouse{Vec2d::Zero()};

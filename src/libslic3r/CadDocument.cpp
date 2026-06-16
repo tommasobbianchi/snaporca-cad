@@ -179,6 +179,118 @@ TopoDS_Wire CadDocument::build_sketch_wire(const CadFeature& sketch) const
     return prof.to_occt_wire(sketch.plane);
 }
 
+void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body, const CadFeature& f) const
+{
+    switch (f.type) {
+    case CadFeatureType::Sketch:
+        return; // sketches carry no solid; consumed by an extrude
+    case CadFeatureType::Extrude: {
+        // Use the referenced sketch when sketch_ref is a valid Sketch index,
+        // otherwise fall back to f's own inline sketch params (this makes a
+        // single self-contained candidate previewable).
+        const CadFeature& sk = (f.sketch_ref >= 0 && f.sketch_ref < int(features.size())
+                                && features[f.sketch_ref].type == CadFeatureType::Sketch)
+                               ? features[f.sketch_ref] : f;
+        TopoDS_Wire  wire = build_sketch_wire(sk);
+        TopoDS_Shape tool = SketchEngine::make_extrude(wire, sk.plane, f.distance, f.symmetric, 0.0);
+        if (!have_body || f.mode == BooleanMode::New) {
+            result = tool;
+            have_body = true;
+        } else if (f.mode == BooleanMode::Add) {
+            BRepAlgoAPI_Fuse fuse(result, tool);
+            if (!fuse.IsDone()) throw std::runtime_error("fuse failed");
+            result = fuse.Shape();
+        } else { // Cut
+            BRepAlgoAPI_Cut cut(result, tool);
+            if (!cut.IsDone()) throw std::runtime_error("cut failed");
+            result = cut.Shape();
+        }
+        break;
+    }
+    case CadFeatureType::Fillet:
+        if (!have_body) throw std::runtime_error("fillet needs a body");
+        result = GeometryEngine::apply_fillet(result, f.dressup_size, f.face_group);
+        break;
+    case CadFeatureType::Chamfer:
+        if (!have_body) throw std::runtime_error("chamfer needs a body");
+        result = GeometryEngine::apply_chamfer(result, f.dressup_size, f.face_group);
+        break;
+    case CadFeatureType::Hole: {
+        if (!have_body) throw std::runtime_error("hole needs a body");
+        // Circle wire centered at the positioned point on the plane
+        Vec3d c = f.plane.to_world(Vec2d(f.hole_x, f.hole_y));
+        gp_Pnt o(c.x(), c.y(), c.z());
+        gp_Dir n(f.plane.normal.x(), f.plane.normal.y(), f.plane.normal.z());
+        gp_Circ circ(gp_Ax2(o, n), f.hole_diameter * 0.5);
+        TopoDS_Edge e = BRepBuilderAPI_MakeEdge(circ).Edge();
+        BRepBuilderAPI_MakeWire wm(e);
+        if (!wm.IsDone()) throw std::runtime_error("hole wire failed");
+        // Through = symmetric huge cut (passes fully through any body);
+        // Blind = +normal extrude of hole_depth into the body.
+        TopoDS_Shape tool = f.hole_through
+            ? SketchEngine::make_extrude(wm.Wire(), f.plane, 1.0e5, true, 0.0)
+            : SketchEngine::make_extrude(wm.Wire(), f.plane, f.hole_depth, false, 0.0);
+        BRepAlgoAPI_Cut cut(result, tool);
+        if (!cut.IsDone()) throw std::runtime_error("hole cut failed");
+        result = cut.Shape();
+        break;
+    }
+    case CadFeatureType::Thread: {
+        // Axis at the positioned point on the plane; +normal = thread rise.
+        Vec3d c3 = f.plane.to_world(Vec2d(f.thread_x, f.thread_y));
+        gp_Pnt  c(c3.x(), c3.y(), c3.z());
+        gp_Dir  zdir(f.plane.normal.x(), f.plane.normal.y(), f.plane.normal.z());
+        gp_Dir  xdir(f.plane.x_axis.x(), f.plane.x_axis.y(), f.plane.x_axis.z());
+        gp_Ax3  ax3(c, zdir, xdir);
+        gp_Ax2  ax2(c, zdir, xdir);
+
+        // Build the swept helical ridge (guarded — never fatal).
+        TopoDS_Shape ridge;
+        bool have_ridge = false;
+        try {
+            TopoDS_Wire spine = make_helix_wire(ax3, f.thread_radius,
+                                                f.thread_pitch, f.thread_height);
+            TopoDS_Face prof  = make_thread_profile(c, xdir, zdir, f.thread_radius,
+                                                    f.thread_pitch, f.thread_depth,
+                                                    f.thread_internal);
+            BRepOffsetAPI_MakePipe pipe(spine, prof);
+            pipe.Build();
+            if (pipe.IsDone()) {
+                ridge = pipe.Shape();
+                have_ridge = !ridge.IsNull();
+            }
+        } catch (const std::exception&) {
+            have_ridge = false; // fall back to the bare cylinder/bore below
+        }
+
+        if (f.thread_internal) {
+            if (!have_body) throw std::runtime_error("internal thread needs a body");
+            // Tapped bore: cut a cylinder, then carve the inward helical ridge.
+            TopoDS_Shape bore = BRepPrimAPI_MakeCylinder(ax2, f.thread_radius,
+                                                         f.thread_height).Shape();
+            BRepAlgoAPI_Cut cut_bore(result, bore);
+            if (!cut_bore.IsDone()) throw std::runtime_error("thread bore cut failed");
+            result = cut_bore.Shape();
+            if (have_ridge) {
+                BRepAlgoAPI_Cut cut_ridge(result, ridge);
+                if (cut_ridge.IsDone()) result = cut_ridge.Shape();
+            }
+        } else {
+            // External threaded rod = a New body: base cylinder + fused ridge.
+            TopoDS_Shape rod = BRepPrimAPI_MakeCylinder(ax2, f.thread_radius,
+                                                        f.thread_height).Shape();
+            if (have_ridge) {
+                BRepAlgoAPI_Fuse fuse(rod, ridge);
+                if (fuse.IsDone()) rod = fuse.Shape();
+            }
+            result = rod;
+            have_body = true;
+        }
+        break;
+    }
+    }
+}
+
 bool CadDocument::recompute()
 {
     error.clear();
@@ -187,115 +299,8 @@ bool CadDocument::recompute()
     try {
         for (const CadFeature& f : features) {
             if (!f.enabled) continue;
-            switch (f.type) {
-            case CadFeatureType::Sketch:
-                continue; // consumed by an extrude via sketch_ref
-            case CadFeatureType::Extrude: {
-                if (f.sketch_ref < 0 || f.sketch_ref >= int(features.size()))
-                    throw std::runtime_error("extrude references an invalid sketch");
-                const CadFeature& sk = features[f.sketch_ref];
-                if (sk.type != CadFeatureType::Sketch)
-                    throw std::runtime_error("extrude reference is not a sketch");
-
-                TopoDS_Wire  wire = build_sketch_wire(sk);
-                TopoDS_Shape tool = SketchEngine::make_extrude(wire, sk.plane, f.distance, f.symmetric, 0.0);
-
-                if (!have_body || f.mode == BooleanMode::New) {
-                    result = tool;
-                    have_body = true;
-                } else if (f.mode == BooleanMode::Add) {
-                    BRepAlgoAPI_Fuse fuse(result, tool);
-                    if (!fuse.IsDone()) throw std::runtime_error("fuse failed");
-                    result = fuse.Shape();
-                } else { // Cut
-                    BRepAlgoAPI_Cut cut(result, tool);
-                    if (!cut.IsDone()) throw std::runtime_error("cut failed");
-                    result = cut.Shape();
-                }
-                break;
-            }
-            case CadFeatureType::Fillet:
-                if (!have_body) throw std::runtime_error("fillet needs a body");
-                result = GeometryEngine::apply_fillet(result, f.dressup_size, f.face_group);
-                break;
-            case CadFeatureType::Chamfer:
-                if (!have_body) throw std::runtime_error("chamfer needs a body");
-                result = GeometryEngine::apply_chamfer(result, f.dressup_size, f.face_group);
-                break;
-            case CadFeatureType::Hole: {
-                if (!have_body) throw std::runtime_error("hole needs a body");
-                // Circle wire centered at the positioned point on the plane
-                Vec3d c = f.plane.to_world(Vec2d(f.hole_x, f.hole_y));
-                gp_Pnt o(c.x(), c.y(), c.z());
-                gp_Dir n(f.plane.normal.x(), f.plane.normal.y(), f.plane.normal.z());
-                gp_Circ circ(gp_Ax2(o, n), f.hole_diameter * 0.5);
-                TopoDS_Edge e = BRepBuilderAPI_MakeEdge(circ).Edge();
-                BRepBuilderAPI_MakeWire wm(e);
-                if (!wm.IsDone()) throw std::runtime_error("hole wire failed");
-                // Through = symmetric huge cut (passes fully through any body);
-                // Blind = +normal extrude of hole_depth into the body.
-                TopoDS_Shape tool = f.hole_through
-                    ? SketchEngine::make_extrude(wm.Wire(), f.plane, 1.0e5, true, 0.0)
-                    : SketchEngine::make_extrude(wm.Wire(), f.plane, f.hole_depth, false, 0.0);
-                BRepAlgoAPI_Cut cut(result, tool);
-                if (!cut.IsDone()) throw std::runtime_error("hole cut failed");
-                result = cut.Shape();
-                break;
-            }
-            case CadFeatureType::Thread: {
-                // Axis at the positioned point on the plane; +normal = thread rise.
-                Vec3d c3 = f.plane.to_world(Vec2d(f.thread_x, f.thread_y));
-                gp_Pnt  c(c3.x(), c3.y(), c3.z());
-                gp_Dir  zdir(f.plane.normal.x(), f.plane.normal.y(), f.plane.normal.z());
-                gp_Dir  xdir(f.plane.x_axis.x(), f.plane.x_axis.y(), f.plane.x_axis.z());
-                gp_Ax3  ax3(c, zdir, xdir);
-                gp_Ax2  ax2(c, zdir, xdir);
-
-                // Build the swept helical ridge (guarded — never fatal).
-                TopoDS_Shape ridge;
-                bool have_ridge = false;
-                try {
-                    TopoDS_Wire spine = make_helix_wire(ax3, f.thread_radius,
-                                                        f.thread_pitch, f.thread_height);
-                    TopoDS_Face prof  = make_thread_profile(c, xdir, zdir, f.thread_radius,
-                                                            f.thread_pitch, f.thread_depth,
-                                                            f.thread_internal);
-                    BRepOffsetAPI_MakePipe pipe(spine, prof);
-                    pipe.Build();
-                    if (pipe.IsDone()) {
-                        ridge = pipe.Shape();
-                        have_ridge = !ridge.IsNull();
-                    }
-                } catch (const std::exception&) {
-                    have_ridge = false; // fall back to the bare cylinder/bore below
-                }
-
-                if (f.thread_internal) {
-                    if (!have_body) throw std::runtime_error("internal thread needs a body");
-                    // Tapped bore: cut a cylinder, then carve the inward helical ridge.
-                    TopoDS_Shape bore = BRepPrimAPI_MakeCylinder(ax2, f.thread_radius,
-                                                                 f.thread_height).Shape();
-                    BRepAlgoAPI_Cut cut_bore(result, bore);
-                    if (!cut_bore.IsDone()) throw std::runtime_error("thread bore cut failed");
-                    result = cut_bore.Shape();
-                    if (have_ridge) {
-                        BRepAlgoAPI_Cut cut_ridge(result, ridge);
-                        if (cut_ridge.IsDone()) result = cut_ridge.Shape();
-                    }
-                } else {
-                    // External threaded rod = a New body: base cylinder + fused ridge.
-                    TopoDS_Shape rod = BRepPrimAPI_MakeCylinder(ax2, f.thread_radius,
-                                                                f.thread_height).Shape();
-                    if (have_ridge) {
-                        BRepAlgoAPI_Fuse fuse(rod, ridge);
-                        if (fuse.IsDone()) rod = fuse.Shape();
-                    }
-                    result = rod;
-                    have_body = true;
-                }
-                break;
-            }
-            }
+            if (f.type == CadFeatureType::Sketch) continue; // consumed by an extrude
+            apply_feature(result, have_body, f);
         }
     } catch (const std::exception& e) {
         error = e.what();
@@ -307,6 +312,29 @@ bool CadDocument::recompute()
     display_mesh = SketchEngine::tessellate(body, linear_deflection, angular_deflection);
     if (display_mesh.its.indices.empty()) {
         error = "tessellation produced an empty mesh";
+        return false;
+    }
+    return true;
+}
+
+bool CadDocument::preview(const CadFeature& candidate, TriangleMesh& out_mesh, std::string& err) const
+{
+    err.clear();
+    TopoDS_Shape result = body;            // start from the current committed body
+    bool have_body = !body.IsNull();
+    try {
+        apply_feature(result, have_body, candidate);
+    } catch (const std::exception& e) {
+        err = e.what();
+        return false;
+    }
+    if (!have_body || result.IsNull()) {
+        err = "preview produced no geometry";
+        return false;
+    }
+    out_mesh = SketchEngine::tessellate(result, linear_deflection, angular_deflection);
+    if (out_mesh.its.indices.empty()) {
+        err = "preview produced an empty mesh";
         return false;
     }
     return true;

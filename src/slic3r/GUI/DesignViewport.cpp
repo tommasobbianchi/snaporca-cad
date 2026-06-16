@@ -45,6 +45,7 @@ DesignViewport::~DesignViewport()
     if (m_context != nullptr && m_canvas != nullptr) {
         m_canvas->SetCurrent(*m_context);
         m_model.reset();
+        m_preview_model.reset();
     }
 }
 
@@ -61,6 +62,23 @@ void DesignViewport::clear_mesh()
     m_pending_mesh = TriangleMesh();
     m_mesh_dirty   = true;
     m_has_mesh     = false;
+    if (m_canvas != nullptr)
+        m_canvas->Refresh();
+}
+
+void DesignViewport::set_preview_mesh(const TriangleMesh& mesh)
+{
+    m_pending_preview = mesh;
+    m_preview_dirty   = true;
+    if (m_canvas != nullptr)
+        m_canvas->Refresh();
+}
+
+void DesignViewport::clear_preview()
+{
+    m_pending_preview = TriangleMesh();
+    m_preview_dirty   = true;
+    m_has_preview     = false;
     if (m_canvas != nullptr)
         m_canvas->Refresh();
 }
@@ -140,23 +158,43 @@ void DesignViewport::render()
         m_mesh_dirty = false;
     }
 
+    if (m_preview_dirty) {
+        m_preview_model.reset();
+        if (!m_pending_preview.its.indices.empty()) {
+            m_preview_model.init_from(m_pending_preview);
+            m_preview_bbox = m_pending_preview.bounding_box();
+            m_has_preview  = true;
+        } else {
+            m_has_preview = false;
+        }
+        m_preview_dirty = false;
+    }
+
     m_camera.set_viewport(0, 0, w, h);
     m_camera.apply_viewport();
 
-    if (m_has_mesh && !m_camera_framed) {
-        m_camera.set_scene_box(m_bbox);
-        m_camera.set_target(m_bbox.center());
-        m_camera.select_view("iso");
-        m_camera.zoom_to_box(m_bbox);
-        m_camera_framed = true;
+    // Frame once on the first available geometry (committed body preferred, else the
+    // preview that appears when a tool opens with no body yet). Do NOT re-frame on
+    // every preview edit — that would yank the view on each keystroke.
+    if (!m_camera_framed) {
+        const BoundingBoxf3& fb = m_has_mesh ? m_bbox : m_preview_bbox;
+        if ((m_has_mesh || m_has_preview) && fb.defined) {
+            m_camera.set_scene_box(fb);
+            m_camera.set_target(fb.center());
+            m_camera.select_view("iso");
+            m_camera.zoom_to_box(fb);
+            m_camera_framed = true;
+        }
     }
 
     ::glClearColor(0.16f, 0.16f, 0.17f, 1.0f);
     ::glEnable(GL_DEPTH_TEST);
     ::glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    if (m_has_mesh) {
-        m_camera.apply_projection(m_bbox);
+    if (m_has_mesh || m_has_preview) {
+        // Projection from whichever geometry is present (committed body preferred).
+        const BoundingBoxf3& abox = m_has_mesh ? m_bbox : m_preview_bbox;
+        m_camera.apply_projection(abox);
 
         GLShaderProgram* shader = wxGetApp().get_shader("gouraud_light");
         if (shader != nullptr) {
@@ -170,10 +208,26 @@ void DesignViewport::render()
             const Matrix3d view_normal_matrix =
                 view.matrix().block(0, 0, 3, 3) * model.matrix().block(0, 0, 3, 3).inverse().transpose();
             shader->set_uniform("view_normal_matrix", view_normal_matrix);
-            shader->set_uniform("emission_factor", 0.25f);
 
-            m_model.set_color(ColorRGBA{ 0.86f, 0.66f, 0.20f, 1.0f });
-            m_model.render();
+            // Opaque committed body.
+            if (m_has_mesh) {
+                shader->set_uniform("emission_factor", 0.25f);
+                m_model.set_color(ColorRGBA{ 0.86f, 0.66f, 0.20f, 1.0f });
+                m_model.render();
+            }
+
+            // Translucent candidate ghost on top — blend without writing depth so it
+            // reads as a see-through preview of what Confirm would create.
+            if (m_has_preview) {
+                shader->set_uniform("emission_factor", 0.35f);
+                ::glEnable(GL_BLEND);
+                ::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                ::glDepthMask(GL_FALSE);
+                m_preview_model.set_color(ColorRGBA{ 0.26f, 0.66f, 1.0f, 0.45f });
+                m_preview_model.render();
+                ::glDepthMask(GL_TRUE);
+                ::glDisable(GL_BLEND);
+            }
 
             shader->stop_using();
         }

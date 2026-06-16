@@ -83,8 +83,17 @@ public:
     void clear();
     bool recompute();   // replay features -> body + display_mesh; false on error
 
+    // Apply ONE candidate feature on top of the current committed body and
+    // tessellate the result into out_mesh, WITHOUT modifying features/body/
+    // display_mesh. Returns false (with err set) if the candidate is invalid.
+    // Used by the Design tab to show a translucent ghost before Confirm.
+    bool preview(const CadFeature& candidate, TriangleMesh& out_mesh, std::string& err) const;
+
 private:
     TopoDS_Wire build_sketch_wire(const CadFeature& sketch) const;
+    // Apply a single feature to (result, have_body), throwing std::runtime_error on
+    // failure. Shared by recompute() (replay) and preview() (single candidate).
+    void apply_feature(TopoDS_Shape& result, bool& have_body, const CadFeature& f) const;
 };
 
 } // namespace Slic3r
