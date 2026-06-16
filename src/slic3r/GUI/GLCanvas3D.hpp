@@ -531,6 +531,12 @@ private:
     mutable GLToolbar m_assemble_view_toolbar;
     mutable IMReturnToolbar m_return_toolbar;
     mutable float m_paint_toolbar_width;
+    // SnapOrca Design: per-canvas suppression of the shared plater collapse toolbar
+    // (the < > sidebar arrow). Default true preserves the main editor's behaviour.
+    bool m_collapse_toolbar_enabled{true};
+    // SnapOrca Design: per-canvas suppression of PartPlate overlay chrome (corner
+    // icons, logo watermark, plate numbers). Default true preserves the editor.
+    bool m_plate_chrome_enabled{true};
 
     //BBS: add canvas type for assemble view usage
     ECanvasType m_canvas_type;
@@ -840,6 +846,8 @@ public:
     void enable_assemble_view_toolbar(bool enable);
     void enable_return_toolbar(bool enable);
     void enable_separator_toolbar(bool enable);
+    void enable_collapse_toolbar(bool enable);
+    void enable_plate_chrome(bool enable);
     void enable_dynamic_background(bool enable);
     void enable_labels(bool enable) { m_labels.enable(enable); }
     void enable_slope(bool enable) { m_slope.enable(enable); }

@@ -1749,6 +1749,16 @@ void GLCanvas3D::enable_separator_toolbar(bool enable)
     m_separator_toolbar.set_enabled(enable);
 }
 
+void GLCanvas3D::enable_collapse_toolbar(bool enable)
+{
+    m_collapse_toolbar_enabled = enable;
+}
+
+void GLCanvas3D::enable_plate_chrome(bool enable)
+{
+    m_plate_chrome_enabled = enable;
+}
+
 void GLCanvas3D::enable_dynamic_background(bool enable)
 {
     m_dynamic_background_enabled = enable;
@@ -7319,7 +7329,15 @@ void GLCanvas3D::_render_bed(const Transform3d& view_matrix, const Transform3d& 
 
 void GLCanvas3D::_render_platelist(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_current, bool only_body, int hover_id, bool render_cali, bool show_grid)
 {
-    wxGetApp().plater()->get_partplate_list().render(view_matrix, projection_matrix, bottom, only_current, only_body, hover_id, render_cali, show_grid);
+    // SnapOrca Design: transiently suppress plate chrome (icons/logo/numbers) for
+    // canvases that opted out (DesignCanvas). The list is shared with the main
+    // editor; renders never interleave (single GL thread), so set-render-reset is
+    // safe and leaves the editor's chrome intact.
+    auto& plate_list = wxGetApp().plater()->get_partplate_list();
+    const bool prev_hide_chrome = plate_list.get_hide_chrome();
+    plate_list.set_hide_chrome(!m_plate_chrome_enabled);
+    plate_list.render(view_matrix, projection_matrix, bottom, only_current, only_body, hover_id, render_cali, show_grid);
+    plate_list.set_hide_chrome(prev_hide_chrome);
 }
 
 void GLCanvas3D::_render_plane() const
@@ -8360,6 +8378,9 @@ void GLCanvas3D::_render_separator_toolbar_left() const
 
 void GLCanvas3D::_render_collapse_toolbar() const
 {
+    if (!m_collapse_toolbar_enabled)
+        return;
+
     auto&      plater              = *wxGetApp().plater();
     const auto sidebar_docking_dir = plater.get_sidebar_docking_state();
     if (sidebar_docking_dir == Sidebar::None) {

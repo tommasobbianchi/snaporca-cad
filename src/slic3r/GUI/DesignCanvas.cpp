@@ -45,6 +45,8 @@ DesignCanvas::DesignCanvas(wxWindow* parent)
     m_canvas->enable_select_plate_toolbar(false);
     m_canvas->enable_assemble_view_toolbar(false);
     m_canvas->enable_separator_toolbar(false);
+    m_canvas->enable_collapse_toolbar(false);
+    m_canvas->enable_plate_chrome(false);
     m_canvas->enable_labels(false);
 
     const DynamicPrintConfig* config = wxGetApp().plater()->config();
