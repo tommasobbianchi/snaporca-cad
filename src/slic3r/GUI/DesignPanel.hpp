@@ -3,18 +3,41 @@
 
 #include <wx/panel.h>
 
+#include "libslic3r/CadDocument.hpp"
+
+class wxChoice;
+class wxSpinCtrlDouble;
+class wxListBox;
+class wxStaticText;
+
 namespace Slic3r { namespace GUI {
 
-// P0 scaffold for the Design (CAD) tab. Minimal: a toolbar placeholder + a button that
-// commits a test box to the Prepare plate via the existing model bridge. The real CAD
-// canvas/feature-tree arrive in later phases.
+// Design (CAD) tab: a form-driven sketch + extrude that feeds a CadDocument feature
+// tree, then commits the resulting solid to the Prepare plate via the model bridge.
+// Interactive GL-canvas sketching is a later refinement.
 class DesignPanel : public wxPanel
 {
 public:
     explicit DesignPanel(wxWindow* parent);
 
 private:
-    void commit_test_box();
+    void on_shape_changed();
+    void on_add_feature();
+    void on_commit();
+    void refresh_tree();
+
+    CadDocument m_doc;
+
+    wxChoice*         m_shape{nullptr};
+    wxChoice*         m_plane{nullptr};
+    wxChoice*         m_mode{nullptr};
+    wxSpinCtrlDouble* m_width{nullptr};
+    wxSpinCtrlDouble* m_height{nullptr};
+    wxSpinCtrlDouble* m_radius{nullptr};
+    wxSpinCtrlDouble* m_distance{nullptr};
+    wxListBox*        m_tree{nullptr};
+    wxStaticText*     m_status{nullptr};
+    int               m_feature_counter{0};
 };
 
 }} // namespace Slic3r::GUI

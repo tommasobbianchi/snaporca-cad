@@ -3,8 +3,12 @@
 #include <wx/sizer.h>
 #include <wx/button.h>
 #include <wx/stattext.h>
+#include <wx/choice.h>
+#include <wx/spinctrl.h>
+#include <wx/listbox.h>
 
-#include "libslic3r/GeometryEngine.hpp"
+#include <string>
+
 #include "libslic3r/Model.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
 #include "slic3r/GUI/Plater.hpp"
@@ -13,42 +17,145 @@
 
 namespace Slic3r { namespace GUI {
 
+static wxSpinCtrlDouble* make_spin(wxWindow* parent, double val,
+                                   double mn = 0.1, double mx = 1000.0)
+{
+    auto* s = new wxSpinCtrlDouble(parent, wxID_ANY, "", wxDefaultPosition, wxSize(90, -1));
+    s->SetRange(mn, mx);
+    s->SetDigits(2);
+    s->SetValue(val);
+    return s;
+}
+
+static SketchPlane plane_from_index(int i)
+{
+    switch (i) {
+        case 1:  return SketchPlane::XZ();
+        case 2:  return SketchPlane::YZ();
+        default: return SketchPlane::XY();
+    }
+}
+
 DesignPanel::DesignPanel(wxWindow* parent)
     : wxPanel(parent, wxID_ANY)
 {
-    auto* sizer = new wxBoxSizer(wxVERTICAL);
-    sizer->Add(new wxStaticText(this, wxID_ANY, _L("Design (CAD) — work in progress")),
-               0, wxALL, 12);
+    auto* root = new wxBoxSizer(wxVERTICAL);
+    root->Add(new wxStaticText(this, wxID_ANY, _L("Design (CAD) — Sketch + Extrude")),
+              0, wxALL, 12);
 
-    auto* toolbar = new wxBoxSizer(wxHORIZONTAL);
-    const char* tools[] = {"Sketch", "Extrude", "Fillet", "Chamfer", "Hole", "Thread"};
-    for (const char* name : tools) {
-        auto* b = new wxButton(this, wxID_ANY, name);
-        b->Disable(); // placeholders until their phase lands
-        toolbar->Add(b, 0, wxALL, 4);
-    }
-    sizer->Add(toolbar, 0, wxALL, 8);
+    auto* form = new wxFlexGridSizer(2, 6, 8);
 
-    auto* commit = new wxButton(this, wxID_ANY, _L("Commit Test Box to Plate"));
-    commit->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { commit_test_box(); });
-    sizer->Add(commit, 0, wxALL, 12);
+    m_shape = new wxChoice(this, wxID_ANY);
+    m_shape->Append("Rectangle");
+    m_shape->Append("Circle");
+    m_shape->SetSelection(0);
+    form->Add(new wxStaticText(this, wxID_ANY, _L("Shape")), 0, wxALIGN_CENTER_VERTICAL);
+    form->Add(m_shape);
 
-    SetSizer(sizer);
+    m_plane = new wxChoice(this, wxID_ANY);
+    m_plane->Append("XY");
+    m_plane->Append("XZ");
+    m_plane->Append("YZ");
+    m_plane->SetSelection(0);
+    form->Add(new wxStaticText(this, wxID_ANY, _L("Plane")), 0, wxALIGN_CENTER_VERTICAL);
+    form->Add(m_plane);
+
+    m_width = make_spin(this, 20);
+    form->Add(new wxStaticText(this, wxID_ANY, _L("Width / X")), 0, wxALIGN_CENTER_VERTICAL);
+    form->Add(m_width);
+
+    m_height = make_spin(this, 20);
+    form->Add(new wxStaticText(this, wxID_ANY, _L("Height / Y")), 0, wxALIGN_CENTER_VERTICAL);
+    form->Add(m_height);
+
+    m_radius = make_spin(this, 10);
+    form->Add(new wxStaticText(this, wxID_ANY, _L("Radius")), 0, wxALIGN_CENTER_VERTICAL);
+    form->Add(m_radius);
+
+    m_distance = make_spin(this, 10);
+    form->Add(new wxStaticText(this, wxID_ANY, _L("Extrude dist")), 0, wxALIGN_CENTER_VERTICAL);
+    form->Add(m_distance);
+
+    m_mode = new wxChoice(this, wxID_ANY);
+    m_mode->Append("New");
+    m_mode->Append("Add");
+    m_mode->Append("Cut");
+    m_mode->SetSelection(0);
+    form->Add(new wxStaticText(this, wxID_ANY, _L("Mode")), 0, wxALIGN_CENTER_VERTICAL);
+    form->Add(m_mode);
+
+    root->Add(form, 0, wxALL, 12);
+
+    auto* add = new wxButton(this, wxID_ANY, _L("Add Sketch + Extrude"));
+    add->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_feature(); });
+    root->Add(add, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
+
+    root->Add(new wxStaticText(this, wxID_ANY, _L("Feature tree")), 0, wxLEFT | wxTOP, 12);
+    m_tree = new wxListBox(this, wxID_ANY, wxDefaultPosition, wxSize(-1, 140));
+    root->Add(m_tree, 0, wxEXPAND | wxALL, 12);
+
+    m_status = new wxStaticText(this, wxID_ANY, "");
+    root->Add(m_status, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
+
+    auto* commit = new wxButton(this, wxID_ANY, _L("Commit to Plate"));
+    commit->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_commit(); });
+    root->Add(commit, 0, wxALL, 12);
+
+    m_shape->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { on_shape_changed(); });
+    on_shape_changed();
+
+    SetSizer(root);
 }
 
-void DesignPanel::commit_test_box()
+void DesignPanel::on_shape_changed()
 {
-    PrimitiveParams params; // defaults: 20 mm box
-    TopoDS_Solid solid = GeometryEngine::make_primitive(params);
-    TriangleMesh mesh = GeometryEngine::tessellate(solid, params.linear_deflection,
-                                                   params.angular_deflection);
-    if (mesh.its.indices.empty())
-        return;
+    bool rect = (m_shape->GetSelection() == 0);
+    m_width->Enable(rect);
+    m_height->Enable(rect);
+    m_radius->Enable(!rect);
+}
 
+void DesignPanel::on_add_feature()
+{
+    SketchShape shape = (m_shape->GetSelection() == 1) ? SketchShape::Circle
+                                                       : SketchShape::Rectangle;
+    SketchPlane plane = plane_from_index(m_plane->GetSelection());
+    BooleanMode mode  = static_cast<BooleanMode>(m_mode->GetSelection()); // New=0, Add=1, Cut=2
+
+    m_feature_counter++;
+    std::string sname = "Sketch" + std::to_string(m_feature_counter);
+    std::string ename = "Extrude" + std::to_string(m_feature_counter);
+
+    int sref = m_doc.add_sketch(shape, plane,
+                                m_width->GetValue(), m_height->GetValue(), m_radius->GetValue(),
+                                sname);
+    m_doc.add_extrude(sref, m_distance->GetValue(), false, mode, ename);
+
+    if (!m_doc.recompute())
+        m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
+    else
+        m_status->SetLabel(_L("OK"));
+
+    refresh_tree();
+}
+
+void DesignPanel::refresh_tree()
+{
+    m_tree->Clear();
+    for (const auto& f : m_doc.features)
+        m_tree->Append(wxString::FromUTF8(f.name));
+}
+
+void DesignPanel::on_commit()
+{
+    if (m_doc.display_mesh.its.indices.empty()) {
+        m_status->SetLabel(_L("Nothing to commit — add a feature first"));
+        return;
+    }
     ObjectList* obj_list = wxGetApp().obj_list();
     if (obj_list == nullptr)
         return;
-    obj_list->load_mesh_object(mesh, "Design Box");
+    obj_list->load_mesh_object(m_doc.display_mesh, "Design Body");
 
     if (wxGetApp().mainframe != nullptr)
         wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
