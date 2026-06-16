@@ -1,6 +1,7 @@
 #ifndef slic3r_DesignPanel_hpp_
 #define slic3r_DesignPanel_hpp_
 
+#include <wx/panel.h>
 #include <wx/scrolwin.h>
 
 #include "libslic3r/CadDocument.hpp"
@@ -13,10 +14,12 @@ class wxStaticText;
 
 namespace Slic3r { namespace GUI {
 
+class DesignViewport;
+
 // Design (CAD) tab: a form-driven sketch + extrude + fillet/chamfer + hole that
 // feeds a CadDocument feature tree, then commits the resulting solid to the
 // Prepare plate via the model bridge. Interactive GL picking is a later refinement.
-class DesignPanel : public wxScrolledWindow
+class DesignPanel : public wxPanel
 {
 public:
     explicit DesignPanel(wxWindow* parent);
@@ -32,6 +35,9 @@ private:
     void set_status_ok();
 
     CadDocument m_doc;
+
+    wxScrolledWindow* m_form{nullptr};
+    DesignViewport*   m_viewport{nullptr};
 
     wxChoice*         m_shape{nullptr};
     wxChoice*         m_plane{nullptr};

@@ -1,4 +1,5 @@
 #include "DesignPanel.hpp"
+#include "DesignViewport.hpp"
 
 #include <wx/sizer.h>
 #include <wx/button.h>
@@ -38,189 +39,202 @@ static SketchPlane plane_from_index(int i)
 }
 
 DesignPanel::DesignPanel(wxWindow* parent)
-    : wxScrolledWindow(parent, wxID_ANY)
+    : wxPanel(parent, wxID_ANY)
 {
+    // Left column: the scrollable parameter form. All controls below are parented
+    // to m_form so the form can scroll independently of the live GL viewport.
+    m_form = new wxScrolledWindow(this, wxID_ANY);
+
     auto* root = new wxBoxSizer(wxVERTICAL);
-    root->Add(new wxStaticText(this, wxID_ANY, _L("Design (CAD) — Sketch + Extrude + Fillet/Chamfer + Hole + Thread")),
+    root->Add(new wxStaticText(m_form, wxID_ANY, _L("Design (CAD) — Sketch + Extrude + Fillet/Chamfer + Hole + Thread")),
               0, wxALL, 12);
 
     auto* form = new wxFlexGridSizer(2, 6, 8);
 
-    m_shape = new wxChoice(this, wxID_ANY);
+    m_shape = new wxChoice(m_form, wxID_ANY);
     m_shape->Append("Rectangle");
     m_shape->Append("Circle");
     m_shape->SetSelection(0);
-    form->Add(new wxStaticText(this, wxID_ANY, _L("Shape")), 0, wxALIGN_CENTER_VERTICAL);
+    form->Add(new wxStaticText(m_form, wxID_ANY, _L("Shape")), 0, wxALIGN_CENTER_VERTICAL);
     form->Add(m_shape);
 
-    m_plane = new wxChoice(this, wxID_ANY);
+    m_plane = new wxChoice(m_form, wxID_ANY);
     m_plane->Append("XY");
     m_plane->Append("XZ");
     m_plane->Append("YZ");
     m_plane->SetSelection(0);
-    form->Add(new wxStaticText(this, wxID_ANY, _L("Plane")), 0, wxALIGN_CENTER_VERTICAL);
+    form->Add(new wxStaticText(m_form, wxID_ANY, _L("Plane")), 0, wxALIGN_CENTER_VERTICAL);
     form->Add(m_plane);
 
-    m_width = make_spin(this, 20);
-    form->Add(new wxStaticText(this, wxID_ANY, _L("Width / X")), 0, wxALIGN_CENTER_VERTICAL);
+    m_width = make_spin(m_form, 20);
+    form->Add(new wxStaticText(m_form, wxID_ANY, _L("Width / X")), 0, wxALIGN_CENTER_VERTICAL);
     form->Add(m_width);
 
-    m_height = make_spin(this, 20);
-    form->Add(new wxStaticText(this, wxID_ANY, _L("Height / Y")), 0, wxALIGN_CENTER_VERTICAL);
+    m_height = make_spin(m_form, 20);
+    form->Add(new wxStaticText(m_form, wxID_ANY, _L("Height / Y")), 0, wxALIGN_CENTER_VERTICAL);
     form->Add(m_height);
 
-    m_radius = make_spin(this, 10);
-    form->Add(new wxStaticText(this, wxID_ANY, _L("Radius")), 0, wxALIGN_CENTER_VERTICAL);
+    m_radius = make_spin(m_form, 10);
+    form->Add(new wxStaticText(m_form, wxID_ANY, _L("Radius")), 0, wxALIGN_CENTER_VERTICAL);
     form->Add(m_radius);
 
-    m_distance = make_spin(this, 10);
-    form->Add(new wxStaticText(this, wxID_ANY, _L("Extrude dist")), 0, wxALIGN_CENTER_VERTICAL);
+    m_distance = make_spin(m_form, 10);
+    form->Add(new wxStaticText(m_form, wxID_ANY, _L("Extrude dist")), 0, wxALIGN_CENTER_VERTICAL);
     form->Add(m_distance);
 
-    m_mode = new wxChoice(this, wxID_ANY);
+    m_mode = new wxChoice(m_form, wxID_ANY);
     m_mode->Append("New");
     m_mode->Append("Add");
     m_mode->Append("Cut");
     m_mode->SetSelection(0);
-    form->Add(new wxStaticText(this, wxID_ANY, _L("Mode")), 0, wxALIGN_CENTER_VERTICAL);
+    form->Add(new wxStaticText(m_form, wxID_ANY, _L("Mode")), 0, wxALIGN_CENTER_VERTICAL);
     form->Add(m_mode);
 
     root->Add(form, 0, wxALL, 12);
 
-    auto* add = new wxButton(this, wxID_ANY, _L("Add Sketch + Extrude"));
+    auto* add = new wxButton(m_form, wxID_ANY, _L("Add Sketch + Extrude"));
     add->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_feature(); });
     root->Add(add, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
 
     // --- Dress-up (Fillet / Chamfer) ---
     auto* dform = new wxFlexGridSizer(2, 6, 8);
 
-    m_dressup_type = new wxChoice(this, wxID_ANY);
+    m_dressup_type = new wxChoice(m_form, wxID_ANY);
     m_dressup_type->Append("Fillet");
     m_dressup_type->Append("Chamfer");
     m_dressup_type->SetSelection(0);
-    dform->Add(new wxStaticText(this, wxID_ANY, _L("Dress-up")), 0, wxALIGN_CENTER_VERTICAL);
+    dform->Add(new wxStaticText(m_form, wxID_ANY, _L("Dress-up")), 0, wxALIGN_CENTER_VERTICAL);
     dform->Add(m_dressup_type);
 
-    m_face_group = new wxChoice(this, wxID_ANY);
+    m_face_group = new wxChoice(m_form, wxID_ANY);
     m_face_group->Append("Top");      // index 0 -> FaceGroup::Top
     m_face_group->Append("Bottom");   // 1 -> Bottom
     m_face_group->Append("Lateral");  // 2 -> Lateral
     m_face_group->Append("All");      // 3 -> All
     m_face_group->SetSelection(3);
-    dform->Add(new wxStaticText(this, wxID_ANY, _L("Edges")), 0, wxALIGN_CENTER_VERTICAL);
+    dform->Add(new wxStaticText(m_form, wxID_ANY, _L("Edges")), 0, wxALIGN_CENTER_VERTICAL);
     dform->Add(m_face_group);
 
-    m_dressup_size = make_spin(this, 2.0);
-    dform->Add(new wxStaticText(this, wxID_ANY, _L("Size (r/dist)")), 0, wxALIGN_CENTER_VERTICAL);
+    m_dressup_size = make_spin(m_form, 2.0);
+    dform->Add(new wxStaticText(m_form, wxID_ANY, _L("Size (r/dist)")), 0, wxALIGN_CENTER_VERTICAL);
     dform->Add(m_dressup_size);
 
     root->Add(dform, 0, wxLEFT | wxRIGHT, 12);
 
-    auto* add_du = new wxButton(this, wxID_ANY, _L("Add Fillet/Chamfer"));
+    auto* add_du = new wxButton(m_form, wxID_ANY, _L("Add Fillet/Chamfer"));
     add_du->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_dressup(); });
     root->Add(add_du, 0, wxALL, 12);
 
     // --- Hole (positioned circular cut) ---
     auto* hform = new wxFlexGridSizer(2, 6, 8);
 
-    m_hole_plane = new wxChoice(this, wxID_ANY);
+    m_hole_plane = new wxChoice(m_form, wxID_ANY);
     m_hole_plane->Append("XY");
     m_hole_plane->Append("XZ");
     m_hole_plane->Append("YZ");
     m_hole_plane->SetSelection(0);
-    hform->Add(new wxStaticText(this, wxID_ANY, _L("Hole plane")), 0, wxALIGN_CENTER_VERTICAL);
+    hform->Add(new wxStaticText(m_form, wxID_ANY, _L("Hole plane")), 0, wxALIGN_CENTER_VERTICAL);
     hform->Add(m_hole_plane);
 
-    m_hole_diameter = make_spin(this, 6.0);
-    hform->Add(new wxStaticText(this, wxID_ANY, _L("Diameter")), 0, wxALIGN_CENTER_VERTICAL);
+    m_hole_diameter = make_spin(m_form, 6.0);
+    hform->Add(new wxStaticText(m_form, wxID_ANY, _L("Diameter")), 0, wxALIGN_CENTER_VERTICAL);
     hform->Add(m_hole_diameter);
 
-    m_hole_depth = make_spin(this, 10.0);
-    hform->Add(new wxStaticText(this, wxID_ANY, _L("Depth (blind)")), 0, wxALIGN_CENTER_VERTICAL);
+    m_hole_depth = make_spin(m_form, 10.0);
+    hform->Add(new wxStaticText(m_form, wxID_ANY, _L("Depth (blind)")), 0, wxALIGN_CENTER_VERTICAL);
     hform->Add(m_hole_depth);
 
-    m_hole_x = make_spin(this, 0.0, -1000.0, 1000.0);
-    hform->Add(new wxStaticText(this, wxID_ANY, _L("Pos X")), 0, wxALIGN_CENTER_VERTICAL);
+    m_hole_x = make_spin(m_form, 0.0, -1000.0, 1000.0);
+    hform->Add(new wxStaticText(m_form, wxID_ANY, _L("Pos X")), 0, wxALIGN_CENTER_VERTICAL);
     hform->Add(m_hole_x);
 
-    m_hole_y = make_spin(this, 0.0, -1000.0, 1000.0);
-    hform->Add(new wxStaticText(this, wxID_ANY, _L("Pos Y")), 0, wxALIGN_CENTER_VERTICAL);
+    m_hole_y = make_spin(m_form, 0.0, -1000.0, 1000.0);
+    hform->Add(new wxStaticText(m_form, wxID_ANY, _L("Pos Y")), 0, wxALIGN_CENTER_VERTICAL);
     hform->Add(m_hole_y);
 
-    m_hole_through = new wxCheckBox(this, wxID_ANY, _L("Through"));
+    m_hole_through = new wxCheckBox(m_form, wxID_ANY, _L("Through"));
     m_hole_through->SetValue(true);
-    hform->Add(new wxStaticText(this, wxID_ANY, _L("Mode")), 0, wxALIGN_CENTER_VERTICAL);
+    hform->Add(new wxStaticText(m_form, wxID_ANY, _L("Mode")), 0, wxALIGN_CENTER_VERTICAL);
     hform->Add(m_hole_through);
 
     root->Add(hform, 0, wxLEFT | wxRIGHT, 12);
 
-    auto* add_hole = new wxButton(this, wxID_ANY, _L("Add Hole"));
+    auto* add_hole = new wxButton(m_form, wxID_ANY, _L("Add Hole"));
     add_hole->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_hole(); });
     root->Add(add_hole, 0, wxALL, 12);
 
     // --- Thread (helical) ---
     auto* tform = new wxFlexGridSizer(2, 6, 8);
 
-    m_thread_plane = new wxChoice(this, wxID_ANY);
+    m_thread_plane = new wxChoice(m_form, wxID_ANY);
     m_thread_plane->Append("XY");
     m_thread_plane->Append("XZ");
     m_thread_plane->Append("YZ");
     m_thread_plane->SetSelection(0);
-    tform->Add(new wxStaticText(this, wxID_ANY, _L("Thread plane")), 0, wxALIGN_CENTER_VERTICAL);
+    tform->Add(new wxStaticText(m_form, wxID_ANY, _L("Thread plane")), 0, wxALIGN_CENTER_VERTICAL);
     tform->Add(m_thread_plane);
 
-    m_thread_radius = make_spin(this, 5.0);
-    tform->Add(new wxStaticText(this, wxID_ANY, _L("Radius")), 0, wxALIGN_CENTER_VERTICAL);
+    m_thread_radius = make_spin(m_form, 5.0);
+    tform->Add(new wxStaticText(m_form, wxID_ANY, _L("Radius")), 0, wxALIGN_CENTER_VERTICAL);
     tform->Add(m_thread_radius);
 
-    m_thread_pitch = make_spin(this, 2.0);
-    tform->Add(new wxStaticText(this, wxID_ANY, _L("Pitch")), 0, wxALIGN_CENTER_VERTICAL);
+    m_thread_pitch = make_spin(m_form, 2.0);
+    tform->Add(new wxStaticText(m_form, wxID_ANY, _L("Pitch")), 0, wxALIGN_CENTER_VERTICAL);
     tform->Add(m_thread_pitch);
 
-    m_thread_height = make_spin(this, 10.0);
-    tform->Add(new wxStaticText(this, wxID_ANY, _L("Length")), 0, wxALIGN_CENTER_VERTICAL);
+    m_thread_height = make_spin(m_form, 10.0);
+    tform->Add(new wxStaticText(m_form, wxID_ANY, _L("Length")), 0, wxALIGN_CENTER_VERTICAL);
     tform->Add(m_thread_height);
 
-    m_thread_depth = make_spin(this, 1.0);
-    tform->Add(new wxStaticText(this, wxID_ANY, _L("Thread depth")), 0, wxALIGN_CENTER_VERTICAL);
+    m_thread_depth = make_spin(m_form, 1.0);
+    tform->Add(new wxStaticText(m_form, wxID_ANY, _L("Thread depth")), 0, wxALIGN_CENTER_VERTICAL);
     tform->Add(m_thread_depth);
 
-    m_thread_x = make_spin(this, 0.0, -1000.0, 1000.0);
-    tform->Add(new wxStaticText(this, wxID_ANY, _L("Pos X")), 0, wxALIGN_CENTER_VERTICAL);
+    m_thread_x = make_spin(m_form, 0.0, -1000.0, 1000.0);
+    tform->Add(new wxStaticText(m_form, wxID_ANY, _L("Pos X")), 0, wxALIGN_CENTER_VERTICAL);
     tform->Add(m_thread_x);
 
-    m_thread_y = make_spin(this, 0.0, -1000.0, 1000.0);
-    tform->Add(new wxStaticText(this, wxID_ANY, _L("Pos Y")), 0, wxALIGN_CENTER_VERTICAL);
+    m_thread_y = make_spin(m_form, 0.0, -1000.0, 1000.0);
+    tform->Add(new wxStaticText(m_form, wxID_ANY, _L("Pos Y")), 0, wxALIGN_CENTER_VERTICAL);
     tform->Add(m_thread_y);
 
-    m_thread_internal = new wxCheckBox(this, wxID_ANY, _L("Internal (tapped bore)"));
+    m_thread_internal = new wxCheckBox(m_form, wxID_ANY, _L("Internal (tapped bore)"));
     m_thread_internal->SetValue(false);
-    tform->Add(new wxStaticText(this, wxID_ANY, _L("Internal")), 0, wxALIGN_CENTER_VERTICAL);
+    tform->Add(new wxStaticText(m_form, wxID_ANY, _L("Internal")), 0, wxALIGN_CENTER_VERTICAL);
     tform->Add(m_thread_internal);
 
     root->Add(tform, 0, wxLEFT | wxRIGHT, 12);
 
-    auto* add_thread = new wxButton(this, wxID_ANY, _L("Add Thread"));
+    auto* add_thread = new wxButton(m_form, wxID_ANY, _L("Add Thread"));
     add_thread->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_thread(); });
     root->Add(add_thread, 0, wxALL, 12);
 
-    root->Add(new wxStaticText(this, wxID_ANY, _L("Feature tree")), 0, wxLEFT | wxTOP, 12);
-    m_tree = new wxListBox(this, wxID_ANY, wxDefaultPosition, wxSize(-1, 140));
+    root->Add(new wxStaticText(m_form, wxID_ANY, _L("Feature tree")), 0, wxLEFT | wxTOP, 12);
+    m_tree = new wxListBox(m_form, wxID_ANY, wxDefaultPosition, wxSize(-1, 140));
     root->Add(m_tree, 0, wxEXPAND | wxALL, 12);
 
-    m_status = new wxStaticText(this, wxID_ANY, "");
+    m_status = new wxStaticText(m_form, wxID_ANY, "");
     root->Add(m_status, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
 
-    auto* commit = new wxButton(this, wxID_ANY, _L("Commit to Plate"));
+    auto* commit = new wxButton(m_form, wxID_ANY, _L("Commit to Plate"));
     commit->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_commit(); });
     root->Add(commit, 0, wxALL, 12);
 
     m_shape->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { on_shape_changed(); });
     on_shape_changed();
 
-    SetSizer(root);
-    FitInside();
-    SetScrollRate(10, 10);
+    m_form->SetSizer(root);
+    m_form->FitInside();
+    m_form->SetScrollRate(10, 10);
+    m_form->SetMinSize(wxSize(380, -1));
+
+    // Right column: the live 3D viewport that mirrors the CadDocument body.
+    m_viewport = new DesignViewport(this);
+
+    auto* outer = new wxBoxSizer(wxHORIZONTAL);
+    outer->Add(m_form,     0, wxEXPAND);
+    outer->Add(m_viewport, 1, wxEXPAND);
+    SetSizer(outer);
 }
 
 void DesignPanel::on_shape_changed()
@@ -235,6 +249,8 @@ void DesignPanel::set_status_ok()
 {
     m_status->SetLabel(wxString::Format(_L("OK — %zu triangles"),
                                         m_doc.display_mesh.its.indices.size()));
+    if (m_viewport != nullptr)
+        m_viewport->set_mesh(m_doc.display_mesh);
 }
 
 void DesignPanel::on_add_feature()
