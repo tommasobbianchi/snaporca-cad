@@ -2,14 +2,64 @@
 
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
+#include <BRepOffsetAPI_MakePipe.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepLib.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <Geom2d_TrimmedCurve.hxx>
+#include <GCE2d_MakeSegment.hxx>
 #include <TopoDS_Edge.hxx>
+#include <TopoDS_Face.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Ax2.hxx>
+#include <gp_Ax3.hxx>
+#include <gp_Pnt2d.hxx>
+#include <gp_Vec.hxx>
+#include <cmath>
 #include <stdexcept>
 
 namespace Slic3r {
+
+// ---- helical-thread construction helpers (file-local) ----------------------
+
+// Helix spine on a cylinder (radius/pitch/height) about `axis`, as a wire.
+static TopoDS_Wire make_helix_wire(const gp_Ax3& axis, double radius,
+                                   double pitch, double height)
+{
+    Handle(Geom_CylindricalSurface) cyl = new Geom_CylindricalSurface(axis, radius);
+    double turns = (pitch > 1e-6) ? (height / pitch) : 1.0;
+    // In the surface (u,v) parametrization u is the angle, v the axial height.
+    gp_Pnt2d p0(0.0, 0.0);
+    gp_Pnt2d p1(2.0 * M_PI * turns, height);
+    Handle(Geom2d_TrimmedCurve) seg = GCE2d_MakeSegment(p0, p1);
+    TopoDS_Edge e = BRepBuilderAPI_MakeEdge(seg, cyl).Edge();
+    BRepLib::BuildCurves3d(e);
+    return BRepBuilderAPI_MakeWire(e).Wire();
+}
+
+// Triangular axial thread profile (a planar face) placed at the helix start
+// (origin + radius*xdir). Spans +-pitch/2 axially; apex offset radially by depth.
+// External: apex points outward (crest = radius+depth), base bites inward.
+// Internal: apex points inward (crest = radius-depth), base bites outward.
+static TopoDS_Face make_thread_profile(const gp_Pnt& origin, const gp_Dir& xdir,
+                                       const gp_Dir& zdir, double radius,
+                                       double pitch, double depth, bool internal)
+{
+    gp_Vec vx(xdir), vz(zdir);
+    double inner = internal ? (radius + 0.05) : (radius - 0.05); // bite into material
+    double crest = internal ? (radius - depth) : (radius + depth);
+    gp_Pnt top (origin.XYZ() + (vx * inner).XYZ() + (vz * ( 0.5 * pitch)).XYZ());
+    gp_Pnt bot (origin.XYZ() + (vx * inner).XYZ() + (vz * (-0.5 * pitch)).XYZ());
+    gp_Pnt apex(origin.XYZ() + (vx * crest).XYZ());
+    BRepBuilderAPI_MakePolygon poly(top, bot, apex, Standard_True);
+    return BRepBuilderAPI_MakeFace(poly.Wire(), Standard_True).Face();
+}
+
+// ---------------------------------------------------------------------------
 
 int CadDocument::add_sketch(SketchShape shape, const SketchPlane& plane,
                             double width, double height, double radius,
@@ -76,6 +126,25 @@ int CadDocument::add_hole(double diameter, double depth, bool through,
     f.hole_through  = through;
     f.hole_x        = x;
     f.hole_y        = y;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
+int CadDocument::add_thread(double radius, double pitch, double height, double depth,
+                            bool internal, double x, double y, const SketchPlane& plane,
+                            const std::string& name)
+{
+    CadFeature f;
+    f.type            = CadFeatureType::Thread;
+    f.name            = name;
+    f.plane           = plane;
+    f.thread_radius   = radius;
+    f.thread_pitch    = pitch;
+    f.thread_height   = height;
+    f.thread_depth    = depth;
+    f.thread_internal = internal;
+    f.thread_x        = x;
+    f.thread_y        = y;
     features.push_back(f);
     return int(features.size()) - 1;
 }
@@ -171,6 +240,59 @@ bool CadDocument::recompute()
                 BRepAlgoAPI_Cut cut(result, tool);
                 if (!cut.IsDone()) throw std::runtime_error("hole cut failed");
                 result = cut.Shape();
+                break;
+            }
+            case CadFeatureType::Thread: {
+                // Axis at the positioned point on the plane; +normal = thread rise.
+                Vec3d c3 = f.plane.to_world(Vec2d(f.thread_x, f.thread_y));
+                gp_Pnt  c(c3.x(), c3.y(), c3.z());
+                gp_Dir  zdir(f.plane.normal.x(), f.plane.normal.y(), f.plane.normal.z());
+                gp_Dir  xdir(f.plane.x_axis.x(), f.plane.x_axis.y(), f.plane.x_axis.z());
+                gp_Ax3  ax3(c, zdir, xdir);
+                gp_Ax2  ax2(c, zdir, xdir);
+
+                // Build the swept helical ridge (guarded — never fatal).
+                TopoDS_Shape ridge;
+                bool have_ridge = false;
+                try {
+                    TopoDS_Wire spine = make_helix_wire(ax3, f.thread_radius,
+                                                        f.thread_pitch, f.thread_height);
+                    TopoDS_Face prof  = make_thread_profile(c, xdir, zdir, f.thread_radius,
+                                                            f.thread_pitch, f.thread_depth,
+                                                            f.thread_internal);
+                    BRepOffsetAPI_MakePipe pipe(spine, prof);
+                    pipe.Build();
+                    if (pipe.IsDone()) {
+                        ridge = pipe.Shape();
+                        have_ridge = !ridge.IsNull();
+                    }
+                } catch (const std::exception&) {
+                    have_ridge = false; // fall back to the bare cylinder/bore below
+                }
+
+                if (f.thread_internal) {
+                    if (!have_body) throw std::runtime_error("internal thread needs a body");
+                    // Tapped bore: cut a cylinder, then carve the inward helical ridge.
+                    TopoDS_Shape bore = BRepPrimAPI_MakeCylinder(ax2, f.thread_radius,
+                                                                 f.thread_height).Shape();
+                    BRepAlgoAPI_Cut cut_bore(result, bore);
+                    if (!cut_bore.IsDone()) throw std::runtime_error("thread bore cut failed");
+                    result = cut_bore.Shape();
+                    if (have_ridge) {
+                        BRepAlgoAPI_Cut cut_ridge(result, ridge);
+                        if (cut_ridge.IsDone()) result = cut_ridge.Shape();
+                    }
+                } else {
+                    // External threaded rod = a New body: base cylinder + fused ridge.
+                    TopoDS_Shape rod = BRepPrimAPI_MakeCylinder(ax2, f.thread_radius,
+                                                                f.thread_height).Shape();
+                    if (have_ridge) {
+                        BRepAlgoAPI_Fuse fuse(rod, ridge);
+                        if (fuse.IsDone()) rod = fuse.Shape();
+                    }
+                    result = rod;
+                    have_body = true;
+                }
                 break;
             }
             }

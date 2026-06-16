@@ -26,6 +26,7 @@ private:
     void on_add_feature();
     void on_add_dressup();
     void on_add_hole();
+    void on_add_thread();
     void on_commit();
     void refresh_tree();
     void set_status_ok();
@@ -50,6 +51,15 @@ private:
     wxCheckBox*       m_hole_through{nullptr};
     wxSpinCtrlDouble* m_hole_x{nullptr};
     wxSpinCtrlDouble* m_hole_y{nullptr};
+
+    wxChoice*         m_thread_plane{nullptr};
+    wxSpinCtrlDouble* m_thread_radius{nullptr};
+    wxSpinCtrlDouble* m_thread_pitch{nullptr};
+    wxSpinCtrlDouble* m_thread_height{nullptr};
+    wxSpinCtrlDouble* m_thread_depth{nullptr};
+    wxCheckBox*       m_thread_internal{nullptr};
+    wxSpinCtrlDouble* m_thread_x{nullptr};
+    wxSpinCtrlDouble* m_thread_y{nullptr};
 
     wxListBox*        m_tree{nullptr};
     wxStaticText*     m_status{nullptr};

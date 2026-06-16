@@ -12,7 +12,7 @@
 
 namespace Slic3r {
 
-enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole };
+enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread };
 enum class SketchShape    { Rectangle, Circle };
 enum class BooleanMode    { New, Add, Cut };
 
@@ -44,6 +44,16 @@ struct CadFeature {
     bool        hole_through{true};        // true = symmetric through-cut, ignores hole_depth
     double      hole_x{0};                 // position on the plane (plane u/x axis)
     double      hole_y{0};                 // position on the plane (plane v/y axis)
+
+    // Thread params (helical thread about the plane normal at a positioned point)
+    double      thread_radius{5};          // nominal cylinder radius
+    double      thread_pitch{2};           // axial advance per turn
+    double      thread_height{10};         // total axial length
+    double      thread_depth{1};           // radial crest depth of the thread profile
+    bool        thread_internal{false};    // false = external threaded rod (New body);
+                                           // true = tapped bore cut into the current body
+    double      thread_x{0};               // axis position on the plane (u/x axis)
+    double      thread_y{0};               // axis position on the plane (v/y axis)
 };
 
 // OCCT-only feature tree backing the Design tab. No GUI dependencies (lives in libslic3r).
@@ -67,6 +77,9 @@ public:
     int  add_hole(double diameter, double depth, bool through,
                   double x, double y, const SketchPlane& plane,
                   const std::string& name);
+    int  add_thread(double radius, double pitch, double height, double depth,
+                    bool internal, double x, double y, const SketchPlane& plane,
+                    const std::string& name);
     void clear();
     bool recompute();   // replay features -> body + display_mesh; false on error
 

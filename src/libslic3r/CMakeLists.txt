@@ -534,6 +534,7 @@ find_package(JPEG REQUIRED)
 
 set(OCCT_LIBS
     TKFillet
+    TKOffset
     TKBool
     TKXDESTEP
     TKSTEP

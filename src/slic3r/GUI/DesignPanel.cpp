@@ -41,7 +41,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     : wxScrolledWindow(parent, wxID_ANY)
 {
     auto* root = new wxBoxSizer(wxVERTICAL);
-    root->Add(new wxStaticText(this, wxID_ANY, _L("Design (CAD) — Sketch + Extrude + Fillet/Chamfer + Hole")),
+    root->Add(new wxStaticText(this, wxID_ANY, _L("Design (CAD) — Sketch + Extrude + Fillet/Chamfer + Hole + Thread")),
               0, wxALL, 12);
 
     auto* form = new wxFlexGridSizer(2, 6, 8);
@@ -158,6 +158,52 @@ DesignPanel::DesignPanel(wxWindow* parent)
     add_hole->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_hole(); });
     root->Add(add_hole, 0, wxALL, 12);
 
+    // --- Thread (helical) ---
+    auto* tform = new wxFlexGridSizer(2, 6, 8);
+
+    m_thread_plane = new wxChoice(this, wxID_ANY);
+    m_thread_plane->Append("XY");
+    m_thread_plane->Append("XZ");
+    m_thread_plane->Append("YZ");
+    m_thread_plane->SetSelection(0);
+    tform->Add(new wxStaticText(this, wxID_ANY, _L("Thread plane")), 0, wxALIGN_CENTER_VERTICAL);
+    tform->Add(m_thread_plane);
+
+    m_thread_radius = make_spin(this, 5.0);
+    tform->Add(new wxStaticText(this, wxID_ANY, _L("Radius")), 0, wxALIGN_CENTER_VERTICAL);
+    tform->Add(m_thread_radius);
+
+    m_thread_pitch = make_spin(this, 2.0);
+    tform->Add(new wxStaticText(this, wxID_ANY, _L("Pitch")), 0, wxALIGN_CENTER_VERTICAL);
+    tform->Add(m_thread_pitch);
+
+    m_thread_height = make_spin(this, 10.0);
+    tform->Add(new wxStaticText(this, wxID_ANY, _L("Length")), 0, wxALIGN_CENTER_VERTICAL);
+    tform->Add(m_thread_height);
+
+    m_thread_depth = make_spin(this, 1.0);
+    tform->Add(new wxStaticText(this, wxID_ANY, _L("Thread depth")), 0, wxALIGN_CENTER_VERTICAL);
+    tform->Add(m_thread_depth);
+
+    m_thread_x = make_spin(this, 0.0, -1000.0, 1000.0);
+    tform->Add(new wxStaticText(this, wxID_ANY, _L("Pos X")), 0, wxALIGN_CENTER_VERTICAL);
+    tform->Add(m_thread_x);
+
+    m_thread_y = make_spin(this, 0.0, -1000.0, 1000.0);
+    tform->Add(new wxStaticText(this, wxID_ANY, _L("Pos Y")), 0, wxALIGN_CENTER_VERTICAL);
+    tform->Add(m_thread_y);
+
+    m_thread_internal = new wxCheckBox(this, wxID_ANY, _L("Internal (tapped bore)"));
+    m_thread_internal->SetValue(false);
+    tform->Add(new wxStaticText(this, wxID_ANY, _L("Internal")), 0, wxALIGN_CENTER_VERTICAL);
+    tform->Add(m_thread_internal);
+
+    root->Add(tform, 0, wxLEFT | wxRIGHT, 12);
+
+    auto* add_thread = new wxButton(this, wxID_ANY, _L("Add Thread"));
+    add_thread->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_thread(); });
+    root->Add(add_thread, 0, wxALL, 12);
+
     root->Add(new wxStaticText(this, wxID_ANY, _L("Feature tree")), 0, wxLEFT | wxTOP, 12);
     m_tree = new wxListBox(this, wxID_ANY, wxDefaultPosition, wxSize(-1, 140));
     root->Add(m_tree, 0, wxEXPAND | wxALL, 12);
@@ -255,6 +301,29 @@ void DesignPanel::on_add_hole()
     m_feature_counter++;
     m_doc.add_hole(dia, depth, through, px, py, plane,
                    "Hole" + std::to_string(m_feature_counter));
+
+    if (!m_doc.recompute())
+        m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
+    else
+        set_status_ok();
+
+    refresh_tree();
+}
+
+void DesignPanel::on_add_thread()
+{
+    bool internal = m_thread_internal->GetValue();
+    if (internal && m_doc.body.IsNull()) {
+        m_status->SetLabel(_L("Internal thread needs a body — add a solid first"));
+        return;
+    }
+    SketchPlane plane = plane_from_index(m_thread_plane->GetSelection());
+
+    m_feature_counter++;
+    m_doc.add_thread(m_thread_radius->GetValue(), m_thread_pitch->GetValue(),
+                     m_thread_height->GetValue(), m_thread_depth->GetValue(),
+                     internal, m_thread_x->GetValue(), m_thread_y->GetValue(),
+                     plane, "Thread" + std::to_string(m_feature_counter));
 
     if (!m_doc.recompute())
         m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
