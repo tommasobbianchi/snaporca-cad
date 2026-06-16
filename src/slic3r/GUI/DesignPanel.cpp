@@ -10,6 +10,7 @@
 #include <wx/listbox.h>
 
 #include <string>
+#include <cmath>
 
 #include "libslic3r/Model.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
@@ -36,6 +37,15 @@ static SketchPlane plane_from_index(int i)
         case 2:  return SketchPlane::YZ();
         default: return SketchPlane::XY();
     }
+}
+
+// Inverse of plane_from_index: recover the wxChoice row from a plane's normal.
+// XY normal=(0,0,1)->0, XZ normal=(0,1,0)->1, YZ normal=(1,0,0)->2.
+static int index_from_plane(const SketchPlane& p)
+{
+    if (std::abs(p.normal.y()) > 0.5) return 1; // XZ
+    if (std::abs(p.normal.x()) > 0.5) return 2; // YZ
+    return 0;                                   // XY
 }
 
 DesignPanel::DesignPanel(wxWindow* parent)
@@ -264,12 +274,15 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // Feature-tree edit row: act on the selected feature (delete / reorder).
     {
         auto* trow = new wxBoxSizer(wxHORIZONTAL);
+        auto* edit = new wxButton(m_form, wxID_ANY, _L("Edit"));
+        edit->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_edit_feature(); });
         auto* del  = new wxButton(m_form, wxID_ANY, _L("Delete"));
         del->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_delete_feature(); });
         auto* up   = new wxButton(m_form, wxID_ANY, _L("↑"), wxDefaultPosition, wxSize(40, -1));
         up->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_move_feature(-1); });
         auto* down = new wxButton(m_form, wxID_ANY, _L("↓"), wxDefaultPosition, wxSize(40, -1));
         down->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_move_feature(+1); });
+        trow->Add(edit, 0, wxRIGHT, 8);
         trow->Add(del, 0, wxRIGHT, 8);
         trow->Add(up,  0, wxRIGHT, 4);
         trow->Add(down, 0);
@@ -491,6 +504,113 @@ void DesignPanel::on_move_feature(int delta)
     }
 }
 
+void DesignPanel::reset_edit_state()
+{
+    m_edit_index   = -1;
+    m_edit_sketch  = -1;
+    m_edit_extrude = -1;
+}
+
+void DesignPanel::load_feature_into_dialog(const CadFeature& f, const CadFeature* extrude)
+{
+    switch (f.type) {
+    case CadFeatureType::Sketch:
+    case CadFeatureType::Extrude:
+        m_shape->SetSelection(f.shape == SketchShape::Circle ? 1 : 0);
+        m_plane->SetSelection(index_from_plane(f.plane));
+        m_width->SetValue(f.width);
+        m_height->SetValue(f.height);
+        m_radius->SetValue(f.radius);
+        if (extrude != nullptr) {
+            m_distance->SetValue(extrude->distance);
+            m_mode->SetSelection(static_cast<int>(extrude->mode)); // New=0,Add=1,Cut=2
+        }
+        break;
+    case CadFeatureType::Fillet:
+    case CadFeatureType::Chamfer:
+        m_dressup_type->SetSelection(f.type == CadFeatureType::Fillet ? 0 : 1);
+        m_dressup_size->SetValue(f.dressup_size);
+        m_face_group->SetSelection(static_cast<int>(f.face_group));
+        break;
+    case CadFeatureType::Hole:
+        m_hole_plane->SetSelection(index_from_plane(f.plane));
+        m_hole_diameter->SetValue(f.hole_diameter);
+        m_hole_depth->SetValue(f.hole_depth);
+        m_hole_through->SetValue(f.hole_through);
+        m_hole_x->SetValue(f.hole_x);
+        m_hole_y->SetValue(f.hole_y);
+        break;
+    case CadFeatureType::Thread:
+        m_thread_plane->SetSelection(index_from_plane(f.plane));
+        m_thread_radius->SetValue(f.thread_radius);
+        m_thread_pitch->SetValue(f.thread_pitch);
+        m_thread_height->SetValue(f.thread_height);
+        m_thread_depth->SetValue(f.thread_depth);
+        m_thread_internal->SetValue(f.thread_internal);
+        m_thread_x->SetValue(f.thread_x);
+        m_thread_y->SetValue(f.thread_y);
+        break;
+    }
+}
+
+void DesignPanel::on_edit_feature()
+{
+    int sel = m_tree->GetSelection();
+    if (sel == wxNOT_FOUND) {
+        m_status->SetLabel(_L("Select a feature in the tree first"));
+        m_status->Refresh();
+        return;
+    }
+    const CadFeature& f = m_doc.features[sel];
+    reset_edit_state();
+
+    switch (f.type) {
+    case CadFeatureType::Sketch:
+    case CadFeatureType::Extrude: {
+        // A box is a Sketch + its Extrude. Resolve the linked pair regardless of
+        // which of the two rows was selected, then edit both together.
+        int sketch_idx = -1, extrude_idx = -1;
+        if (f.type == CadFeatureType::Extrude) {
+            extrude_idx = sel;
+            sketch_idx  = f.sketch_ref;
+        } else {
+            sketch_idx = sel;
+            for (int i = 0; i < int(m_doc.features.size()); ++i)
+                if (m_doc.features[i].type == CadFeatureType::Extrude &&
+                    m_doc.features[i].sketch_ref == sel) { extrude_idx = i; break; }
+        }
+        if (sketch_idx < 0 || extrude_idx < 0 ||
+            sketch_idx >= int(m_doc.features.size())) {
+            m_status->SetForegroundColour(wxColour(235, 110, 110));
+            m_status->SetLabel(_L("This sketch has no extrude to edit"));
+            m_status->Refresh();
+            return;
+        }
+        m_edit_sketch  = sketch_idx;
+        m_edit_extrude = extrude_idx;
+        load_feature_into_dialog(m_doc.features[sketch_idx], &m_doc.features[extrude_idx]);
+        open_tool(Tool::Sketch);
+        break;
+    }
+    case CadFeatureType::Fillet:
+    case CadFeatureType::Chamfer:
+        m_edit_index = sel;
+        load_feature_into_dialog(f, nullptr);
+        open_tool(Tool::Dressup);
+        break;
+    case CadFeatureType::Hole:
+        m_edit_index = sel;
+        load_feature_into_dialog(f, nullptr);
+        open_tool(Tool::Hole);
+        break;
+    case CadFeatureType::Thread:
+        m_edit_index = sel;
+        load_feature_into_dialog(f, nullptr);
+        open_tool(Tool::Thread);
+        break;
+    }
+}
+
 void DesignPanel::on_commit()
 {
     if (m_doc.display_mesh.its.indices.empty()) {
@@ -563,7 +683,25 @@ void DesignPanel::refresh_preview()
     CadFeature   cand = build_candidate(m_active);
     TriangleMesh mesh;
     std::string  err;
-    if (m_doc.preview(cand, mesh, err)) {
+    bool         ok = false;
+
+    const bool editing_pair   = (m_edit_sketch >= 0 && m_edit_extrude >= 0);
+    const bool editing_single = (m_edit_index >= 0);
+    if (editing_pair || editing_single) {
+        // Edit-mode preview: stacking the candidate on top of the live body would
+        // re-apply the feature being edited (fillet-on-fillet) — wrong, and a
+        // source of OCCT failures. Instead evaluate the *replace* on a throwaway
+        // copy so the ghost is the true post-edit body.
+        CadDocument tmp = m_doc;
+        ok = editing_pair
+           ? tmp.replace_sketch_extrude(m_edit_sketch, m_edit_extrude, cand)
+           : tmp.replace_feature(m_edit_index, cand);
+        if (ok) mesh = tmp.display_mesh; else err = tmp.error;
+    } else {
+        ok = m_doc.preview(cand, mesh, err);
+    }
+
+    if (ok) {
         m_viewport->set_preview_mesh(mesh);
         m_status->SetForegroundColour(wxColour(120, 210, 120)); // ok = green
         m_status->SetLabel(wxString::Format(_L("Preview — %zu triangles"), mesh.its.indices.size()));
@@ -603,6 +741,21 @@ void DesignPanel::close_tool()
 
 void DesignPanel::confirm_tool()
 {
+    const bool editing_pair   = (m_edit_sketch >= 0 && m_edit_extrude >= 0);
+    const bool editing_single = (m_edit_index >= 0);
+
+    if (editing_pair || editing_single) {
+        // Edit mode: overwrite the existing feature(s) instead of appending.
+        CadFeature cand = build_candidate(m_active);
+        bool ok = editing_pair
+                ? m_doc.replace_sketch_extrude(m_edit_sketch, m_edit_extrude, cand)
+                : m_doc.replace_feature(m_edit_index, cand);
+        reset_edit_state();
+        close_tool();          // clears the preview ghost
+        after_tree_edit(ok);   // refresh tree/viewport/status (or "Edit rejected")
+        return;
+    }
+
     switch (m_active) {
     case Tool::Sketch:  on_add_feature(); break;
     case Tool::Dressup: on_add_dressup(); break;
@@ -615,6 +768,7 @@ void DesignPanel::confirm_tool()
 
 void DesignPanel::cancel_tool()
 {
+    reset_edit_state(); // abort an in-progress edit: back to add-mode
     close_tool();
     // Cancel discards the candidate: clear the stale "Preview …"/"Invalid …"
     // label and restore the neutral idle colour (Confirm keeps its "OK" status).

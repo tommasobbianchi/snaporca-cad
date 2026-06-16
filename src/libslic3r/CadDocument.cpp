@@ -1,5 +1,6 @@
 #include "CadDocument.hpp"
 
+#include <Standard_Failure.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -266,6 +267,33 @@ bool CadDocument::replace_feature(int index, const CadFeature& edited)
     return commit_or_rollback(*this, snapshot);
 }
 
+bool CadDocument::replace_sketch_extrude(int sketch_idx, int extrude_idx,
+                                         const CadFeature& edited)
+{
+    if (sketch_idx  < 0 || sketch_idx  >= int(features.size())) return false;
+    if (extrude_idx < 0 || extrude_idx >= int(features.size())) return false;
+
+    std::vector<CadFeature> snapshot = features;
+
+    // A box in the tree is two linked features: the Sketch consumes the profile
+    // params (shape/plane/width/height/radius), the Extrude consumes the solid
+    // params (distance/symmetric/mode). `edited` carries all of them; split it
+    // back into the two slots, preserving each slot's name/type and the link.
+    CadFeature& sk = features[sketch_idx];
+    sk.shape  = edited.shape;
+    sk.plane  = edited.plane;
+    sk.width  = edited.width;
+    sk.height = edited.height;
+    sk.radius = edited.radius;
+
+    CadFeature& ex = features[extrude_idx];
+    ex.distance  = edited.distance;
+    ex.symmetric = edited.symmetric;
+    ex.mode      = edited.mode;
+
+    return commit_or_rollback(*this, snapshot);
+}
+
 TopoDS_Wire CadDocument::build_sketch_wire(const CadFeature& sketch) const
 {
     if (sketch.shape == SketchShape::Circle) {
@@ -411,8 +439,16 @@ bool CadDocument::recompute()
             if (f.type == CadFeatureType::Sketch) continue; // consumed by an extrude
             apply_feature(result, have_body, f);
         }
+    } catch (const Standard_Failure& e) {
+        // OCCT raises Standard_Failure (NOT a std::exception) — must be caught
+        // here or it escapes the event handler and terminates the app.
+        error = e.GetMessageString() ? e.GetMessageString() : "OCCT operation failed";
+        return false;
     } catch (const std::exception& e) {
         error = e.what();
+        return false;
+    } catch (...) {
+        error = "unknown geometry error";
         return false;
     }
     if (!have_body) { error = "no solid-producing features"; return false; }
@@ -433,8 +469,14 @@ bool CadDocument::preview(const CadFeature& candidate, TriangleMesh& out_mesh, s
     bool have_body = !body.IsNull();
     try {
         apply_feature(result, have_body, candidate);
+    } catch (const Standard_Failure& e) {
+        err = e.GetMessageString() ? e.GetMessageString() : "OCCT operation failed";
+        return false;
     } catch (const std::exception& e) {
         err = e.what();
+        return false;
+    } catch (...) {
+        err = "unknown geometry error";
         return false;
     }
     if (!have_body || result.IsNull()) {

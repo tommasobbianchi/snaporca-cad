@@ -5,6 +5,7 @@
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
+#include <stdexcept>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
@@ -135,7 +136,10 @@ TopoDS_Shape GeometryEngine::apply_fillet(const TopoDS_Shape& solid, double radi
         fillet.Add(radius, edge);
     fillet.Build();
 
-    if (!fillet.IsDone()) return solid; // fallback
+    // A too-large radius (e.g. >= half the smallest spanned dimension) makes the
+    // operation degenerate; OCCT leaves IsDone() false. Report it instead of
+    // silently returning the unfilleted solid (which reads as a false success).
+    if (!fillet.IsDone()) throw std::runtime_error("fillet radius too large for this geometry");
     return fillet.Shape();
 }
 
@@ -151,7 +155,7 @@ TopoDS_Shape GeometryEngine::apply_chamfer(const TopoDS_Shape& solid, double dis
         chamfer.Add(distance, edge); // symmetric chamfer
     chamfer.Build();
 
-    if (!chamfer.IsDone()) return solid;
+    if (!chamfer.IsDone()) throw std::runtime_error("chamfer distance too large for this geometry");
     return chamfer.Shape();
 }
 

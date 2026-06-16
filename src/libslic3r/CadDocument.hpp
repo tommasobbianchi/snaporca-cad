@@ -96,6 +96,11 @@ public:
     bool remove_feature(int index);
     bool move_feature(int index, int delta);
     bool replace_feature(int index, const CadFeature& edited);
+    // replace_sketch_extrude: a box is two linked features (Sketch + Extrude);
+    //   overwrite both slots from one `edited` candidate (sketch params ->
+    //   features[sketch_idx], extrude params -> features[extrude_idx]), keeping
+    //   each slot's name/type and the sketch_ref link. Transactional like above.
+    bool replace_sketch_extrude(int sketch_idx, int extrude_idx, const CadFeature& edited);
 
     // Apply ONE candidate feature on top of the current committed body and
     // tessellate the result into out_mesh, WITHOUT modifying features/body/

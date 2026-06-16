@@ -43,7 +43,10 @@ private:
     // Feature-tree editing (Onshape-style): act on the selected tree row.
     void on_delete_feature();
     void on_move_feature(int delta);   // -1 = up, +1 = down
+    void on_edit_feature();            // reopen the selected feature's dialog populated
     void after_tree_edit(bool ok);     // shared post-op refresh of tree/viewport/status
+    void load_feature_into_dialog(const CadFeature& f, const CadFeature* extrude);
+    void reset_edit_state();           // back to add-mode (m_edit_* = -1)
 
     // Onshape loop: Button -> open_tool (show dialog) -> refresh_preview (ghost) ->
     // confirm_tool (commit) / cancel_tool (abort).
@@ -96,6 +99,13 @@ private:
     wxListBox*        m_tree{nullptr};
     wxStaticText*     m_status{nullptr};
     int               m_feature_counter{0};
+
+    // Edit-in-place state. add-mode = all -1. Single-feature edit: m_edit_index
+    // is the row to replace. Box (Sketch+Extrude) edit: m_edit_sketch/m_edit_extrude
+    // hold the linked pair (and m_edit_index stays -1).
+    int               m_edit_index{-1};
+    int               m_edit_sketch{-1};
+    int               m_edit_extrude{-1};
 };
 
 }} // namespace Slic3r::GUI
