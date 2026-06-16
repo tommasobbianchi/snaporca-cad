@@ -20,21 +20,20 @@ namespace Slic3r { namespace GUI {
 
 class DesignCanvas;
 
-// Design (CAD) tab: a form-driven sketch + extrude + fillet/chamfer + hole that
-// feeds a CadDocument feature tree, then commits the resulting solid to the
-// Prepare plate via the model bridge. Interactive GL picking is a later refinement.
+// Design (CAD) tab: a sketch-first, Onshape-style form-driven CAD panel.
+// Sketch and Extrude are independent tools: the user creates a Sketch first,
+// then selects it and Extrudes to produce a solid.
 class DesignPanel : public wxPanel
 {
 public:
     explicit DesignPanel(wxWindow* parent);
 
 private:
-    // The active tool determines which dialog is shown and what a candidate
-    // feature is previewed/committed. Mirrors Onshape's one-tool-at-a-time model.
-    enum class Tool { None, Sketch, Dressup, Hole, Thread };
+    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread };
 
     void on_shape_changed();
-    void on_add_feature();
+    void on_add_sketch();
+    void on_add_extrude();
     void on_add_dressup();
     void on_add_hole();
     void on_add_thread();
@@ -47,8 +46,8 @@ private:
     void on_move_feature(int delta);   // -1 = up, +1 = down
     void on_edit_feature();            // reopen the selected feature's dialog populated
     void after_tree_edit(bool ok);     // shared post-op refresh of tree/viewport/status
-    void load_feature_into_dialog(const CadFeature& f, const CadFeature* extrude);
-    void reset_edit_state();           // back to add-mode (m_edit_* = -1)
+    void load_feature_into_dialog(const CadFeature& f);
+    void reset_edit_state();           // back to add-mode (m_edit_index = -1)
 
     // Onshape loop: Button -> open_tool (show dialog) -> refresh_preview (ghost) ->
     // confirm_tool (commit) / cancel_tool (abort).
@@ -58,11 +57,13 @@ private:
     void       confirm_tool();
     void       cancel_tool();
     CadFeature build_candidate(Tool t) const;
+    int        resolve_extrude_sketch() const;
 
     CadDocument m_doc;
 
     Tool      m_active{Tool::None};
     wxSizer*  m_box_sketch{nullptr};
+    wxSizer*  m_box_extrude{nullptr};
     wxSizer*  m_box_dressup{nullptr};
     wxSizer*  m_box_hole{nullptr};
     wxSizer*  m_box_thread{nullptr};
@@ -77,6 +78,9 @@ private:
     wxSpinCtrlDouble* m_height{nullptr};
     wxSpinCtrlDouble* m_radius{nullptr};
     wxSpinCtrlDouble* m_distance{nullptr};
+
+    wxStaticText*     m_extrude_sketch_label{nullptr};
+    int               m_extrude_sketch_ref{-1};
 
     wxChoice*         m_dressup_type{nullptr};
     wxChoice*         m_face_group{nullptr};
@@ -102,17 +106,11 @@ private:
     wxStaticText*     m_status{nullptr};
     int               m_feature_counter{0};
 
-    // The per-tool "✓ Confirm" buttons. refresh_preview() greys these out while the
-    // candidate is invalid (Onshape parity: cannot commit a broken feature). Only one
-    // dialog is visible at a time, so gating all of them together is safe.
     std::vector<wxButton*> m_confirm_btns;
 
-    // Edit-in-place state. add-mode = all -1. Single-feature edit: m_edit_index
-    // is the row to replace. Box (Sketch+Extrude) edit: m_edit_sketch/m_edit_extrude
-    // hold the linked pair (and m_edit_index stays -1).
+    // Edit-in-place state: add-mode is m_edit_index == -1. Single-feature edit
+    // (Sketch or Extrude independently) uses only m_edit_index as the row to replace.
     int               m_edit_index{-1};
-    int               m_edit_sketch{-1};
-    int               m_edit_extrude{-1};
 };
 
 }} // namespace Slic3r::GUI

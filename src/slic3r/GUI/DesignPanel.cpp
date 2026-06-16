@@ -56,14 +56,26 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_form = new wxScrolledWindow(this, wxID_ANY);
 
     auto* root = new wxBoxSizer(wxVERTICAL);
-    root->Add(new wxStaticText(m_form, wxID_ANY, _L("Design (CAD) — Sketch + Extrude + Fillet/Chamfer + Hole + Thread")),
+    root->Add(new wxStaticText(m_form, wxID_ANY, _L("Design (CAD) — Sketch-first parametric modeling")),
               0, wxALL, 12);
 
-    // Toolbar of trigger buttons (declare intent; each opens its tool dialog).
+    // Toolbar: Sketch-first flow — Sketch and Extrude are independent tools.
     auto* tbar = new wxBoxSizer(wxVERTICAL);
-    auto* b_sketch = new wxButton(m_form, wxID_ANY, _L("Sketch + Extrude"));
+    auto* b_sketch = new wxButton(m_form, wxID_ANY, _L("New Sketch"));
     b_sketch->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Sketch); });
     tbar->Add(b_sketch, 0, wxEXPAND | wxBOTTOM, 4);
+    auto* b_extrude = new wxButton(m_form, wxID_ANY, _L("Extrude"));
+    b_extrude->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        m_extrude_sketch_ref = resolve_extrude_sketch();
+        if (m_extrude_sketch_ref < 0) {
+            m_status->SetForegroundColour(wxColour(235, 110, 110));
+            m_status->SetLabel(_L("Create a sketch first"));
+            m_status->Refresh();
+            return;
+        }
+        open_tool(Tool::Extrude);
+    });
+    tbar->Add(b_extrude, 0, wxEXPAND | wxBOTTOM, 4);
     auto* b_dressup = new wxButton(m_form, wxID_ANY, _L("Fillet / Chamfer"));
     b_dressup->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Dressup); });
     tbar->Add(b_dressup, 0, wxEXPAND | wxBOTTOM, 4);
@@ -75,6 +87,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     tbar->Add(b_thread, 0, wxEXPAND | wxBOTTOM, 4);
     root->Add(tbar, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 12);
 
+    // --- Sketch dialog (shape definition only — no distance/mode) ---
     auto* form = new wxFlexGridSizer(2, 6, 8);
 
     m_shape = new wxChoice(m_form, wxID_ANY);
@@ -104,18 +117,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
     form->Add(new wxStaticText(m_form, wxID_ANY, _L("Radius")), 0, wxALIGN_CENTER_VERTICAL);
     form->Add(m_radius);
 
-    m_distance = make_spin(m_form, 10);
-    form->Add(new wxStaticText(m_form, wxID_ANY, _L("Extrude dist")), 0, wxALIGN_CENTER_VERTICAL);
-    form->Add(m_distance);
-
-    m_mode = new wxChoice(m_form, wxID_ANY);
-    m_mode->Append("New");
-    m_mode->Append("Add");
-    m_mode->Append("Cut");
-    m_mode->SetSelection(0);
-    form->Add(new wxStaticText(m_form, wxID_ANY, _L("Mode")), 0, wxALIGN_CENTER_VERTICAL);
-    form->Add(m_mode);
-
     m_box_sketch = new wxBoxSizer(wxVERTICAL);
     m_box_sketch->Add(form, 0, wxALL, 12);
     {
@@ -130,6 +131,40 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_box_sketch->Add(row, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
     }
     root->Add(m_box_sketch, 0, wxEXPAND);
+
+    // --- Extrude dialog (consumes the selected sketch) ---
+    m_box_extrude = new wxBoxSizer(wxVERTICAL);
+    m_extrude_sketch_label = new wxStaticText(m_form, wxID_ANY, _L("Sketch: —"));
+    m_box_extrude->Add(m_extrude_sketch_label, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    {
+        auto* eform = new wxFlexGridSizer(2, 6, 8);
+
+        m_distance = make_spin(m_form, 10);
+        eform->Add(new wxStaticText(m_form, wxID_ANY, _L("Extrude dist")), 0, wxALIGN_CENTER_VERTICAL);
+        eform->Add(m_distance);
+
+        m_mode = new wxChoice(m_form, wxID_ANY);
+        m_mode->Append("New");
+        m_mode->Append("Add");
+        m_mode->Append("Cut");
+        m_mode->SetSelection(0);
+        eform->Add(new wxStaticText(m_form, wxID_ANY, _L("Mode")), 0, wxALIGN_CENTER_VERTICAL);
+        eform->Add(m_mode);
+
+        m_box_extrude->Add(eform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    }
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        m_confirm_btns.push_back(ok);
+        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
+        row->Add(ok, 0, wxRIGHT, 8);
+        row->Add(no, 0);
+        m_box_extrude->Add(row, 0, wxALL, 12);
+    }
+    root->Add(m_box_extrude, 0, wxEXPAND);
 
     // --- Dress-up (Fillet / Chamfer) ---
     auto* dform = new wxFlexGridSizer(2, 6, 8);
@@ -313,6 +348,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
 
     // Start with every tool dialog hidden (only the toolbar + tree + Commit show).
     root->Show(m_box_sketch,  false, true);
+    root->Show(m_box_extrude, false, true);
     root->Show(m_box_dressup, false, true);
     root->Show(m_box_hole,    false, true);
     root->Show(m_box_thread,  false, true);
@@ -367,27 +403,30 @@ void DesignPanel::set_status_ok()
         m_viewport->set_mesh(m_doc.display_mesh);
 }
 
-void DesignPanel::on_add_feature()
+void DesignPanel::on_add_sketch()
 {
     SketchShape shape = (m_shape->GetSelection() == 1) ? SketchShape::Circle
-                                                       : SketchShape::Rectangle;
+                                                        : SketchShape::Rectangle;
     SketchPlane plane = plane_from_index(m_plane->GetSelection());
-    BooleanMode mode  = static_cast<BooleanMode>(m_mode->GetSelection()); // New=0, Add=1, Cut=2
-
     m_feature_counter++;
-    std::string sname = "Sketch" + std::to_string(m_feature_counter);
-    std::string ename = "Extrude" + std::to_string(m_feature_counter);
+    m_doc.add_sketch(shape, plane, m_width->GetValue(), m_height->GetValue(),
+                     m_radius->GetValue(), "Sketch" + std::to_string(m_feature_counter));
+    m_doc.recompute();  // a lone sketch yields an empty body; that is expected
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(_L("Sketch added — select it and Extrude"));
+    refresh_tree();
+}
 
-    int sref = m_doc.add_sketch(shape, plane,
-                                m_width->GetValue(), m_height->GetValue(), m_radius->GetValue(),
-                                sname);
-    m_doc.add_extrude(sref, m_distance->GetValue(), false, mode, ename);
-
+void DesignPanel::on_add_extrude()
+{
+    BooleanMode mode = static_cast<BooleanMode>(m_mode->GetSelection());
+    m_feature_counter++;
+    m_doc.add_extrude(m_extrude_sketch_ref, m_distance->GetValue(), false, mode,
+                      "Extrude" + std::to_string(m_feature_counter));
     if (!m_doc.recompute())
         m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
     else
         set_status_ok();
-
     refresh_tree();
 }
 
@@ -522,25 +561,37 @@ void DesignPanel::on_move_feature(int delta)
 
 void DesignPanel::reset_edit_state()
 {
-    m_edit_index   = -1;
-    m_edit_sketch  = -1;
-    m_edit_extrude = -1;
+    m_edit_index = -1;
 }
 
-void DesignPanel::load_feature_into_dialog(const CadFeature& f, const CadFeature* extrude)
+int DesignPanel::resolve_extrude_sketch() const
+{
+    int sel = m_tree->GetSelection();
+    if (sel != wxNOT_FOUND && sel < int(m_doc.features.size()) &&
+        m_doc.features[sel].type == CadFeatureType::Sketch)
+        return sel;
+    for (int i = int(m_doc.features.size()) - 1; i >= 0; --i)
+        if (m_doc.features[i].type == CadFeatureType::Sketch) return i;
+    return -1;
+}
+
+void DesignPanel::load_feature_into_dialog(const CadFeature& f)
 {
     switch (f.type) {
     case CadFeatureType::Sketch:
-    case CadFeatureType::Extrude:
         m_shape->SetSelection(f.shape == SketchShape::Circle ? 1 : 0);
         m_plane->SetSelection(index_from_plane(f.plane));
         m_width->SetValue(f.width);
         m_height->SetValue(f.height);
         m_radius->SetValue(f.radius);
-        if (extrude != nullptr) {
-            m_distance->SetValue(extrude->distance);
-            m_mode->SetSelection(static_cast<int>(extrude->mode)); // New=0,Add=1,Cut=2
-        }
+        break;
+    case CadFeatureType::Extrude:
+        m_distance->SetValue(f.distance);
+        m_mode->SetSelection(static_cast<int>(f.mode)); // New=0,Add=1,Cut=2
+        m_extrude_sketch_ref = f.sketch_ref;
+        if (m_extrude_sketch_ref >= 0 && m_extrude_sketch_ref < int(m_doc.features.size()))
+            m_extrude_sketch_label->SetLabel(_L("Sketch: ") +
+                wxString::FromUTF8(m_doc.features[m_extrude_sketch_ref].name));
         break;
     case CadFeatureType::Fillet:
     case CadFeatureType::Chamfer:
@@ -582,46 +633,29 @@ void DesignPanel::on_edit_feature()
 
     switch (f.type) {
     case CadFeatureType::Sketch:
-    case CadFeatureType::Extrude: {
-        // A box is a Sketch + its Extrude. Resolve the linked pair regardless of
-        // which of the two rows was selected, then edit both together.
-        int sketch_idx = -1, extrude_idx = -1;
-        if (f.type == CadFeatureType::Extrude) {
-            extrude_idx = sel;
-            sketch_idx  = f.sketch_ref;
-        } else {
-            sketch_idx = sel;
-            for (int i = 0; i < int(m_doc.features.size()); ++i)
-                if (m_doc.features[i].type == CadFeatureType::Extrude &&
-                    m_doc.features[i].sketch_ref == sel) { extrude_idx = i; break; }
-        }
-        if (sketch_idx < 0 || extrude_idx < 0 ||
-            sketch_idx >= int(m_doc.features.size())) {
-            m_status->SetForegroundColour(wxColour(235, 110, 110));
-            m_status->SetLabel(_L("This sketch has no extrude to edit"));
-            m_status->Refresh();
-            return;
-        }
-        m_edit_sketch  = sketch_idx;
-        m_edit_extrude = extrude_idx;
-        load_feature_into_dialog(m_doc.features[sketch_idx], &m_doc.features[extrude_idx]);
+        m_edit_index = sel;
+        load_feature_into_dialog(f);
         open_tool(Tool::Sketch);
         break;
-    }
+    case CadFeatureType::Extrude:
+        m_edit_index = sel;
+        load_feature_into_dialog(f);
+        open_tool(Tool::Extrude);
+        break;
     case CadFeatureType::Fillet:
     case CadFeatureType::Chamfer:
         m_edit_index = sel;
-        load_feature_into_dialog(f, nullptr);
+        load_feature_into_dialog(f);
         open_tool(Tool::Dressup);
         break;
     case CadFeatureType::Hole:
         m_edit_index = sel;
-        load_feature_into_dialog(f, nullptr);
+        load_feature_into_dialog(f);
         open_tool(Tool::Hole);
         break;
     case CadFeatureType::Thread:
         m_edit_index = sel;
-        load_feature_into_dialog(f, nullptr);
+        load_feature_into_dialog(f);
         open_tool(Tool::Thread);
         break;
     }
@@ -647,13 +681,16 @@ CadFeature DesignPanel::build_candidate(Tool t) const
     CadFeature f;
     switch (t) {
     case Tool::Sketch:
+        f.type   = CadFeatureType::Sketch;
+        f.shape  = (m_shape->GetSelection() == 0) ? SketchShape::Rectangle : SketchShape::Circle;
+        f.plane  = plane_from_index(m_plane->GetSelection());
+        f.width  = m_width->GetValue();
+        f.height = m_height->GetValue();
+        f.radius = m_radius->GetValue();
+        break;
+    case Tool::Extrude:
         f.type       = CadFeatureType::Extrude;
-        f.sketch_ref = -1; // self-contained: apply_feature uses f's inline sketch params
-        f.shape      = (m_shape->GetSelection() == 0) ? SketchShape::Rectangle : SketchShape::Circle;
-        f.plane      = plane_from_index(m_plane->GetSelection());
-        f.width      = m_width->GetValue();
-        f.height     = m_height->GetValue();
-        f.radius     = m_radius->GetValue();
+        f.sketch_ref = m_extrude_sketch_ref;
         f.distance   = m_distance->GetValue();
         f.symmetric  = false;
         f.mode       = (m_mode->GetSelection() == 0) ? BooleanMode::New
@@ -696,22 +733,30 @@ void DesignPanel::refresh_preview()
 {
     if (m_active == Tool::None) { m_viewport->clear_preview(); return; }
 
+    if (m_active == Tool::Sketch) {
+        // A sketch carries no 3D solid; there is no ghost to show. It is always valid
+        // for positive dims, so just enable Confirm and clear any stale ghost.
+        m_viewport->clear_preview();
+        m_status->SetForegroundColour(wxColour(120, 210, 120));
+        m_status->SetLabel(_L("Sketch ready"));
+        for (wxButton* b : m_confirm_btns) if (b) b->Enable(true);
+        m_status->Refresh();
+        return;
+    }
+
     CadFeature   cand = build_candidate(m_active);
     TriangleMesh mesh;
     std::string  err;
     bool         ok = false;
 
-    const bool editing_pair   = (m_edit_sketch >= 0 && m_edit_extrude >= 0);
     const bool editing_single = (m_edit_index >= 0);
-    if (editing_pair || editing_single) {
+    if (editing_single) {
         // Edit-mode preview: stacking the candidate on top of the live body would
         // re-apply the feature being edited (fillet-on-fillet) — wrong, and a
         // source of OCCT failures. Instead evaluate the *replace* on a throwaway
         // copy so the ghost is the true post-edit body.
         CadDocument tmp = m_doc;
-        ok = editing_pair
-           ? tmp.replace_sketch_extrude(m_edit_sketch, m_edit_extrude, cand)
-           : tmp.replace_feature(m_edit_index, cand);
+        ok = tmp.replace_feature(m_edit_index, cand);
         if (ok) mesh = tmp.display_mesh; else err = tmp.error;
     } else {
         ok = m_doc.preview(cand, mesh, err);
@@ -738,9 +783,17 @@ void DesignPanel::open_tool(Tool t)
     m_active = t;
     wxSizer* s = m_form->GetSizer();
     s->Show(m_box_sketch,  t == Tool::Sketch,  true);
+    s->Show(m_box_extrude, t == Tool::Extrude, true);
     s->Show(m_box_dressup, t == Tool::Dressup, true);
     s->Show(m_box_hole,    t == Tool::Hole,    true);
     s->Show(m_box_thread,  t == Tool::Thread,  true);
+
+    if (t == Tool::Extrude) {
+        if (m_extrude_sketch_ref >= 0 && m_extrude_sketch_ref < int(m_doc.features.size()))
+            m_extrude_sketch_label->SetLabel(_L("Sketch: ") +
+                wxString::FromUTF8(m_doc.features[m_extrude_sketch_ref].name));
+    }
+
     m_form->Layout();
     m_form->FitInside();
     refresh_preview();
@@ -751,6 +804,7 @@ void DesignPanel::close_tool()
     m_active = Tool::None;
     wxSizer* s = m_form->GetSizer();
     s->Show(m_box_sketch,  false, true);
+    s->Show(m_box_extrude, false, true);
     s->Show(m_box_dressup, false, true);
     s->Show(m_box_hole,    false, true);
     s->Show(m_box_thread,  false, true);
@@ -761,15 +815,12 @@ void DesignPanel::close_tool()
 
 void DesignPanel::confirm_tool()
 {
-    const bool editing_pair   = (m_edit_sketch >= 0 && m_edit_extrude >= 0);
     const bool editing_single = (m_edit_index >= 0);
 
-    if (editing_pair || editing_single) {
-        // Edit mode: overwrite the existing feature(s) instead of appending.
+    if (editing_single) {
+        // Edit mode: overwrite the existing feature instead of appending.
         CadFeature cand = build_candidate(m_active);
-        bool ok = editing_pair
-                ? m_doc.replace_sketch_extrude(m_edit_sketch, m_edit_extrude, cand)
-                : m_doc.replace_feature(m_edit_index, cand);
+        bool ok = m_doc.replace_feature(m_edit_index, cand);
         reset_edit_state();
         close_tool();          // clears the preview ghost
         after_tree_edit(ok);   // refresh tree/viewport/status (or "Edit rejected")
@@ -777,7 +828,8 @@ void DesignPanel::confirm_tool()
     }
 
     switch (m_active) {
-    case Tool::Sketch:  on_add_feature(); break;
+    case Tool::Sketch:  on_add_sketch();  break;
+    case Tool::Extrude: on_add_extrude(); break;
     case Tool::Dressup: on_add_dressup(); break;
     case Tool::Hole:    on_add_hole();    break;
     case Tool::Thread:  on_add_thread();  break;
