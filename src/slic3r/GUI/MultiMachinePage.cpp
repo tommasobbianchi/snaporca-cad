@@ -31,7 +31,7 @@ MultiMachinePage::~MultiMachinePage()
 
 void MultiMachinePage::jump_to_send_page()
 {
-    m_tabpanel->SetSelection(1);
+    m_tabpanel->SetSelection(MainFrame::tp3DEditor);
 }
 
 void MultiMachinePage::on_sys_color_changed()
