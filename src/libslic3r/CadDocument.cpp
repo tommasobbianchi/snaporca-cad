@@ -224,6 +224,10 @@ bool solve_entity_constraints(CadFeature& f)
             if (a0 >= 0 && a1 >= 0 && b0 >= 0 && b1 >= 0) sc.angle(a0, a1, b0, b1, c.value);
             break;
         }
+        case SketchConstraintType::Radius:
+        case SketchConstraintType::Diameter:
+            // dimensions: applied in the post-solve pass below, not via the solver.
+            break;
         case SketchConstraintType::Tangent: {
             auto in_range = [&](int e){ return e >= 0 && e < (int)f.entities.size(); };
             if (!in_range(c.ea) || !in_range(c.eb)) break;
@@ -280,6 +284,28 @@ bool solve_entity_constraints(CadFeature& f)
         if (e.type == SketchEntity::Type::Circle && ic >= 0) {
             // p0 mirrors the center for circles; keep them consistent.
             e.p0 = e.center;
+        }
+    }
+    // Apply radius/diameter dimensions directly (radius is not a solver variable).
+    for (const auto& c : f.entity_constraints) {
+        if (c.type != SketchConstraintType::Radius &&
+            c.type != SketchConstraintType::Diameter) continue;
+        if (c.ea < 0 || c.ea >= (int)f.entities.size()) continue;
+        SketchEntity& e = f.entities[c.ea];
+        if (e.type != SketchEntity::Type::Circle && e.type != SketchEntity::Type::Arc) continue;
+        const double r = (c.type == SketchConstraintType::Diameter) ? 0.5 * c.value : c.value;
+        if (r <= 0.0) continue;
+        e.radius = r;
+        if (e.type == SketchEntity::Type::Arc) {
+            // Rescale endpoints to the new radius around the (solved) center, keeping
+            // each endpoint's direction so the reflowed start/end angles stay valid.
+            auto rescale = [&](Vec2d& p) {
+                Vec2d d = p - e.center;
+                const double n = d.norm();
+                if (n > 1e-12) p = e.center + (r / n) * d;
+            };
+            rescale(e.p0);
+            rescale(e.p1);
         }
     }
     return ok;

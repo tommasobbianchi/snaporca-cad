@@ -424,6 +424,59 @@ TEST_CASE("entity constraints: arc/circle registration + concentric", "[CadDocum
     }
 }
 
+TEST_CASE("entity constraints: radius/diameter dimensions", "[CadDocument]")
+{
+    using R = SketchPointRole;
+    using T = SketchConstraintType;
+
+    SECTION("circle radius dimension") {
+        CadDocument doc;
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Circle, Vec2d(0,0), Vec2d(0,0), Vec2d(0,0), 5.0},
+        };
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "S");
+        auto& ec = doc.features[sk].entity_constraints;
+        ec.push_back({T::Fix,       0, -1, R::Center, R::Center, 0.0, -1, R::P0});
+        ec.push_back({T::Radius,    0, -1, R::Center, R::P0,     8.0, -1, R::P0});
+
+        REQUIRE(doc.solve_sketch_feature(sk));
+        const auto& e = doc.features[sk].entities;
+        REQUIRE(std::abs(e[0].radius - 8.0) < 1e-9);
+    }
+
+    SECTION("circle diameter dimension") {
+        CadDocument doc;
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Circle, Vec2d(0,0), Vec2d(0,0), Vec2d(0,0), 5.0},
+        };
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "S");
+        auto& ec = doc.features[sk].entity_constraints;
+        ec.push_back({T::Fix,       0, -1, R::Center, R::Center, 0.0, -1, R::P0});
+        ec.push_back({T::Diameter,  0, -1, R::Center, R::P0,     20.0, -1, R::P0});
+
+        REQUIRE(doc.solve_sketch_feature(sk));
+        const auto& e = doc.features[sk].entities;
+        REQUIRE(std::abs(e[0].radius - 10.0) < 1e-9);
+    }
+
+    SECTION("arc radius rescales endpoints") {
+        CadDocument doc;
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Arc, Vec2d(5,0), Vec2d(0,5), Vec2d(0,0), 5.0, 0.0, M_PI/2},
+        };
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "S");
+        auto& ec = doc.features[sk].entity_constraints;
+        ec.push_back({T::Fix,       0, -1, R::Center, R::Center, 0.0, -1, R::P0});
+        ec.push_back({T::Radius,    0, -1, R::Center, R::P0,     10.0, -1, R::P0});
+
+        REQUIRE(doc.solve_sketch_feature(sk));
+        const auto& e = doc.features[sk].entities;
+        REQUIRE(std::abs(e[0].radius - 10.0) < 1e-9);
+        REQUIRE((e[0].p0 - Vec2d(10,0)).norm() < 1e-6);
+        REQUIRE((e[0].p1 - Vec2d(0,10)).norm() < 1e-6);
+    }
+}
+
 TEST_CASE("entity constraints: tangent/midpoint/symmetric/angle", "[CadDocument]")
 {
     using R = SketchPointRole;

@@ -77,7 +77,8 @@ enum class SketchConstraintType {
     Fix, Coincident, Horizontal, Vertical, Distance,
     LockX, LockY, EqualLength, Parallel, Perpendicular,
     Concentric,
-    Tangent, Midpoint, Symmetric, Angle
+    Tangent, Midpoint, Symmetric, Angle,
+    Radius, Diameter
 };
 
 // Constraint on a SketchProfile, referencing profile point indices (a,b,c,d).
