@@ -274,6 +274,11 @@ bool DesignCanvas::selected_constrain_entities(int& e0, int& e1) const
     return m_sketch_tool.selected_constrain_entities(e0, e1);
 }
 
+bool DesignCanvas::pick0_point(Vec2d& out) const
+{
+    return m_sketch_tool.pick0_point(out);
+}
+
 void DesignCanvas::update_constrain_entities(const std::vector<SketchEntity>& ents)
 {
     m_sketch_tool.set_constrain_entities(ents);

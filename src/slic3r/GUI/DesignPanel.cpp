@@ -225,6 +225,23 @@ DesignPanel::DesignPanel(wxWindow* parent)
     add_constraint_btn(crow6, _L("Diameter"),      SketchConstraintType::Diameter,      true);
     tbar->Add(crow6, 0, wxEXPAND | wxBOTTOM, 4);
 
+    // Fase 4.4: sketch edit ops on the selected sketch's picked entities.
+    auto add_edit_btn = [this](wxBoxSizer* row, const wxString& label, EditOp op, bool last) {
+        auto* b = new wxButton(m_form, wxID_ANY, label);
+        b->Bind(wxEVT_BUTTON, [this, op](wxCommandEvent&) { apply_edit_op(op); });
+        row->Add(b, 1, wxEXPAND | (last ? 0 : wxRIGHT), last ? 0 : 4);
+    };
+    auto* editrow1 = new wxBoxSizer(wxHORIZONTAL);
+    add_edit_btn(editrow1, _L("Mirror"),  EditOp::Mirror, false);
+    add_edit_btn(editrow1, _L("Offset"),  EditOp::Offset, false);
+    add_edit_btn(editrow1, _L("Fillet"),  EditOp::Fillet, true);
+    tbar->Add(editrow1, 0, wxEXPAND | wxBOTTOM, 4);
+
+    auto* editrow2 = new wxBoxSizer(wxHORIZONTAL);
+    add_edit_btn(editrow2, _L("Trim"),   EditOp::Trim,   false);
+    add_edit_btn(editrow2, _L("Extend"), EditOp::Extend, true);
+    tbar->Add(editrow2, 0, wxEXPAND | wxBOTTOM, 4);
+
     auto* b_extrude = new wxButton(m_form, wxID_ANY, _L("Extrude"));
     b_extrude->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
         m_extrude_sketch_ref = resolve_extrude_sketch();
@@ -926,6 +943,99 @@ void DesignPanel::apply_entity_constraint(SketchConstraintType type)
         m_viewport->set_mesh(m_doc.display_mesh);
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(_L("Applied constraint"));
+    m_status->Refresh();
+}
+
+void DesignPanel::apply_edit_op(EditOp op)
+{
+    if (m_constrain_feat < 0 || m_constrain_feat >= int(m_doc.features.size()) || !m_viewport ||
+        !m_viewport->is_constraining_entities()) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Press Constrain on a sketch first"));
+        m_status->Refresh();
+        return;
+    }
+    auto fail = [this](const wxString& msg) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(msg);
+        m_status->Refresh();
+    };
+    // Onshape-style value entry: Button -> dialog -> confirm. Returns false on cancel.
+    auto prompt_value = [this](const wxString& label, double& value) -> bool {
+        const wxString preset = wxString::Format(wxT("%g"), value);
+        const wxString s = wxGetTextFromUser(label, _L("Value"), preset, this);
+        double parsed = 0.0;
+        if (s.empty() || !s.ToDouble(&parsed)) return false;
+        value = parsed;
+        return true;
+    };
+
+    int e0 = -1, e1 = -1;
+    m_viewport->selected_constrain_entities(e0, e1);
+    CadFeature& feat = m_doc.features[m_constrain_feat];
+    const int n = int(feat.entities.size());
+    if (e0 < 0 || e0 >= n) { fail(_L("Pick an entity first")); return; }
+    using Type = SketchEntity::Type;
+
+    switch (op) {
+    case EditOp::Mirror: {
+        if (e1 < 0 || e1 >= n) { fail(_L("Pick the entity, then a mirror-axis line")); return; }
+        const SketchEntity& axis = feat.entities[e1];
+        if (axis.type != Type::Line) { fail(_L("Mirror axis must be a line")); return; }
+        auto out = SketchEngine::mirror_entities({ feat.entities[e0] }, axis.p0, axis.p1);
+        if (out.empty()) { fail(_L("Mirror produced nothing")); return; }
+        for (auto& m : out) feat.entities.push_back(m);
+        break;
+    }
+    case EditOp::Offset: {
+        double d = 1.0;
+        if (!prompt_value(_L("Offset distance (+left / -right of direction)"), d)) return;
+        auto out = SketchEngine::offset_entities({ feat.entities[e0] }, d);
+        if (out.empty()) { fail(_L("Offset collapsed the entity")); return; }
+        for (auto& o : out) feat.entities.push_back(o);
+        break;
+    }
+    case EditOp::Fillet: {
+        if (e1 < 0 || e1 >= n) { fail(_L("Pick two lines to fillet")); return; }
+        if (feat.entities[e0].type != Type::Line || feat.entities[e1].type != Type::Line) {
+            fail(_L("Fillet needs two lines")); return;
+        }
+        double r = 1.0;
+        if (!prompt_value(_L("Fillet radius"), r)) return;
+        if (r <= 0.0) { fail(_L("Radius must be positive")); return; }
+        SketchEntity a_out, b_out, arc_out;
+        if (!SketchEngine::fillet_lines(feat.entities[e0], feat.entities[e1], r, a_out, b_out, arc_out)) {
+            fail(_L("Fillet failed (parallel lines or radius too large)")); return;
+        }
+        feat.entities[e0] = a_out;
+        feat.entities[e1] = b_out;
+        feat.entities.push_back(arc_out);
+        break;
+    }
+    case EditOp::Trim:
+    case EditOp::Extend: {
+        if (feat.entities[e0].type != Type::Line) { fail(_L("Trim/Extend works on lines")); return; }
+        Vec2d pick;
+        if (!m_viewport->pick0_point(pick)) { fail(_L("Pick the line to trim/extend")); return; }
+        std::vector<SketchEntity> others;
+        others.reserve(n > 0 ? n - 1 : 0);
+        for (int i = 0; i < n; ++i)
+            if (i != e0) others.push_back(feat.entities[i]);
+        const bool ok = (op == EditOp::Trim)
+            ? SketchEngine::trim_entity(feat.entities[e0], others, pick)
+            : SketchEngine::extend_entity(feat.entities[e0], others, pick);
+        if (!ok) { fail(op == EditOp::Trim ? _L("Nothing to trim at the pick")
+                                           : _L("No edge to extend to")); return; }
+        break;
+    }
+    }
+
+    m_doc.recompute();
+    m_viewport->update_constrain_entities(m_doc.features[m_constrain_feat].entities);
+    if (!m_doc.display_mesh.its.indices.empty())
+        m_viewport->set_mesh(m_doc.display_mesh);
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(_L("Applied edit"));
     m_status->Refresh();
 }
 

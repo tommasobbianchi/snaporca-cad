@@ -651,9 +651,9 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                     if (d < best) { best = d; bi = int(i); }
                 }
                 if (bi >= 0) {
-                    if (m_pick0 < 0)                      m_pick0 = bi;
+                    if (m_pick0 < 0)                      { m_pick0 = bi; m_pick0_pt = p; }
                     else if (m_pick1 < 0 && bi != m_pick0) m_pick1 = bi;
-                    else                                  { m_pick0 = bi; m_pick1 = -1; }
+                    else                                  { m_pick0 = bi; m_pick1 = -1; m_pick0_pt = p; }
                 }
                 return true;
             }
