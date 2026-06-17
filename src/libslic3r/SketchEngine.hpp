@@ -25,6 +25,22 @@ struct SketchSegment {
     void serialize(Archive& ar) { ar(type, p0, p1, center, radius, start_angle, end_angle, points); }
 };
 
+struct SketchEntity {
+    enum class Type { Line, Arc, Circle, Point };
+    Type   type{Type::Line};
+    Vec2d  p0{0,0};            // Line: start; Arc: start; Circle/Point: center
+    Vec2d  p1{0,0};            // Line: end;   Arc: end;   (unused for Circle/Point)
+    Vec2d  center{0,0};        // Arc/Circle center
+    double radius{0};          // Circle/Arc radius
+    double start_angle{0};     // Arc sweep start (radians, about center)
+    double end_angle{0};       // Arc sweep end
+    bool   construction{false};
+    template<class Archive>
+    void serialize(Archive& ar) {
+        ar(type, p0, p1, center, radius, start_angle, end_angle, construction);
+    }
+};
+
 struct SketchPlane {
     Vec3d origin{0,0,0};
     Vec3d normal{0,0,1};
@@ -112,6 +128,9 @@ public:
     static TriangleMesh tessellate(const TopoDS_Shape& shape,
                                    double linear_deflection = 0.01,
                                    double angular_deflection = 0.5);
+
+    static TopoDS_Wire entities_to_wire(const std::vector<SketchEntity>& entities,
+                                        const SketchPlane& plane);
 };
 
 } // namespace Slic3r

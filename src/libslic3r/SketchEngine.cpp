@@ -1,8 +1,14 @@
 #include "SketchEngine.hpp"
 
+#include <cmath>
+
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <GC_MakeArcOfCircle.hxx>
+#include <Geom_TrimmedCurve.hxx>
+#include <gp_Circ.hxx>
+#include <gp_Ax2.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -259,6 +265,71 @@ TriangleMesh SketchEngine::tessellate(const TopoDS_Shape& shape,
     TriangleMesh result;
     result.from_stl(stl);
     return result;
+}
+
+TopoDS_Wire SketchEngine::entities_to_wire(const std::vector<SketchEntity>& entities,
+                                            const SketchPlane& plane)
+{
+    std::vector<const SketchEntity*> valid;
+    for (const auto& e : entities) {
+        if (e.construction) continue;
+        if (e.type == SketchEntity::Type::Point) continue;
+        valid.push_back(&e);
+    }
+    if (valid.empty()) return TopoDS_Wire{};
+
+    bool has_circle      = false;
+    bool has_line_or_arc = false;
+    for (const auto* e : valid) {
+        if (e->type == SketchEntity::Type::Circle) has_circle = true;
+        else has_line_or_arc = true;
+    }
+
+    // Case 1: exactly one Circle and nothing else
+    if (has_circle && !has_line_or_arc && valid.size() == 1) {
+        const SketchEntity& c = *valid[0];
+        Vec3d  c3 = plane.to_world(c.center);
+        gp_Pnt center(c3.x(), c3.y(), c3.z());
+        gp_Dir n(plane.normal.x(), plane.normal.y(), plane.normal.z());
+        gp_Circ circ(gp_Ax2(center, n), c.radius);
+        TopoDS_Edge e = BRepBuilderAPI_MakeEdge(circ).Edge();
+        BRepBuilderAPI_MakeWire wm(e);
+        if (!wm.IsDone()) return TopoDS_Wire{};
+        return wm.Wire();
+    }
+
+    // Case 2: closed chain of Line/Arc entities (no Circle)
+    if (!has_circle && has_line_or_arc) {
+        BRepBuilderAPI_MakeWire builder;
+        for (const SketchEntity* e : valid) {
+            if (e->type == SketchEntity::Type::Line) {
+                Vec3d  p0 = plane.to_world(e->p0);
+                Vec3d  p1 = plane.to_world(e->p1);
+                gp_Pnt pa(p0.x(), p0.y(), p0.z());
+                gp_Pnt pb(p1.x(), p1.y(), p1.z());
+                builder.Add(BRepBuilderAPI_MakeEdge(pa, pb).Edge());
+            } else if (e->type == SketchEntity::Type::Arc) {
+                Vec3d  p0 = plane.to_world(e->p0);
+                Vec3d  p1 = plane.to_world(e->p1);
+                double mid_angle = (e->start_angle + e->end_angle) * 0.5;
+                Vec2d  mid_2d(e->center.x() + e->radius * std::cos(mid_angle),
+                              e->center.y() + e->radius * std::sin(mid_angle));
+                Vec3d  mid_3d = plane.to_world(mid_2d);
+                gp_Pnt pa(p0.x(), p0.y(), p0.z());
+                gp_Pnt pm(mid_3d.x(), mid_3d.y(), mid_3d.z());
+                gp_Pnt pb(p1.x(), p1.y(), p1.z());
+                GC_MakeArcOfCircle arc_maker(pa, pm, pb);
+                if (!arc_maker.IsDone()) return TopoDS_Wire{};
+                Handle(Geom_TrimmedCurve) curve = arc_maker.Value();
+                builder.Add(BRepBuilderAPI_MakeEdge(curve).Edge());
+            }
+        }
+        builder.Build();
+        if (!builder.IsDone()) return TopoDS_Wire{};
+        return builder.Wire();
+    }
+
+    return TopoDS_Wire{};
 }
 
 } // namespace Slic3r

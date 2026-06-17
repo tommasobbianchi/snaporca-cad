@@ -32,6 +32,10 @@ struct CadFeature {
     // precedence over the shape/width/height/radius enum path in build_sketch_wire.
     SketchProfile profile;
 
+    // Onshape-style multi-entity sketch geometry. When non-empty this takes
+    // precedence over both `profile` and the shape-enum path in build_sketch_wire.
+    std::vector<SketchEntity> entities;
+
     // 2D geometric constraints on `profile` (point indices). Solved in place.
     std::vector<SketchConstraintDef> constraints;
 

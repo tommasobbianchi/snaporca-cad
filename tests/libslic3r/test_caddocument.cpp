@@ -3,6 +3,8 @@
 #include "libslic3r/CadDocument.hpp"
 #include "libslic3r/SketchEngine.hpp"
 
+#include <cmath>
+
 using namespace Slic3r;
 
 TEST_CASE("CadDocument profile sketch -> extrude -> solid", "[CadDocument]")
@@ -98,4 +100,114 @@ TEST_CASE("CadDocument solve_sketch_feature snaps a rough quad to a rectangle", 
     doc.add_extrude(sk, 5.0, false, BooleanMode::New, "E");
     REQUIRE(doc.recompute());
     REQUIRE(doc.display_mesh.facets_count() > 0);
+}
+
+TEST_CASE("sketch entities -> wire -> extrude", "[CadDocument]")
+{
+    SECTION("square from 4 lines") {
+        CadDocument doc;
+
+        CadFeature sk;
+        sk.type    = CadFeatureType::Sketch;
+        sk.name    = "square";
+        sk.plane   = SketchPlane::XY();
+        sk.entities = {
+            {SketchEntity::Type::Line, Vec2d(-10,-10), Vec2d(10,-10)},
+            {SketchEntity::Type::Line, Vec2d(10,-10), Vec2d(10,10)},
+            {SketchEntity::Type::Line, Vec2d(10,10), Vec2d(-10,10)},
+            {SketchEntity::Type::Line, Vec2d(-10,10), Vec2d(-10,-10)},
+        };
+        doc.features.push_back(sk);
+
+        CadFeature ex;
+        ex.type       = CadFeatureType::Extrude;
+        ex.name       = "extrude";
+        ex.sketch_ref = 0;
+        ex.distance   = 5;
+        ex.mode       = BooleanMode::New;
+        doc.features.push_back(ex);
+
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        REQUIRE(doc.display_mesh.facets_count() > 0);
+
+        auto bb = doc.display_mesh.bounding_box();
+        auto sz = bb.max - bb.min;
+        REQUIRE(std::abs(sz.x() - 20.0) < 0.5);
+        REQUIRE(std::abs(sz.y() - 20.0) < 0.5);
+        REQUIRE(std::abs(sz.z() -  5.0) < 0.5);
+    }
+
+    SECTION("single circle") {
+        CadDocument doc;
+
+        CadFeature sk;
+        sk.type    = CadFeatureType::Sketch;
+        sk.name    = "circle";
+        sk.plane   = SketchPlane::XY();
+        sk.entities = {
+            {SketchEntity::Type::Circle, Vec2d(0,0), Vec2d(0,0), Vec2d(0,0), 10.0},
+        };
+        doc.features.push_back(sk);
+
+        CadFeature ex;
+        ex.type       = CadFeatureType::Extrude;
+        ex.name       = "extrude";
+        ex.sketch_ref = 0;
+        ex.distance   = 8;
+        ex.mode       = BooleanMode::New;
+        doc.features.push_back(ex);
+
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        REQUIRE(doc.display_mesh.facets_count() > 0);
+
+        auto bb = doc.display_mesh.bounding_box();
+        auto sz = bb.max - bb.min;
+        REQUIRE(std::abs(sz.x() - 20.0) < 0.5);
+        REQUIRE(std::abs(sz.y() - 20.0) < 0.5);
+        REQUIRE(std::abs(sz.z() -  8.0) < 0.5);
+    }
+
+    SECTION("construction line excluded") {
+        CadDocument doc;
+
+        CadFeature sk;
+        sk.type  = CadFeatureType::Sketch;
+        sk.name  = "square_with_construction";
+        sk.plane = SketchPlane::XY();
+
+        SketchEntity cline;
+        cline.type         = SketchEntity::Type::Line;
+        cline.p0           = Vec2d(-10, -10);
+        cline.p1           = Vec2d(10, 10);
+        cline.construction = true;
+
+        sk.entities = {
+            {SketchEntity::Type::Line, Vec2d(-10,-10), Vec2d(10,-10)},
+            {SketchEntity::Type::Line, Vec2d(10,-10), Vec2d(10,10)},
+            {SketchEntity::Type::Line, Vec2d(10,10), Vec2d(-10,10)},
+            {SketchEntity::Type::Line, Vec2d(-10,10), Vec2d(-10,-10)},
+            cline,
+        };
+        doc.features.push_back(sk);
+
+        CadFeature ex;
+        ex.type       = CadFeatureType::Extrude;
+        ex.name       = "extrude";
+        ex.sketch_ref = 0;
+        ex.distance   = 5;
+        ex.mode       = BooleanMode::New;
+        doc.features.push_back(ex);
+
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        REQUIRE(doc.display_mesh.facets_count() > 0);
+
+        auto bb = doc.display_mesh.bounding_box();
+        auto sz = bb.max - bb.min;
+        REQUIRE(std::abs(sz.x() - 20.0) < 0.5);
+        REQUIRE(std::abs(sz.y() - 20.0) < 0.5);
+        REQUIRE(std::abs(sz.z() -  5.0) < 0.5);
+    }
 }

@@ -341,6 +341,11 @@ bool CadDocument::replace_sketch_extrude(int sketch_idx, int extrude_idx,
 
 TopoDS_Wire CadDocument::build_sketch_wire(const CadFeature& sketch) const
 {
+    if (!sketch.entities.empty()) {
+        TopoDS_Wire w = SketchEngine::entities_to_wire(sketch.entities, sketch.plane);
+        if (!w.IsNull()) return w;
+        // fall through to legacy paths if entities produced nothing
+    }
     if (!sketch.profile.points.empty()) {
         SketchProfile prof = sketch.profile;
         prof.closed = true;               // extrude needs a closed wire
