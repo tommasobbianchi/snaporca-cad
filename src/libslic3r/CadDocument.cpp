@@ -1,4 +1,5 @@
 #include "CadDocument.hpp"
+#include "SketchConstraints.hpp"
 
 #include <Standard_Failure.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
@@ -89,6 +90,38 @@ int CadDocument::add_sketch_profile(const SketchProfile& profile, const SketchPl
     f.profile = profile;
     features.push_back(f);
     return int(features.size()) - 1;
+}
+
+bool CadDocument::solve_sketch_feature(int index)
+{
+    if (index < 0 || index >= int(features.size())) return false;
+    CadFeature& f = features[index];
+    if (f.type != CadFeatureType::Sketch) return false;
+    if (f.constraints.empty()) return true;
+
+    SketchConstraints sc;
+    for (const Vec2d& p : f.profile.points)
+        sc.add_point(p.x(), p.y());
+
+    for (const SketchConstraintDef& c : f.constraints) {
+        switch (c.type) {
+        case SketchConstraintType::Fix:          sc.fix_point(c.a); break;
+        case SketchConstraintType::Coincident:   sc.coincident(c.a, c.b); break;
+        case SketchConstraintType::Horizontal:   sc.horizontal(c.a, c.b); break;
+        case SketchConstraintType::Vertical:     sc.vertical(c.a, c.b); break;
+        case SketchConstraintType::Distance:     sc.distance(c.a, c.b, c.value); break;
+        case SketchConstraintType::LockX:        sc.lock_x(c.a, c.value); break;
+        case SketchConstraintType::LockY:        sc.lock_y(c.a, c.value); break;
+        case SketchConstraintType::EqualLength:  sc.equal_length(c.a, c.b, c.c, c.d); break;
+        case SketchConstraintType::Parallel:     sc.parallel(c.a, c.b, c.c, c.d); break;
+        case SketchConstraintType::Perpendicular:sc.perpendicular(c.a, c.b, c.c, c.d); break;
+        }
+    }
+
+    const bool ok = sc.solve();
+    for (size_t i = 0; i < f.profile.points.size(); ++i)
+        f.profile.points[i] = sc.get_point(int(i));
+    return ok;
 }
 
 int CadDocument::add_extrude(int sketch_ref, double distance, bool symmetric,

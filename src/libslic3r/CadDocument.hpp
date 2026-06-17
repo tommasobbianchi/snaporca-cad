@@ -32,6 +32,9 @@ struct CadFeature {
     // precedence over the shape/width/height/radius enum path in build_sketch_wire.
     SketchProfile profile;
 
+    // 2D geometric constraints on `profile` (point indices). Solved in place.
+    std::vector<SketchConstraintDef> constraints;
+
     // Extrude params
     int         sketch_ref{-1};   // index into features[] of the consumed sketch
     double      distance{10};
@@ -76,6 +79,10 @@ public:
                     const std::string& name);
     int  add_sketch_profile(const SketchProfile& profile, const SketchPlane& plane,
                             const std::string& name);
+    // Solve features[index]'s sketch constraints, writing solved coordinates back
+    // into its profile.points. No-op (returns true) if the feature has no
+    // constraints. Returns false if index is invalid / not a Sketch / solve fails.
+    bool solve_sketch_feature(int index);
     int  add_extrude(int sketch_ref, double distance, bool symmetric,
                      BooleanMode mode, const std::string& name);
     int  add_fillet(double radius, FaceGroup faces, const std::string& name);

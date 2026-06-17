@@ -57,6 +57,20 @@ struct SketchProfile {
     void serialize(Archive& ar) { ar(points, closed); }
 };
 
+enum class SketchConstraintType {
+    Fix, Coincident, Horizontal, Vertical, Distance,
+    LockX, LockY, EqualLength, Parallel, Perpendicular
+};
+
+// Constraint on a SketchProfile, referencing profile point indices (a,b,c,d).
+// `value` carries the target for Distance/LockX/LockY (ignored otherwise).
+struct SketchConstraintDef {
+    SketchConstraintType type{SketchConstraintType::Coincident};
+    int    a{-1}, b{-1}, c{-1}, d{-1};
+    double value{0.0};
+    template<class Archive> void serialize(Archive& ar) { ar(type, a, b, c, d, value); }
+};
+
 struct SketchParams {
     // Extrude/Revolve
     double extrude_len{10}; bool extrude_sym{false}; double extrude_taper{0};
