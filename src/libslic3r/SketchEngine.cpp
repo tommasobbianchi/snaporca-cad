@@ -1,6 +1,7 @@
 #include "SketchEngine.hpp"
 
 #include <cmath>
+#include <limits>
 
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -538,6 +539,158 @@ bool SketchEngine::fillet_lines(const SketchEntity& a, const SketchEntity& b, do
     while (sweep <= -M_PI) sweep += 2.0 * M_PI;
     while (sweep >   M_PI) sweep -= 2.0 * M_PI;
     arc_out.end_angle = arc_out.start_angle + sweep;
+
+    return true;
+}
+
+static std::vector<double> line_entity_hits(const Vec2d& a0, const Vec2d& adir,
+                                            const SketchEntity& other)
+{
+    std::vector<double> hits;
+    double La2 = adir.dot(adir);
+    if (La2 < 1e-18) return hits;
+
+    switch (other.type) {
+    case SketchEntity::Type::Line: {
+        Vec2d bdir = other.p1 - other.p0;
+        double bxa = bdir.x() * adir.y() - bdir.y() * adir.x();
+        if (std::abs(bxa) < 1e-12) return hits;
+
+        Vec2d w  = a0 - other.p0;
+        double u = (w.x() * adir.y() - w.y() * adir.x()) / bxa;
+        if (u < -1e-9 || u > 1.0 + 1e-9) return hits;
+
+        double axb = adir.x() * bdir.y() - adir.y() * bdir.x();
+        Vec2d  w2  = other.p0 - a0;
+        double t   = (w2.x() * bdir.y() - w2.y() * bdir.x()) / axb;
+        hits.push_back(t);
+        break;
+    }
+    case SketchEntity::Type::Circle:
+    case SketchEntity::Type::Arc: {
+        double R = other.radius;
+        Vec2d f = a0 - other.center;
+        double A  = La2;
+        double B  = 2.0 * adir.dot(f);
+        double Cc = f.dot(f) - R * R;
+        double disc = B * B - 4.0 * A * Cc;
+        if (disc < -1e-12) return hits;
+        if (disc < 0.0) disc = 0.0;
+        double sq = std::sqrt(disc);
+        double t1 = (-B - sq) / (2.0 * A);
+        double t2 = (-B + sq) / (2.0 * A);
+
+        auto angle_in_sweep = [&](const Vec2d& P) -> bool {
+            double phi   = std::atan2(P.y() - other.center.y(), P.x() - other.center.x());
+            double sweep = other.end_angle - other.start_angle;
+            double delta = phi - other.start_angle;
+            if (sweep >= 0.0) {
+                while (delta < -1e-9) delta += 2.0 * M_PI;
+                while (delta > 2.0 * M_PI) delta -= 2.0 * M_PI;
+                return delta <= sweep + 1e-9;
+            } else {
+                while (delta > 1e-9) delta -= 2.0 * M_PI;
+                while (delta < -2.0 * M_PI) delta += 2.0 * M_PI;
+                return delta >= sweep - 1e-9;
+            }
+        };
+
+        auto check = [&](double t) {
+            Vec2d P = a0 + t * adir;
+            if (other.type == SketchEntity::Type::Circle || angle_in_sweep(P))
+                hits.push_back(t);
+        };
+
+        check(t1);
+        if (disc > 1e-12)
+            check(t2);
+        break;
+    }
+    default:
+        break;
+    }
+
+    return hits;
+}
+
+bool SketchEngine::trim_entity(SketchEntity& e, const std::vector<SketchEntity>& others,
+                               const Vec2d& pick)
+{
+    if (e.type != SketchEntity::Type::Line) return false;
+
+    Vec2d adir = e.p1 - e.p0;
+    double La2 = adir.dot(adir);
+    if (La2 < 1e-18) return false;
+
+    double t_pick = (pick - e.p0).dot(adir) / La2;
+    t_pick = std::max(0.0, std::min(1.0, t_pick));
+
+    std::vector<double> cuts;
+    for (const auto& other : others) {
+        auto h = line_entity_hits(e.p0, adir, other);
+        for (double t : h) {
+            if (t > 1e-9 && t < 1.0 - 1e-9)
+                cuts.push_back(t);
+        }
+    }
+    if (cuts.empty()) return false;
+
+    if (t_pick <= 0.5) {
+        double tc = std::numeric_limits<double>::max();
+        for (double t : cuts) {
+            if (t > t_pick + 1e-9 && t < tc)
+                tc = t;
+        }
+        if (tc == std::numeric_limits<double>::max()) return false;
+        e.p0 = e.p0 + tc * adir;
+    } else {
+        double tc = -std::numeric_limits<double>::max();
+        for (double t : cuts) {
+            if (t < t_pick - 1e-9 && t > tc)
+                tc = t;
+        }
+        if (tc == -std::numeric_limits<double>::max()) return false;
+        e.p1 = e.p0 + tc * adir;
+    }
+
+    return true;
+}
+
+bool SketchEngine::extend_entity(SketchEntity& e, const std::vector<SketchEntity>& others,
+                                 const Vec2d& pick)
+{
+    if (e.type != SketchEntity::Type::Line) return false;
+
+    Vec2d adir = e.p1 - e.p0;
+    double La2 = adir.dot(adir);
+    if (La2 < 1e-18) return false;
+
+    double t_pick = (pick - e.p0).dot(adir) / La2;
+
+    std::vector<double> hits;
+    for (const auto& other : others) {
+        auto h = line_entity_hits(e.p0, adir, other);
+        hits.insert(hits.end(), h.begin(), h.end());
+    }
+    if (hits.empty()) return false;
+
+    if (t_pick > 0.5) {
+        double tc = std::numeric_limits<double>::max();
+        for (double t : hits) {
+            if (t > 1.0 + 1e-9 && t < tc)
+                tc = t;
+        }
+        if (tc == std::numeric_limits<double>::max()) return false;
+        e.p1 = e.p0 + tc * adir;
+    } else {
+        double tc = -std::numeric_limits<double>::max();
+        for (double t : hits) {
+            if (t < -1e-9 && t > tc)
+                tc = t;
+        }
+        if (tc == -std::numeric_limits<double>::max()) return false;
+        e.p0 = e.p0 + tc * adir;
+    }
 
     return true;
 }

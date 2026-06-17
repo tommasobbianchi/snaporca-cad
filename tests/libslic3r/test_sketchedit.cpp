@@ -203,3 +203,134 @@ TEST_CASE("Fillet arc too big returns false", "[SketchEdit]")
     SketchEntity a_out, b_out, arc_out;
     REQUIRE_FALSE(SketchEngine::fillet_lines(a, b, 5.0, a_out, b_out, arc_out));
 }
+
+TEST_CASE("Trim right arm", "[SketchEdit]")
+{
+    SketchEntity e;
+    e.type = SketchEntity::Type::Line;
+    e.p0   = Vec2d(-5, 0);
+    e.p1   = Vec2d(5, 0);
+
+    SketchEntity vc;
+    vc.type = SketchEntity::Type::Line;
+    vc.p0   = Vec2d(0, -5);
+    vc.p1   = Vec2d(0, 5);
+
+    bool ok = SketchEngine::trim_entity(e, {vc}, Vec2d(3, 0));
+    REQUIRE(ok);
+    REQUIRE_THAT(e.p0.x(), WithinAbs(-5.0, 1e-9));
+    REQUIRE_THAT(e.p0.y(), WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.p1.x(), WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.p1.y(), WithinAbs(0.0, 1e-9));
+}
+
+TEST_CASE("Trim left arm", "[SketchEdit]")
+{
+    SketchEntity e;
+    e.type = SketchEntity::Type::Line;
+    e.p0   = Vec2d(-5, 0);
+    e.p1   = Vec2d(5, 0);
+
+    SketchEntity vc;
+    vc.type = SketchEntity::Type::Line;
+    vc.p0   = Vec2d(0, -5);
+    vc.p1   = Vec2d(0, 5);
+
+    bool ok = SketchEngine::trim_entity(e, {vc}, Vec2d(-3, 0));
+    REQUIRE(ok);
+    REQUIRE_THAT(e.p0.x(), WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.p0.y(), WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.p1.x(), WithinAbs(5.0, 1e-9));
+    REQUIRE_THAT(e.p1.y(), WithinAbs(0.0, 1e-9));
+}
+
+TEST_CASE("Trim no cut (u out of range)", "[SketchEdit]")
+{
+    SketchEntity e;
+    e.type = SketchEntity::Type::Line;
+    e.p0   = Vec2d(-5, 0);
+    e.p1   = Vec2d(5, 0);
+
+    SketchEntity other;
+    other.type = SketchEntity::Type::Line;
+    other.p0   = Vec2d(0, 3);
+    other.p1   = Vec2d(0, 8);
+
+    REQUIRE_FALSE(SketchEngine::trim_entity(e, {other}, Vec2d(3, 0)));
+}
+
+TEST_CASE("Extend forward to line", "[SketchEdit]")
+{
+    SketchEntity e;
+    e.type = SketchEntity::Type::Line;
+    e.p0   = Vec2d(0, 0);
+    e.p1   = Vec2d(2, 0);
+
+    SketchEntity other;
+    other.type = SketchEntity::Type::Line;
+    other.p0   = Vec2d(5, -5);
+    other.p1   = Vec2d(5, 5);
+
+    bool ok = SketchEngine::extend_entity(e, {other}, Vec2d(2, 0));
+    REQUIRE(ok);
+    REQUIRE_THAT(e.p0.x(), WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.p0.y(), WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.p1.x(), WithinAbs(5.0, 1e-9));
+    REQUIRE_THAT(e.p1.y(), WithinAbs(0.0, 1e-9));
+}
+
+TEST_CASE("Extend forward to circle", "[SketchEdit]")
+{
+    SketchEntity e;
+    e.type = SketchEntity::Type::Line;
+    e.p0   = Vec2d(0, 0);
+    e.p1   = Vec2d(2, 0);
+
+    SketchEntity other;
+    other.type   = SketchEntity::Type::Circle;
+    other.center = Vec2d(10, 0);
+    other.p0     = Vec2d(10, 0);
+    other.radius = 3;
+
+    bool ok = SketchEngine::extend_entity(e, {other}, Vec2d(2, 0));
+    REQUIRE(ok);
+    REQUIRE_THAT(e.p0.x(), WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.p0.y(), WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.p1.x(), WithinAbs(7.0, 1e-9));
+    REQUIRE_THAT(e.p1.y(), WithinAbs(0.0, 1e-9));
+}
+
+TEST_CASE("Extend backward", "[SketchEdit]")
+{
+    SketchEntity e;
+    e.type = SketchEntity::Type::Line;
+    e.p0   = Vec2d(0, 0);
+    e.p1   = Vec2d(2, 0);
+
+    SketchEntity other;
+    other.type = SketchEntity::Type::Line;
+    other.p0   = Vec2d(-3, -5);
+    other.p1   = Vec2d(-3, 5);
+
+    bool ok = SketchEngine::extend_entity(e, {other}, Vec2d(0, 0));
+    REQUIRE(ok);
+    REQUIRE_THAT(e.p0.x(), WithinAbs(-3.0, 1e-9));
+    REQUIRE_THAT(e.p0.y(), WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.p1.x(), WithinAbs(2.0, 1e-9));
+    REQUIRE_THAT(e.p1.y(), WithinAbs(0.0, 1e-9));
+}
+
+TEST_CASE("Extend no target", "[SketchEdit]")
+{
+    SketchEntity e;
+    e.type = SketchEntity::Type::Line;
+    e.p0   = Vec2d(0, 0);
+    e.p1   = Vec2d(2, 0);
+
+    SketchEntity other;
+    other.type = SketchEntity::Type::Line;
+    other.p0   = Vec2d(5, -5);
+    other.p1   = Vec2d(5, -1);
+
+    REQUIRE_FALSE(SketchEngine::extend_entity(e, {other}, Vec2d(2, 0)));
+}

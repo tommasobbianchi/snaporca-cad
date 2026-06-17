@@ -166,6 +166,12 @@ public:
 
     static bool fillet_lines(const SketchEntity& a, const SketchEntity& b, double r,
                              SketchEntity& a_out, SketchEntity& b_out, SketchEntity& arc_out);
+
+    static bool trim_entity(SketchEntity& e, const std::vector<SketchEntity>& others,
+                            const Vec2d& pick);
+
+    static bool extend_entity(SketchEntity& e, const std::vector<SketchEntity>& others,
+                              const Vec2d& pick);
 };
 
 } // namespace Slic3r
