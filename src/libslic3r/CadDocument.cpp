@@ -79,6 +79,18 @@ int CadDocument::add_sketch(SketchShape shape, const SketchPlane& plane,
     return int(features.size()) - 1;
 }
 
+int CadDocument::add_sketch_profile(const SketchProfile& profile, const SketchPlane& plane,
+                                    const std::string& name)
+{
+    CadFeature f;
+    f.type    = CadFeatureType::Sketch;
+    f.name    = name;
+    f.plane   = plane;
+    f.profile = profile;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
 int CadDocument::add_extrude(int sketch_ref, double distance, bool symmetric,
                              BooleanMode mode, const std::string& name)
 {
@@ -296,6 +308,13 @@ bool CadDocument::replace_sketch_extrude(int sketch_idx, int extrude_idx,
 
 TopoDS_Wire CadDocument::build_sketch_wire(const CadFeature& sketch) const
 {
+    if (!sketch.profile.points.empty()) {
+        SketchProfile prof = sketch.profile;
+        prof.closed = true;               // extrude needs a closed wire
+        TopoDS_Wire w = prof.to_occt_wire(sketch.plane);
+        if (w.IsNull()) throw std::runtime_error("sketch profile wire failed");
+        return w;
+    }
     if (sketch.shape == SketchShape::Circle) {
         gp_Pnt o(sketch.plane.origin.x(), sketch.plane.origin.y(), sketch.plane.origin.z());
         gp_Dir n(sketch.plane.normal.x(), sketch.plane.normal.y(), sketch.plane.normal.z());

@@ -28,6 +28,10 @@ struct CadFeature {
     double      height{20};
     double      radius{10};
 
+    // Real 2D sketch geometry (Onshape-style). When non-empty this takes
+    // precedence over the shape/width/height/radius enum path in build_sketch_wire.
+    SketchProfile profile;
+
     // Extrude params
     int         sketch_ref{-1};   // index into features[] of the consumed sketch
     double      distance{10};
@@ -70,6 +74,8 @@ public:
     int  add_sketch(SketchShape shape, const SketchPlane& plane,
                     double width, double height, double radius,
                     const std::string& name);
+    int  add_sketch_profile(const SketchProfile& profile, const SketchPlane& plane,
+                            const std::string& name);
     int  add_extrude(int sketch_ref, double distance, bool symmetric,
                      BooleanMode mode, const std::string& name);
     int  add_fillet(double radius, FaceGroup faces, const std::string& name);
