@@ -41,6 +41,12 @@ public:
     void cancel_sketch();
     void set_on_sketch_commit(std::function<void(const SketchProfile&, const SketchPlane&)> cb);
 
+    // Constrain mode: load a committed profile for picking + constraint editing.
+    void begin_constrain(const SketchProfile& prof, const SketchPlane& plane);
+    bool is_constraining() const;
+    bool selected_segment(int& a, int& b) const;
+    void update_constrain_profile(const std::vector<Vec2d>& pts);
+
 private:
     void reload(bool keep_view);
 

@@ -26,6 +26,26 @@ void DesignSketchTool::cancel()
     m_active = false;
     m_points.clear();
     m_has_cursor = false;
+    m_sel_a = m_sel_b = -1;
+}
+
+void DesignSketchTool::begin_constrain(const SketchProfile& prof, const SketchPlane& plane)
+{
+    m_plane = plane;
+    m_mode = Mode::Constrain;
+    m_points = prof.points;
+    m_has_cursor = false;
+    m_sel_a = m_sel_b = -1;
+    m_active = true;
+}
+
+bool DesignSketchTool::selected_segment(int& a, int& b) const
+{
+    if (m_sel_a < 0 || m_sel_b < 0)
+        return false;
+    a = m_sel_a;
+    b = m_sel_b;
+    return true;
 }
 
 bool DesignSketchTool::screen_to_plane(GLCanvas3D& canvas, const wxMouseEvent& evt, Vec2d& out) const
@@ -174,6 +194,19 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         break;
     }
 
+    case Mode::Constrain: {
+        const ColorRGBA cyan(0.30f, 0.80f, 1.0f, 1.0f);
+        const ColorRGBA red(1.0f, 0.25f, 0.25f, 1.0f);
+        draw_quad_strip(m_line_model, m_points, true, cyan);
+        draw_vertices(m_vertex_model, m_points, cyan);
+        if (m_sel_a >= 0 && m_sel_b >= 0 &&
+            m_sel_a < int(m_points.size()) && m_sel_b < int(m_points.size())) {
+            std::vector<Vec2d> seg = { m_points[m_sel_a], m_points[m_sel_b] };
+            draw_quad_strip(m_highlight_model, seg, false, red);
+        }
+        break;
+    }
+
     }
 
     shader->stop_using();
@@ -181,8 +214,48 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     glsafe(::glEnable(GL_DEPTH_TEST));
 }
 
+// Distance from point p to the segment [a,b] in plane (2D) coordinates.
+static double point_segment_dist(const Vec2d& p, const Vec2d& a, const Vec2d& b)
+{
+    const Vec2d ab = b - a;
+    const double len2 = ab.squaredNorm();
+    if (len2 < 1e-12)
+        return (p - a).norm();
+    double t = (p - a).dot(ab) / len2;
+    t = std::max(0.0, std::min(1.0, t));
+    return (p - (a + t * ab)).norm();
+}
+
 bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
 {
+    // Constrain mode: pick a segment on click; let move/drag fall through so the
+    // camera can still orbit while inspecting the sketch.
+    if (m_mode == Mode::Constrain) {
+        if (evt.LeftDown()) {
+            if (m_points.size() < 2)
+                return false;
+            Vec2d p;
+            screen_to_plane(canvas, evt, p);
+            const size_t n = m_points.size();
+            double best = 1e30;
+            int bi = -1;
+            for (size_t i = 0; i < n; ++i) {
+                const double d = point_segment_dist(p, m_points[i], m_points[(i + 1) % n]);
+                if (d < best) { best = d; bi = int(i); }
+            }
+            if (bi >= 0) {
+                m_sel_a = bi;
+                m_sel_b = int((bi + 1) % n);
+            }
+            return true;
+        }
+        if (evt.RightDown()) {
+            cancel();
+            return true;
+        }
+        return false;
+    }
+
     if (evt.Moving()) {
         screen_to_plane(canvas, evt, m_cursor);
         m_has_cursor = true;

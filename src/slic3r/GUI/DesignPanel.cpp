@@ -94,6 +94,22 @@ DesignPanel::DesignPanel(wxWindow* parent)
                    _L("Click center then radius; right-click cancels")); });
     tbar->Add(b_circle, 0, wxEXPAND | wxBOTTOM, 4);
 
+    // Constrain row: enter constrain mode on the selected sketch, then apply
+    // Horizontal/Vertical to the picked segment (re-solves in the kernel).
+    auto* b_constrain = new wxButton(m_form, wxID_ANY, _L("Constrain"));
+    b_constrain->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_begin_constrain(); });
+    tbar->Add(b_constrain, 0, wxEXPAND | wxBOTTOM, 4);
+    auto* crow = new wxBoxSizer(wxHORIZONTAL);
+    auto* b_horiz = new wxButton(m_form, wxID_ANY, _L("Horizontal"));
+    b_horiz->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        apply_constraint(SketchConstraintType::Horizontal); });
+    auto* b_vert = new wxButton(m_form, wxID_ANY, _L("Vertical"));
+    b_vert->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        apply_constraint(SketchConstraintType::Vertical); });
+    crow->Add(b_horiz, 1, wxEXPAND | wxRIGHT, 4);
+    crow->Add(b_vert, 1, wxEXPAND);
+    tbar->Add(crow, 0, wxEXPAND | wxBOTTOM, 4);
+
     auto* b_extrude = new wxButton(m_form, wxID_ANY, _L("Extrude"));
     b_extrude->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
         m_extrude_sketch_ref = resolve_extrude_sketch();
@@ -596,6 +612,72 @@ void DesignPanel::on_move_feature(int delta)
     } else {
         after_tree_edit(false);
     }
+}
+
+void DesignPanel::on_begin_constrain()
+{
+    int sel = m_tree->GetSelection();
+    if (sel == wxNOT_FOUND || sel >= int(m_doc.features.size())) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Select a sketch in the tree first"));
+        m_status->Refresh();
+        return;
+    }
+    CadFeature& f = m_doc.features[sel];
+    if (f.type != CadFeatureType::Sketch || f.profile.points.size() < 3) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Selected feature is not a sketch"));
+        m_status->Refresh();
+        return;
+    }
+    m_constrain_feat = sel;
+    // Anchor the first profile point so H/V constraints don't let the sketch
+    // float freely; fix_point captures the point's current position in the solver.
+    if (f.constraints.empty())
+        f.constraints.push_back(SketchConstraintDef{SketchConstraintType::Fix, 0, -1, -1, -1, 0.0});
+    if (m_viewport) m_viewport->begin_constrain(f.profile, f.plane);
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(_L("Click a segment, then Horizontal / Vertical; right-click exits"));
+    m_status->Refresh();
+}
+
+void DesignPanel::apply_constraint(SketchConstraintType type)
+{
+    if (m_constrain_feat < 0 || m_constrain_feat >= int(m_doc.features.size()) ||
+        m_viewport == nullptr || !m_viewport->is_constraining()) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Press Constrain on a sketch first"));
+        m_status->Refresh();
+        return;
+    }
+    int a = -1, b = -1;
+    if (!m_viewport->selected_segment(a, b)) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Pick a segment in the viewport first"));
+        m_status->Refresh();
+        return;
+    }
+    CadFeature& feat = m_doc.features[m_constrain_feat];
+    // solve_sketch_feature rewrites profile.points even on failure, so snapshot
+    // the geometry to roll back a rejected constraint cleanly.
+    const std::vector<Vec2d> saved_pts = feat.profile.points;
+    feat.constraints.push_back(SketchConstraintDef{type, a, b, -1, -1, 0.0});
+    if (!m_doc.solve_sketch_feature(m_constrain_feat)) {
+        feat.constraints.pop_back();        // reject the non-converging addition
+        feat.profile.points = saved_pts;    // and restore the pre-solve geometry
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Constraint rejected (over-constrained)"));
+        m_status->Refresh();
+        return;
+    }
+    m_doc.recompute();
+    m_viewport->update_constrain_profile(m_doc.features[m_constrain_feat].profile.points);
+    if (!m_doc.display_mesh.its.indices.empty())
+        m_viewport->set_mesh(m_doc.display_mesh);
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(type == SketchConstraintType::Horizontal ? _L("Applied Horizontal")
+                                                                : _L("Applied Vertical"));
+    m_status->Refresh();
 }
 
 void DesignPanel::reset_edit_state()

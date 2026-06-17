@@ -44,6 +44,11 @@ private:
     // Feature-tree editing (Onshape-style): act on the selected tree row.
     void on_delete_feature();
     void on_move_feature(int delta);   // -1 = up, +1 = down
+
+    // Constrain mode: enter on the tree-selected sketch, then apply a geometric
+    // constraint to the in-canvas picked segment and re-solve in the kernel.
+    void on_begin_constrain();
+    void apply_constraint(SketchConstraintType type);
     void on_edit_feature();            // reopen the selected feature's dialog populated
     void after_tree_edit(bool ok);     // shared post-op refresh of tree/viewport/status
     void load_feature_into_dialog(const CadFeature& f);
@@ -112,6 +117,9 @@ private:
     // Edit-in-place state: add-mode is m_edit_index == -1. Single-feature edit
     // (Sketch or Extrude independently) uses only m_edit_index as the row to replace.
     int               m_edit_index{-1};
+
+    // Tree row of the sketch currently being constrained (-1 = not constraining).
+    int               m_constrain_feat{-1};
 };
 
 }} // namespace Slic3r::GUI

@@ -201,4 +201,25 @@ void DesignCanvas::set_on_sketch_commit(std::function<void(const SketchProfile&,
     m_on_sketch_commit = std::move(cb);
 }
 
+void DesignCanvas::begin_constrain(const SketchProfile& prof, const SketchPlane& plane)
+{
+    m_sketch_tool.begin_constrain(prof, plane);
+    // The overlay must appear immediately (no mouse move to trigger a repaint);
+    // a direct render() is the proven path under llvmpipe.
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
+bool DesignCanvas::is_constraining() const { return m_sketch_tool.is_constraining(); }
+
+bool DesignCanvas::selected_segment(int& a, int& b) const
+{
+    return m_sketch_tool.selected_segment(a, b);
+}
+
+void DesignCanvas::update_constrain_profile(const std::vector<Vec2d>& pts)
+{
+    m_sketch_tool.set_profile_points(pts);
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
 }} // namespace Slic3r::GUI
