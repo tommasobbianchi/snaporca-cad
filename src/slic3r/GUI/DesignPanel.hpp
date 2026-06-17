@@ -49,6 +49,7 @@ private:
     // constraint to the in-canvas picked segment and re-solve in the kernel.
     void on_begin_constrain();
     void apply_constraint(SketchConstraintType type);
+    void apply_entity_constraint(SketchConstraintType type);  // Fase 4.2 entity path
     void on_edit_feature();            // reopen the selected feature's dialog populated
     void after_tree_edit(bool ok);     // shared post-op refresh of tree/viewport/status
     void load_feature_into_dialog(const CadFeature& f);

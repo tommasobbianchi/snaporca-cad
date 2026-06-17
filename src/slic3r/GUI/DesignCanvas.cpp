@@ -257,4 +257,27 @@ void DesignCanvas::update_constrain_profile(const std::vector<Vec2d>& pts)
     if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
 }
 
+void DesignCanvas::begin_constrain_entities(const std::vector<SketchEntity>& ents,
+                                            const SketchPlane& plane)
+{
+    m_sketch_tool.begin_constrain_entities(ents, plane);
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
+bool DesignCanvas::is_constraining_entities() const
+{
+    return m_sketch_tool.is_constraining_entities();
+}
+
+bool DesignCanvas::selected_constrain_entities(int& e0, int& e1) const
+{
+    return m_sketch_tool.selected_constrain_entities(e0, e1);
+}
+
+void DesignCanvas::update_constrain_entities(const std::vector<SketchEntity>& ents)
+{
+    m_sketch_tool.set_constrain_entities(ents);
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
 }} // namespace Slic3r::GUI

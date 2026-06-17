@@ -45,6 +45,15 @@ public:
     // The currently picked segment's endpoint indices into the profile.
     bool selected_segment(int& a, int& b) const;
 
+    // Entity-aware Constrain (Fase 4.2): load a committed entity sketch and pick
+    // Line entities (constraints are solved against entity endpoints in the kernel).
+    void begin_constrain_entities(const std::vector<SketchEntity>& ents, const SketchPlane& plane);
+    bool is_constraining_entities() const { return m_active && m_mode == Mode::Constrain && m_constrain_entities; }
+    // Up to two picked line-entity indices; returns true if at least one is picked.
+    bool selected_constrain_entities(int& e0, int& e1) const { e0 = m_pick0; e1 = m_pick1; return m_pick0 >= 0; }
+    // Refresh the displayed entities after the kernel re-solved them.
+    void set_constrain_entities(const std::vector<SketchEntity>& ents) { m_entities = ents; }
+
     // Emitted by finish() with the accumulated entities (Onshape multi-entity path).
     std::function<void(const std::vector<SketchEntity>&, const SketchPlane&)> on_commit_entities;
     // Legacy single-profile commit (kept for compatibility; unused by entity tools).
@@ -86,8 +95,11 @@ private:
     Vec2d               m_cursor{0,0};
     bool                m_has_cursor{false};
     Mode                m_mode{Mode::Polyline};
-    int                 m_sel_a{-1};   // picked segment endpoints (Constrain mode)
+    int                 m_sel_a{-1};   // picked segment endpoints (legacy Constrain mode)
     int                 m_sel_b{-1};
+    bool                m_constrain_entities{false}; // Constrain mode acts on entities
+    int                 m_pick0{-1};   // picked line-entity indices (entity Constrain)
+    int                 m_pick1{-1};
     GLModel             m_line_model;
     GLModel             m_vertex_model;
     GLModel             m_highlight_model;

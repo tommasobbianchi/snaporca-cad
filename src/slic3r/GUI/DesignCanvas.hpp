@@ -53,6 +53,12 @@ public:
     bool selected_segment(int& a, int& b) const;
     void update_constrain_profile(const std::vector<Vec2d>& pts);
 
+    // Entity-aware Constrain (Fase 4.2): pick Line entities of a committed sketch.
+    void begin_constrain_entities(const std::vector<SketchEntity>& ents, const SketchPlane& plane);
+    bool is_constraining_entities() const;
+    bool selected_constrain_entities(int& e0, int& e1) const;
+    void update_constrain_entities(const std::vector<SketchEntity>& ents);
+
 private:
     void reload(bool keep_view);
 

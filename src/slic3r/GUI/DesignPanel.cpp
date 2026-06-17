@@ -179,21 +179,34 @@ DesignPanel::DesignPanel(wxWindow* parent)
             m_viewport->finish_sketch(); });
     tbar->Add(b_finish, 0, wxEXPAND | wxBOTTOM, 4);
 
-    // Constrain row: enter constrain mode on the selected sketch, then apply
-    // Horizontal/Vertical to the picked segment (re-solves in the kernel).
+    // Constrain row: enter constrain mode on the selected sketch, then apply a
+    // geometric constraint to the picked geometry (re-solves in the kernel).
+    // Entity sketches pick Line entities; legacy profile sketches pick segments.
     auto* b_constrain = new wxButton(m_form, wxID_ANY, _L("Constrain"));
     b_constrain->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_begin_constrain(); });
     tbar->Add(b_constrain, 0, wxEXPAND | wxBOTTOM, 4);
-    auto* crow = new wxBoxSizer(wxHORIZONTAL);
-    auto* b_horiz = new wxButton(m_form, wxID_ANY, _L("Horizontal"));
-    b_horiz->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-        apply_constraint(SketchConstraintType::Horizontal); });
-    auto* b_vert = new wxButton(m_form, wxID_ANY, _L("Vertical"));
-    b_vert->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-        apply_constraint(SketchConstraintType::Vertical); });
-    crow->Add(b_horiz, 1, wxEXPAND | wxRIGHT, 4);
-    crow->Add(b_vert, 1, wxEXPAND);
-    tbar->Add(crow, 0, wxEXPAND | wxBOTTOM, 4);
+
+    auto add_constraint_btn = [this](wxBoxSizer* row, const wxString& label,
+                                     SketchConstraintType type, bool last) {
+        auto* b = new wxButton(m_form, wxID_ANY, label);
+        b->Bind(wxEVT_BUTTON, [this, type](wxCommandEvent&) { apply_constraint(type); });
+        row->Add(b, 1, wxEXPAND | (last ? 0 : wxRIGHT), last ? 0 : 4);
+    };
+
+    auto* crow1 = new wxBoxSizer(wxHORIZONTAL);
+    add_constraint_btn(crow1, _L("Horizontal"),    SketchConstraintType::Horizontal,    false);
+    add_constraint_btn(crow1, _L("Vertical"),      SketchConstraintType::Vertical,      true);
+    tbar->Add(crow1, 0, wxEXPAND | wxBOTTOM, 4);
+
+    auto* crow2 = new wxBoxSizer(wxHORIZONTAL);
+    add_constraint_btn(crow2, _L("Parallel"),      SketchConstraintType::Parallel,      false);
+    add_constraint_btn(crow2, _L("Perpendicular"), SketchConstraintType::Perpendicular, true);
+    tbar->Add(crow2, 0, wxEXPAND | wxBOTTOM, 4);
+
+    auto* crow3 = new wxBoxSizer(wxHORIZONTAL);
+    add_constraint_btn(crow3, _L("Coincident"),    SketchConstraintType::Coincident,    false);
+    add_constraint_btn(crow3, _L("Equal"),         SketchConstraintType::EqualLength,   true);
+    tbar->Add(crow3, 0, wxEXPAND | wxBOTTOM, 4);
 
     auto* b_extrude = new wxButton(m_form, wxID_ANY, _L("Extrude"));
     b_extrude->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
@@ -725,7 +738,26 @@ void DesignPanel::on_begin_constrain()
         return;
     }
     CadFeature& f = m_doc.features[sel];
-    if (f.type != CadFeatureType::Sketch || f.profile.points.size() < 3) {
+    if (f.type != CadFeatureType::Sketch) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Selected feature is not a sketch"));
+        m_status->Refresh();
+        return;
+    }
+
+    // Entity sketches (Fase 4.2): pick Line entities; constraints solve against
+    // entity endpoints in the kernel.
+    if (!f.entities.empty()) {
+        m_constrain_feat = sel;
+        if (m_viewport) m_viewport->begin_constrain_entities(f.entities, f.plane);
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(_L("Pick 1-2 lines, then a constraint; right-click exits"));
+        m_status->Refresh();
+        return;
+    }
+
+    // Legacy profile path (Fase 3).
+    if (f.profile.points.size() < 3) {
         m_status->SetForegroundColour(wxColour(235, 110, 110));
         m_status->SetLabel(_L("Selected feature is not a sketch"));
         m_status->Refresh();
@@ -742,10 +774,101 @@ void DesignPanel::on_begin_constrain()
     m_status->Refresh();
 }
 
+void DesignPanel::apply_entity_constraint(SketchConstraintType type)
+{
+    using R = SketchPointRole;
+    int e0 = -1, e1 = -1;
+    m_viewport->selected_constrain_entities(e0, e1);
+
+    CadFeature& feat = m_doc.features[m_constrain_feat];
+    const bool needs_two = (type == SketchConstraintType::Parallel ||
+                            type == SketchConstraintType::Perpendicular ||
+                            type == SketchConstraintType::EqualLength ||
+                            type == SketchConstraintType::Coincident);
+    if (e0 < 0 || e0 >= int(feat.entities.size()) ||
+        (needs_two && (e1 < 0 || e1 >= int(feat.entities.size())))) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(needs_two ? _L("Pick two lines first") : _L("Pick a line first"));
+        m_status->Refresh();
+        return;
+    }
+
+    SketchEntityConstraintDef def;
+    def.type  = type;
+    def.value = 0.0;
+    switch (type) {
+    case SketchConstraintType::Horizontal:
+    case SketchConstraintType::Vertical:
+        // One line: level/plumb its own two endpoints.
+        def.ea = e0; def.ra = R::P0;
+        def.eb = e0; def.rb = R::P1;
+        break;
+    case SketchConstraintType::Parallel:
+    case SketchConstraintType::Perpendicular:
+    case SketchConstraintType::EqualLength:
+        def.ea = e0; def.eb = e1;   // two whole line segments (roles unused)
+        break;
+    case SketchConstraintType::Coincident: {
+        // Join the closest endpoint pair of the two picked lines.
+        const SketchEntity& A = feat.entities[e0];
+        const SketchEntity& B = feat.entities[e1];
+        const std::pair<R, Vec2d> aps[2] = {{R::P0, A.p0}, {R::P1, A.p1}};
+        const std::pair<R, Vec2d> bps[2] = {{R::P0, B.p0}, {R::P1, B.p1}};
+        R ra = R::P1, rb = R::P0;
+        double best = 1e30;
+        for (const auto& ap : aps)
+            for (const auto& bp : bps) {
+                const double d = (ap.second - bp.second).squaredNorm();
+                if (d < best) { best = d; ra = ap.first; rb = bp.first; }
+            }
+        def.ea = e0; def.ra = ra; def.eb = e1; def.rb = rb;
+        break;
+    }
+    default:
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Unsupported constraint"));
+        m_status->Refresh();
+        return;
+    }
+
+    // solve_sketch_feature rewrites entity coords even on failure, so snapshot
+    // to roll back a rejected (over-constrained) addition cleanly.
+    const std::vector<SketchEntity> saved = feat.entities;
+    feat.entity_constraints.push_back(def);
+    if (!m_doc.solve_sketch_feature(m_constrain_feat)) {
+        feat.entity_constraints.pop_back();
+        feat.entities = saved;
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Constraint rejected (over-constrained)"));
+        m_status->Refresh();
+        return;
+    }
+    m_doc.recompute();
+    m_viewport->update_constrain_entities(m_doc.features[m_constrain_feat].entities);
+    if (!m_doc.display_mesh.its.indices.empty())
+        m_viewport->set_mesh(m_doc.display_mesh);
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(_L("Applied constraint"));
+    m_status->Refresh();
+}
+
 void DesignPanel::apply_constraint(SketchConstraintType type)
 {
     if (m_constrain_feat < 0 || m_constrain_feat >= int(m_doc.features.size()) ||
-        m_viewport == nullptr || !m_viewport->is_constraining()) {
+        m_viewport == nullptr) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Press Constrain on a sketch first"));
+        m_status->Refresh();
+        return;
+    }
+
+    // Entity sketches (Fase 4.2) route through the entity-constraint path.
+    if (m_viewport->is_constraining_entities()) {
+        apply_entity_constraint(type);
+        return;
+    }
+
+    if (!m_viewport->is_constraining()) {
         m_status->SetForegroundColour(wxColour(235, 110, 110));
         m_status->SetLabel(_L("Press Constrain on a sketch first"));
         m_status->Refresh();
