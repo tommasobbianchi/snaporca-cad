@@ -71,28 +71,74 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_draw_plane->SetSelection(0);
     tbar->Add(m_draw_plane, 0, wxEXPAND | wxBOTTOM, 4);
 
-    auto begin_draw = [this](DesignSketchTool::Mode mode, const wxString& hint) {
+    // Interactive multi-entity sketch (Onshape-style): pick a plane, Start the
+    // sketch, switch entity tools freely while entities accumulate, then Finish
+    // to commit them all as one sketch feature. The Construction toggle marks
+    // subsequently-drawn entities as construction geometry (excluded from the wire).
+    auto* b_newsk = new wxButton(m_form, wxID_ANY, _L("Sketch ▸ Start"));
+    auto* construction = new wxCheckBox(m_form, wxID_ANY, _L("Construction"));
+
+    auto select_tool = [this, construction](DesignSketchTool::Mode mode, const wxString& hint) {
         if (!m_viewport) return;
-        const SketchPlane plane = plane_from_index(m_draw_plane->GetSelection());
-        m_viewport->begin_sketch(plane, mode);
+        if (!m_viewport->is_sketching()) {
+            const SketchPlane plane = plane_from_index(m_draw_plane->GetSelection());
+            m_viewport->begin_sketch(plane, mode);
+            construction->SetValue(false);   // a fresh session starts non-construction
+        } else {
+            m_viewport->set_sketch_tool(mode);
+        }
+        m_viewport->set_sketch_construction(construction->GetValue());
         m_status->SetForegroundColour(wxNullColour);
         m_status->SetLabel(hint);
+        m_status->Refresh();
     };
-    auto* b_line = new wxButton(m_form, wxID_ANY, _L("Sketch: Line"));
-    b_line->Bind(wxEVT_BUTTON, [begin_draw](wxCommandEvent&) {
-        begin_draw(DesignSketchTool::Mode::Polyline,
-                   _L("Click to place points; click first point or right-click to close")); });
-    tbar->Add(b_line, 0, wxEXPAND | wxBOTTOM, 4);
-    auto* b_rect = new wxButton(m_form, wxID_ANY, _L("Sketch: Rect"));
-    b_rect->Bind(wxEVT_BUTTON, [begin_draw](wxCommandEvent&) {
-        begin_draw(DesignSketchTool::Mode::Rectangle,
-                   _L("Click two opposite corners; right-click cancels")); });
-    tbar->Add(b_rect, 0, wxEXPAND | wxBOTTOM, 4);
-    auto* b_circle = new wxButton(m_form, wxID_ANY, _L("Sketch: Circle"));
-    b_circle->Bind(wxEVT_BUTTON, [begin_draw](wxCommandEvent&) {
-        begin_draw(DesignSketchTool::Mode::Circle,
-                   _L("Click center then radius; right-click cancels")); });
-    tbar->Add(b_circle, 0, wxEXPAND | wxBOTTOM, 4);
+
+    b_newsk->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
+        select_tool(DesignSketchTool::Mode::Polyline,
+                    _L("Sketch started — draw entities, then Finish Sketch")); });
+    tbar->Add(b_newsk, 0, wxEXPAND | wxBOTTOM, 4);
+
+    auto* erow1 = new wxBoxSizer(wxHORIZONTAL);
+    auto* b_line = new wxButton(m_form, wxID_ANY, _L("Line"));
+    b_line->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
+        select_tool(DesignSketchTool::Mode::Polyline,
+                    _L("Click points; click first / right-click to close the loop")); });
+    auto* b_rect = new wxButton(m_form, wxID_ANY, _L("Rect"));
+    b_rect->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
+        select_tool(DesignSketchTool::Mode::CornerRect,
+                    _L("Click two opposite corners")); });
+    auto* b_crect = new wxButton(m_form, wxID_ANY, _L("C-Rect"));
+    b_crect->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
+        select_tool(DesignSketchTool::Mode::CenterRect,
+                    _L("Click center, then a corner")); });
+    erow1->Add(b_line, 1, wxEXPAND | wxRIGHT, 4);
+    erow1->Add(b_rect, 1, wxEXPAND | wxRIGHT, 4);
+    erow1->Add(b_crect, 1, wxEXPAND);
+    tbar->Add(erow1, 0, wxEXPAND | wxBOTTOM, 4);
+
+    auto* erow2 = new wxBoxSizer(wxHORIZONTAL);
+    auto* b_circle = new wxButton(m_form, wxID_ANY, _L("Circle"));
+    b_circle->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
+        select_tool(DesignSketchTool::Mode::CenterCircle,
+                    _L("Click center, then radius")); });
+    auto* b_point = new wxButton(m_form, wxID_ANY, _L("Point"));
+    b_point->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
+        select_tool(DesignSketchTool::Mode::Point,
+                    _L("Click to place a point")); });
+    erow2->Add(b_circle, 1, wxEXPAND | wxRIGHT, 4);
+    erow2->Add(b_point, 1, wxEXPAND);
+    tbar->Add(erow2, 0, wxEXPAND | wxBOTTOM, 4);
+
+    construction->Bind(wxEVT_CHECKBOX, [this, construction](wxCommandEvent&) {
+        if (m_viewport && m_viewport->is_sketching())
+            m_viewport->set_sketch_construction(construction->GetValue()); });
+    tbar->Add(construction, 0, wxBOTTOM, 4);
+
+    auto* b_finish = new wxButton(m_form, wxID_ANY, _L("✓ Finish Sketch"));
+    b_finish->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        if (m_viewport && m_viewport->is_sketching())
+            m_viewport->finish_sketch(); });
+    tbar->Add(b_finish, 0, wxEXPAND | wxBOTTOM, 4);
 
     // Constrain row: enter constrain mode on the selected sketch, then apply
     // Horizontal/Vertical to the picked segment (re-solves in the kernel).
@@ -415,6 +461,22 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_status->SetLabel(_L("Sketch created — select it and Extrude"));
         refresh_tree();
     });
+
+    m_viewport->set_on_sketch_entities_commit(
+        [this](const std::vector<SketchEntity>& ents, const SketchPlane& plane) {
+            if (ents.empty()) {
+                m_status->SetForegroundColour(wxColour(235, 110, 110));
+                m_status->SetLabel(_L("Sketch empty — nothing committed"));
+                m_status->Refresh();
+                return;
+            }
+            m_feature_counter++;
+            m_doc.add_sketch_entities(ents, plane, "Sketch" + std::to_string(m_feature_counter));
+            m_doc.recompute();
+            m_status->SetForegroundColour(wxNullColour);
+            m_status->SetLabel(_L("Sketch created — select it and Extrude"));
+            refresh_tree();
+        });
 
     auto* vcol = new wxBoxSizer(wxVERTICAL);
     auto* vbar = new wxBoxSizer(wxHORIZONTAL);

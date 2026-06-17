@@ -55,6 +55,11 @@ DesignCanvas::DesignCanvas(wxWindow* parent)
         if (m_canvas) m_canvas->set_as_dirty();
         if (m_canvas_widget) m_canvas_widget->Refresh();
     };
+    m_sketch_tool.on_commit_entities = [this](const std::vector<SketchEntity>& ents, const SketchPlane& pl) {
+        if (m_on_sketch_entities_commit) m_on_sketch_entities_commit(ents, pl);
+        if (m_canvas) m_canvas->set_as_dirty();
+        if (m_canvas_widget) m_canvas_widget->Refresh();
+    };
 
     const DynamicPrintConfig* config = wxGetApp().plater()->config();
     if (config) {
@@ -187,6 +192,25 @@ void DesignCanvas::begin_sketch(const SketchPlane& plane, DesignSketchTool::Mode
     if (m_canvas_widget) m_canvas_widget->Refresh();
 }
 
+void DesignCanvas::set_sketch_tool(DesignSketchTool::Mode mode)
+{
+    m_sketch_tool.set_tool(mode);
+    if (m_canvas) m_canvas->set_as_dirty();
+    if (m_canvas_widget) m_canvas_widget->Refresh();
+}
+
+void DesignCanvas::set_sketch_construction(bool c)
+{
+    m_sketch_tool.set_construction(c);
+}
+
+void DesignCanvas::finish_sketch()
+{
+    m_sketch_tool.finish();
+    if (m_canvas) m_canvas->set_as_dirty();
+    if (m_canvas_widget) m_canvas_widget->Refresh();
+}
+
 bool DesignCanvas::is_sketching() const { return m_sketch_tool.is_active(); }
 
 void DesignCanvas::cancel_sketch()
@@ -199,6 +223,12 @@ void DesignCanvas::cancel_sketch()
 void DesignCanvas::set_on_sketch_commit(std::function<void(const SketchProfile&, const SketchPlane&)> cb)
 {
     m_on_sketch_commit = std::move(cb);
+}
+
+void DesignCanvas::set_on_sketch_entities_commit(
+    std::function<void(const std::vector<SketchEntity>&, const SketchPlane&)> cb)
+{
+    m_on_sketch_entities_commit = std::move(cb);
 }
 
 void DesignCanvas::begin_constrain(const SketchProfile& prof, const SketchPlane& plane)

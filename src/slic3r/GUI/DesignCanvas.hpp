@@ -37,9 +37,14 @@ public:
     void set_view(const std::string& view_name);
 
     void begin_sketch(const SketchPlane& plane, DesignSketchTool::Mode mode);
+    void set_sketch_tool(DesignSketchTool::Mode mode);
+    void set_sketch_construction(bool c);
+    void finish_sketch();
     bool is_sketching() const;
     void cancel_sketch();
     void set_on_sketch_commit(std::function<void(const SketchProfile&, const SketchPlane&)> cb);
+    void set_on_sketch_entities_commit(
+        std::function<void(const std::vector<SketchEntity>&, const SketchPlane&)> cb);
 
     // Constrain mode: load a committed profile for picking + constraint editing.
     void begin_constrain(const SketchProfile& prof, const SketchPlane& plane);
@@ -58,6 +63,7 @@ private:
 
     DesignSketchTool m_sketch_tool;
     std::function<void(const SketchProfile&, const SketchPlane&)> m_on_sketch_commit;
+    std::function<void(const std::vector<SketchEntity>&, const SketchPlane&)> m_on_sketch_entities_commit;
 };
 
 }} // namespace Slic3r::GUI

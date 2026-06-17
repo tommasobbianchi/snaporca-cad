@@ -17,16 +17,42 @@ void DesignSketchTool::begin(const SketchPlane& plane, Mode mode)
     m_plane = plane;
     m_mode = mode;
     m_points.clear();
+    m_entities.clear();
+    m_construction = false;
     m_has_cursor = false;
+    m_sel_a = m_sel_b = -1;
     m_active = true;
+}
+
+void DesignSketchTool::set_tool(Mode mode)
+{
+    // Switch the active drawing tool without dropping accumulated entities.
+    m_mode = mode;
+    m_points.clear();
+    m_has_cursor = false;
 }
 
 void DesignSketchTool::cancel()
 {
     m_active = false;
     m_points.clear();
+    m_entities.clear();
+    m_construction = false;
     m_has_cursor = false;
     m_sel_a = m_sel_b = -1;
+}
+
+void DesignSketchTool::finish()
+{
+    auto cb = on_commit_entities;
+    std::vector<SketchEntity> ents = m_entities;
+    SketchPlane pl = m_plane;
+    m_active = false;
+    m_points.clear();
+    m_entities.clear();
+    m_has_cursor = false;
+    if (cb)
+        cb(ents, pl);
 }
 
 void DesignSketchTool::begin_constrain(const SketchProfile& prof, const SketchPlane& plane)
@@ -34,6 +60,7 @@ void DesignSketchTool::begin_constrain(const SketchProfile& prof, const SketchPl
     m_plane = plane;
     m_mode = Mode::Constrain;
     m_points = prof.points;
+    m_entities.clear();
     m_has_cursor = false;
     m_sel_a = m_sel_b = -1;
     m_active = true;
@@ -70,6 +97,83 @@ static std::vector<Vec2d> circle_polygon(const Vec2d& c, double r, int n = 48)
     }
     return v;
 }
+
+// ---- entity builders --------------------------------------------------------
+
+void DesignSketchTool::push_line(const Vec2d& a, const Vec2d& b)
+{
+    if ((b - a).squaredNorm() < 1e-9)
+        return;
+    SketchEntity e;
+    e.type = SketchEntity::Type::Line;
+    e.p0 = a;
+    e.p1 = b;
+    e.construction = m_construction;
+    m_entities.push_back(e);
+}
+
+void DesignSketchTool::push_closed_lines(const std::vector<Vec2d>& corners)
+{
+    const size_t n = corners.size();
+    if (n < 2) return;
+    for (size_t i = 0; i < n; ++i)
+        push_line(corners[i], corners[(i + 1) % n]);
+}
+
+void DesignSketchTool::push_open_chain(const std::vector<Vec2d>& pts)
+{
+    for (size_t i = 0; i + 1 < pts.size(); ++i)
+        push_line(pts[i], pts[i + 1]);
+}
+
+void DesignSketchTool::push_circle(const Vec2d& center, double radius)
+{
+    if (radius < 1e-3) return;
+    SketchEntity e;
+    e.type = SketchEntity::Type::Circle;
+    e.center = center;
+    e.p0 = center;
+    e.radius = radius;
+    e.construction = m_construction;
+    m_entities.push_back(e);
+}
+
+void DesignSketchTool::push_point(const Vec2d& p)
+{
+    SketchEntity e;
+    e.type = SketchEntity::Type::Point;
+    e.p0 = p;
+    e.center = p;
+    e.construction = m_construction;
+    m_entities.push_back(e);
+}
+
+std::vector<Vec2d> DesignSketchTool::entity_polyline(const SketchEntity& e, bool& closed) const
+{
+    closed = false;
+    switch (e.type) {
+    case SketchEntity::Type::Line:
+        return { e.p0, e.p1 };
+    case SketchEntity::Type::Circle:
+        closed = true;
+        return circle_polygon(e.center, e.radius);
+    case SketchEntity::Type::Arc: {
+        const int n = 24;
+        std::vector<Vec2d> pts; pts.reserve(n + 1);
+        for (int i = 0; i <= n; ++i) {
+            const double a = e.start_angle + (e.end_angle - e.start_angle) * double(i) / double(n);
+            pts.push_back(Vec2d(e.center.x() + e.radius * std::cos(a),
+                                e.center.y() + e.radius * std::sin(a)));
+        }
+        return pts;
+    }
+    case SketchEntity::Type::Point:
+        return { e.p0 };
+    }
+    return {};
+}
+
+// ---- rendering --------------------------------------------------------------
 
 void DesignSketchTool::draw_quad_strip(GLModel& model, const std::vector<Vec2d>& pts, bool closed, const ColorRGBA& color)
 {
@@ -136,7 +240,9 @@ void DesignSketchTool::draw_vertices(GLModel& model, const std::vector<Vec2d>& p
 void DesignSketchTool::render(GLCanvas3D& canvas)
 {
     (void)canvas;
-    if (m_points.empty())
+    if (!m_active)
+        return;
+    if (m_mode != Mode::Constrain && m_entities.empty() && m_points.empty())
         return;
 
     GLShaderProgram* shader = wxGetApp().get_shader("flat");
@@ -152,49 +258,9 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
 
     const ColorRGBA orange(1.0f, 0.55f, 0.1f, 1.0f);
     const ColorRGBA yellow(1.0f, 0.85f, 0.2f, 1.0f);
+    const ColorRGBA grey(0.55f, 0.55f, 0.60f, 1.0f);
 
-    switch (m_mode) {
-
-    case Mode::Polyline: {
-        std::vector<Vec2d> pts = m_points;
-        if (m_has_cursor)
-            pts.push_back(m_cursor);
-        draw_quad_strip(m_line_model, pts, false, orange);
-        draw_vertices(m_vertex_model, m_points, yellow);
-        break;
-    }
-
-    case Mode::Rectangle: {
-        if (m_points.size() == 1 && m_has_cursor) {
-            const Vec2d A = m_points[0];
-            const Vec2d B = m_cursor;
-            std::vector<Vec2d> corners = { A, Vec2d(B.x(), A.y()), B, Vec2d(A.x(), B.y()) };
-            draw_quad_strip(m_line_model, corners, true, orange);
-            draw_vertices(m_vertex_model, corners, yellow);
-        } else if (!m_points.empty()) {
-            draw_quad_strip(m_line_model, m_points, true, orange);
-            draw_vertices(m_vertex_model, m_points, yellow);
-        }
-        break;
-    }
-
-    case Mode::Circle: {
-        if (m_points.size() == 1 && m_has_cursor) {
-            const Vec2d C = m_points[0];
-            const double r = (m_cursor - C).norm();
-            auto circ = circle_polygon(C, r);
-            draw_quad_strip(m_line_model, circ, true, orange);
-            std::vector<Vec2d> center = { C };
-            draw_vertices(m_vertex_model, center, yellow);
-        } else if (m_points.size() >= 3) {
-            draw_quad_strip(m_line_model, m_points, true, orange);
-            std::vector<Vec2d> center = { m_points[0] };
-            draw_vertices(m_vertex_model, center, yellow);
-        }
-        break;
-    }
-
-    case Mode::Constrain: {
+    if (m_mode == Mode::Constrain) {
         const ColorRGBA cyan(0.30f, 0.80f, 1.0f, 1.0f);
         const ColorRGBA red(1.0f, 0.25f, 0.25f, 1.0f);
         draw_quad_strip(m_line_model, m_points, true, cyan);
@@ -204,9 +270,78 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
             std::vector<Vec2d> seg = { m_points[m_sel_a], m_points[m_sel_b] };
             draw_quad_strip(m_highlight_model, seg, false, red);
         }
+        shader->stop_using();
+        glsafe(::glEnable(GL_CULL_FACE));
+        glsafe(::glEnable(GL_DEPTH_TEST));
+        return;
+    }
+
+    // Committed entities of this session.
+    std::vector<Vec2d> point_markers;
+    for (const SketchEntity& e : m_entities) {
+        const ColorRGBA col = e.construction ? grey : orange;
+        if (e.type == SketchEntity::Type::Point) {
+            point_markers.push_back(e.p0);
+            continue;
+        }
+        bool closed = false;
+        std::vector<Vec2d> poly = entity_polyline(e, closed);
+        draw_quad_strip(m_line_model, poly, closed, col);
+    }
+    if (!point_markers.empty())
+        draw_vertices(m_vertex_model, point_markers, yellow);
+
+    // In-progress entity preview for the active tool.
+    const ColorRGBA preview = m_construction ? grey : orange;
+    switch (m_mode) {
+
+    case Mode::Polyline: {
+        std::vector<Vec2d> pts = m_points;
+        if (m_has_cursor)
+            pts.push_back(m_cursor);
+        draw_quad_strip(m_highlight_model, pts, false, preview);
+        draw_vertices(m_vertex_model, m_points, yellow);
         break;
     }
 
+    case Mode::CornerRect: {
+        if (m_points.size() == 1 && m_has_cursor) {
+            const Vec2d A = m_points[0];
+            const Vec2d B = m_cursor;
+            std::vector<Vec2d> corners = { A, Vec2d(B.x(), A.y()), B, Vec2d(A.x(), B.y()) };
+            draw_quad_strip(m_highlight_model, corners, true, preview);
+        }
+        break;
+    }
+
+    case Mode::CenterRect: {
+        if (m_points.size() == 1 && m_has_cursor) {
+            const Vec2d C = m_points[0];
+            const Vec2d P = m_cursor;
+            const double hx = std::abs(P.x() - C.x());
+            const double hy = std::abs(P.y() - C.y());
+            std::vector<Vec2d> corners = {
+                Vec2d(C.x() - hx, C.y() - hy), Vec2d(C.x() + hx, C.y() - hy),
+                Vec2d(C.x() + hx, C.y() + hy), Vec2d(C.x() - hx, C.y() + hy) };
+            draw_quad_strip(m_highlight_model, corners, true, preview);
+            draw_vertices(m_vertex_model, { C }, yellow);
+        }
+        break;
+    }
+
+    case Mode::CenterCircle: {
+        if (m_points.size() == 1 && m_has_cursor) {
+            const Vec2d C = m_points[0];
+            const double r = (m_cursor - C).norm();
+            draw_quad_strip(m_highlight_model, circle_polygon(C, r), true, preview);
+            draw_vertices(m_vertex_model, { C }, yellow);
+        }
+        break;
+    }
+
+    case Mode::Point:
+    case Mode::Constrain:
+        break;
     }
 
     shader->stop_using();
@@ -269,100 +404,106 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             Vec2d p;
             screen_to_plane(canvas, evt, p);
             if (near_first(p)) {
-                commit();
+                push_closed_lines(m_points);  // close the loop
+                m_points.clear();
                 return true;
             }
             m_points.push_back(p);
             return true;
         }
-
         if (evt.LeftDClick()) {
-            if (m_points.size() >= 3)
-                commit();
+            if (m_points.size() >= 2) {
+                push_open_chain(m_points);     // end as an open chain
+                m_points.clear();
+            }
             return true;
         }
-
         if (evt.RightDown()) {
             if (m_points.size() >= 3)
-                commit();
-            else
-                cancel();
+                push_closed_lines(m_points);
+            else if (m_points.size() == 2)
+                push_open_chain(m_points);
+            m_points.clear();
             return true;
         }
         break;
     }
 
-    case Mode::Rectangle: {
+    case Mode::CornerRect: {
         if (evt.LeftDown()) {
+            Vec2d p;
+            screen_to_plane(canvas, evt, p);
             if (m_points.empty()) {
-                Vec2d A;
-                screen_to_plane(canvas, evt, A);
-                m_points.push_back(A);
-                return true;
+                m_points.push_back(p);
             } else {
-                Vec2d B;
-                screen_to_plane(canvas, evt, B);
                 const Vec2d A = m_points[0];
-                m_points = { A, Vec2d(B.x(), A.y()), B, Vec2d(A.x(), B.y()) };
-                commit();
-                return true;
+                const Vec2d B = p;
+                push_closed_lines({ A, Vec2d(B.x(), A.y()), B, Vec2d(A.x(), B.y()) });
+                m_points.clear();
             }
-        }
-
-        if (evt.RightDown()) {
-            cancel();
             return true;
         }
+        if (evt.RightDown()) { m_points.clear(); return true; }
         break;
     }
 
-    case Mode::Circle: {
+    case Mode::CenterRect: {
         if (evt.LeftDown()) {
+            Vec2d p;
+            screen_to_plane(canvas, evt, p);
             if (m_points.empty()) {
-                Vec2d C;
-                screen_to_plane(canvas, evt, C);
-                m_points.push_back(C);
-                return true;
+                m_points.push_back(p);
             } else {
-                Vec2d P;
-                screen_to_plane(canvas, evt, P);
                 const Vec2d C = m_points[0];
-                const double r = (P - C).norm();
-                if (r < 1e-3)
-                    return true;
-                m_points = circle_polygon(C, r);
-                commit();
-                return true;
+                const double hx = std::abs(p.x() - C.x());
+                const double hy = std::abs(p.y() - C.y());
+                push_closed_lines({
+                    Vec2d(C.x() - hx, C.y() - hy), Vec2d(C.x() + hx, C.y() - hy),
+                    Vec2d(C.x() + hx, C.y() + hy), Vec2d(C.x() - hx, C.y() + hy) });
+                m_points.clear();
             }
-        }
-
-        if (evt.RightDown()) {
-            cancel();
             return true;
         }
+        if (evt.RightDown()) { m_points.clear(); return true; }
         break;
     }
 
+    case Mode::CenterCircle: {
+        if (evt.LeftDown()) {
+            Vec2d p;
+            screen_to_plane(canvas, evt, p);
+            if (m_points.empty()) {
+                m_points.push_back(p);
+            } else {
+                const Vec2d C = m_points[0];
+                push_circle(C, (p - C).norm());
+                m_points.clear();
+            }
+            return true;
+        }
+        if (evt.RightDown()) { m_points.clear(); return true; }
+        break;
+    }
+
+    case Mode::Point: {
+        if (evt.LeftDown()) {
+            Vec2d p;
+            screen_to_plane(canvas, evt, p);
+            push_point(p);
+            return true;
+        }
+        if (evt.RightDown()) { return true; }
+        break;
+    }
+
+    case Mode::Constrain:
+        break;
     }
 
     if (evt.Dragging())
         return false;
 
     return false;
-}
-
-void DesignSketchTool::commit()
-{
-    SketchProfile prof;
-    prof.points = m_points;
-    prof.closed = true;
-    auto cb = on_commit;
-    SketchPlane pl = m_plane;
-    m_active = false;
-    m_points.clear();
-    m_has_cursor = false;
-    if (cb)
-        cb(prof, pl);
 }
 
 }} // namespace Slic3r::GUI

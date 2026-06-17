@@ -92,6 +92,18 @@ int CadDocument::add_sketch_profile(const SketchProfile& profile, const SketchPl
     return int(features.size()) - 1;
 }
 
+int CadDocument::add_sketch_entities(const std::vector<SketchEntity>& entities,
+                                     const SketchPlane& plane, const std::string& name)
+{
+    CadFeature f;
+    f.type     = CadFeatureType::Sketch;
+    f.name     = name;
+    f.plane    = plane;
+    f.entities = entities;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
 bool CadDocument::solve_sketch_feature(int index)
 {
     if (index < 0 || index >= int(features.size())) return false;

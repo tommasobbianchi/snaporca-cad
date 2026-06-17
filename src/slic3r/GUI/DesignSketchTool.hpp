@@ -14,13 +14,22 @@ namespace GUI {
 
 class GLCanvas3D;
 
+// Onshape-style sketch session. `begin` enters a session on a plane; the active
+// drawing tool (Mode) can be switched mid-session via `set_tool` while entities
+// accumulate. `finish` commits the whole entity list as one sketch feature;
+// `cancel` aborts. Constrain is a separate legacy mode that operates on a
+// committed profile's points (entity constraints land in a later chunk).
 class DesignSketchTool {
 public:
-    enum class Mode { Polyline, Rectangle, Circle, Constrain };
+    enum class Mode { Polyline, CornerRect, CenterRect, CenterCircle, Point, Constrain };
 
     void begin(const SketchPlane& plane, Mode mode = Mode::Polyline);
+    void set_tool(Mode mode);                 // switch tool, keep accumulated entities
+    void set_construction(bool c) { m_construction = c; }
+    void finish();                            // emit accumulated entities, end session
     void cancel();
     bool is_active() const { return m_active; }
+    bool has_entities() const { return !m_entities.empty(); }
     bool on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas);
     void render(GLCanvas3D& canvas);
 
@@ -33,19 +42,33 @@ public:
     // The currently picked segment's endpoint indices into the profile.
     bool selected_segment(int& a, int& b) const;
 
+    // Emitted by finish() with the accumulated entities (Onshape multi-entity path).
+    std::function<void(const std::vector<SketchEntity>&, const SketchPlane&)> on_commit_entities;
+    // Legacy single-profile commit (kept for compatibility; unused by entity tools).
     std::function<void(const SketchProfile&, const SketchPlane&)> on_commit;
 
 private:
     bool screen_to_plane(GLCanvas3D& canvas, const wxMouseEvent& evt, Vec2d& out) const;
     bool near_first(const Vec2d& p) const;
-    void commit();
+
+    // Entity builders: append to m_entities (honoring the construction flag).
+    void push_line(const Vec2d& a, const Vec2d& b);
+    void push_closed_lines(const std::vector<Vec2d>& corners);
+    void push_open_chain(const std::vector<Vec2d>& pts);
+    void push_circle(const Vec2d& center, double radius);
+    void push_point(const Vec2d& p);
+
+    // Sample an entity into a 2D polyline for the overlay renderer.
+    std::vector<Vec2d> entity_polyline(const SketchEntity& e, bool& closed) const;
 
     void draw_quad_strip(GLModel& model, const std::vector<Vec2d>& pts, bool closed, const ColorRGBA& color);
     void draw_vertices(GLModel& model, const std::vector<Vec2d>& pts, const ColorRGBA& color);
 
     bool                m_active{false};
     SketchPlane         m_plane;
-    std::vector<Vec2d>  m_points;
+    std::vector<Vec2d>  m_points;       // clicks of the in-progress entity / chain
+    std::vector<SketchEntity> m_entities; // committed entities of this session
+    bool                m_construction{false};
     Vec2d               m_cursor{0,0};
     bool                m_has_cursor{false};
     Mode                m_mode{Mode::Polyline};

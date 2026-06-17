@@ -211,3 +211,52 @@ TEST_CASE("sketch entities -> wire -> extrude", "[CadDocument]")
         REQUIRE(std::abs(sz.z() -  5.0) < 0.5);
     }
 }
+
+// Mirrors the GUI interactive-sketch commit path (DesignPanel ->
+// add_sketch_entities) for the Fase 4.1 entity drawing tools: a corner-rect and
+// a center-rect produce 4 closed Line entities; a center-circle produces 1
+// Circle entity. add_sketch_entities must store them and extrude into a solid.
+TEST_CASE("add_sketch_entities commit path -> extrude", "[CadDocument]")
+{
+    SECTION("corner-rect 4 lines -> 30x16x5") {
+        CadDocument doc;
+        // Corner A=(-15,-8), B=(15,8): the tool's push_closed_lines order.
+        const Vec2d A(-15, -8), B(15, 8);
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Line, A,                 Vec2d(B.x(), A.y())},
+            {SketchEntity::Type::Line, Vec2d(B.x(),A.y()), B},
+            {SketchEntity::Type::Line, B,                 Vec2d(A.x(), B.y())},
+            {SketchEntity::Type::Line, Vec2d(A.x(),B.y()), A},
+        };
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "Sketch1");
+        REQUIRE(sk == 0);
+        doc.add_extrude(sk, 5.0, false, BooleanMode::New, "Extrude1");
+
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        REQUIRE(doc.display_mesh.facets_count() > 0);
+        auto sz = doc.display_mesh.bounding_box().size();
+        REQUIRE(std::abs(sz.x() - 30.0) < 0.5);
+        REQUIRE(std::abs(sz.y() - 16.0) < 0.5);
+        REQUIRE(std::abs(sz.z() -  5.0) < 0.5);
+    }
+
+    SECTION("center-circle 1 entity -> r=7 cylinder") {
+        CadDocument doc;
+        SketchEntity c;
+        c.type = SketchEntity::Type::Circle;
+        c.center = Vec2d(0, 0);
+        c.p0 = Vec2d(0, 0);
+        c.radius = 7.0;
+        int sk = doc.add_sketch_entities({c}, SketchPlane::XY(), "Sketch1");
+        doc.add_extrude(sk, 4.0, false, BooleanMode::New, "Extrude1");
+
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        REQUIRE(doc.display_mesh.facets_count() > 0);
+        auto sz = doc.display_mesh.bounding_box().size();
+        REQUIRE(std::abs(sz.x() - 14.0) < 0.5);
+        REQUIRE(std::abs(sz.y() - 14.0) < 0.5);
+        REQUIRE(std::abs(sz.z() -  4.0) < 0.5);
+    }
+}
