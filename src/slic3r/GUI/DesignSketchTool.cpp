@@ -621,21 +621,33 @@ static double point_segment_dist(const Vec2d& p, const Vec2d& a, const Vec2d& b)
     return (p - (a + t * ab)).norm();
 }
 
+// Screen-plane distance from p to a sketch entity, for click picking in Constrain
+// mode. Circles/arcs measure distance to the ring; points to their position.
+static double entity_pick_dist(const Vec2d& p, const SketchEntity& e)
+{
+    switch (e.type) {
+    case SketchEntity::Type::Line:   return point_segment_dist(p, e.p0, e.p1);
+    case SketchEntity::Type::Point:  return (p - e.p0).norm();
+    case SketchEntity::Type::Circle:
+    case SketchEntity::Type::Arc:    return std::abs((p - e.center).norm() - e.radius);
+    }
+    return 1e30;
+}
+
 bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
 {
     // Constrain mode: pick a segment on click; let move/drag fall through so the
     // camera can still orbit while inspecting the sketch.
     if (m_mode == Mode::Constrain) {
         if (m_constrain_entities) {
-            // Pick Line entities: maintain a rolling two-slot selection.
+            // Pick any entity (line/circle/arc/point): rolling two-slot selection.
             if (evt.LeftDown()) {
                 Vec2d p;
                 screen_to_plane(canvas, evt, p);
                 double best = 1e30;
                 int bi = -1;
                 for (size_t i = 0; i < m_entities.size(); ++i) {
-                    if (m_entities[i].type != SketchEntity::Type::Line) continue;
-                    const double d = point_segment_dist(p, m_entities[i].p0, m_entities[i].p1);
+                    const double d = entity_pick_dist(p, m_entities[i]);
                     if (d < best) { best = d; bi = int(i); }
                 }
                 if (bi >= 0) {

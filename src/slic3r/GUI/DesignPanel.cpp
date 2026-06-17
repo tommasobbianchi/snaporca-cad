@@ -9,6 +9,7 @@
 #include <wx/checkbox.h>
 #include <wx/spinctrl.h>
 #include <wx/listbox.h>
+#include <wx/textdlg.h>
 
 #include <string>
 #include <cmath>
@@ -207,6 +208,22 @@ DesignPanel::DesignPanel(wxWindow* parent)
     add_constraint_btn(crow3, _L("Coincident"),    SketchConstraintType::Coincident,    false);
     add_constraint_btn(crow3, _L("Equal"),         SketchConstraintType::EqualLength,   true);
     tbar->Add(crow3, 0, wxEXPAND | wxBOTTOM, 4);
+
+    // Fase 4.3: circle/arc + dimension constraints.
+    auto* crow4 = new wxBoxSizer(wxHORIZONTAL);
+    add_constraint_btn(crow4, _L("Concentric"),    SketchConstraintType::Concentric,    false);
+    add_constraint_btn(crow4, _L("Tangent"),       SketchConstraintType::Tangent,       true);
+    tbar->Add(crow4, 0, wxEXPAND | wxBOTTOM, 4);
+
+    auto* crow5 = new wxBoxSizer(wxHORIZONTAL);
+    add_constraint_btn(crow5, _L("Midpoint"),      SketchConstraintType::Midpoint,      false);
+    add_constraint_btn(crow5, _L("Angle"),         SketchConstraintType::Angle,         true);
+    tbar->Add(crow5, 0, wxEXPAND | wxBOTTOM, 4);
+
+    auto* crow6 = new wxBoxSizer(wxHORIZONTAL);
+    add_constraint_btn(crow6, _L("Radius"),        SketchConstraintType::Radius,        false);
+    add_constraint_btn(crow6, _L("Diameter"),      SketchConstraintType::Diameter,      true);
+    tbar->Add(crow6, 0, wxEXPAND | wxBOTTOM, 4);
 
     auto* b_extrude = new wxButton(m_form, wxID_ANY, _L("Extrude"));
     b_extrude->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
@@ -770,45 +787,61 @@ void DesignPanel::on_begin_constrain()
         f.constraints.push_back(SketchConstraintDef{SketchConstraintType::Fix, 0, -1, -1, -1, 0.0});
     if (m_viewport) m_viewport->begin_constrain(f.profile, f.plane);
     m_status->SetForegroundColour(wxNullColour);
-    m_status->SetLabel(_L("Click a segment, then Horizontal / Vertical; right-click exits"));
+    m_status->SetLabel(_L("Pick 1-2 entities, then a constraint or dimension; right-click exits"));
     m_status->Refresh();
 }
 
 void DesignPanel::apply_entity_constraint(SketchConstraintType type)
 {
     using R = SketchPointRole;
+    using T = SketchConstraintType;
     int e0 = -1, e1 = -1;
     m_viewport->selected_constrain_entities(e0, e1);
 
+    auto fail = [this](const wxString& msg) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(msg);
+        m_status->Refresh();
+    };
+    // Onshape-style dimension entry: Button -> dialog -> confirm. Returns false on cancel.
+    auto prompt_dimension = [this](const wxString& label, double& value) -> bool {
+        const wxString preset = wxString::Format(wxT("%g"), value);
+        const wxString s = wxGetTextFromUser(label, _L("Dimension"), preset, this);
+        double parsed = 0.0;
+        if (s.empty() || !s.ToDouble(&parsed)) return false;   // cancelled / invalid
+        value = parsed;
+        return true;
+    };
+
     CadFeature& feat = m_doc.features[m_constrain_feat];
-    const bool needs_two = (type == SketchConstraintType::Parallel ||
-                            type == SketchConstraintType::Perpendicular ||
-                            type == SketchConstraintType::EqualLength ||
-                            type == SketchConstraintType::Coincident);
+    const bool needs_two = (type == T::Parallel || type == T::Perpendicular ||
+                            type == T::EqualLength || type == T::Coincident ||
+                            type == T::Concentric || type == T::Tangent ||
+                            type == T::Angle || type == T::Midpoint);
     if (e0 < 0 || e0 >= int(feat.entities.size()) ||
         (needs_two && (e1 < 0 || e1 >= int(feat.entities.size())))) {
-        m_status->SetForegroundColour(wxColour(235, 110, 110));
-        m_status->SetLabel(needs_two ? _L("Pick two lines first") : _L("Pick a line first"));
-        m_status->Refresh();
+        fail(needs_two ? _L("Pick two entities first") : _L("Pick an entity first"));
         return;
     }
+    auto is_round = [](const SketchEntity& e) {
+        return e.type == SketchEntity::Type::Circle || e.type == SketchEntity::Type::Arc; };
 
     SketchEntityConstraintDef def;
     def.type  = type;
     def.value = 0.0;
     switch (type) {
-    case SketchConstraintType::Horizontal:
-    case SketchConstraintType::Vertical:
+    case T::Horizontal:
+    case T::Vertical:
         // One line: level/plumb its own two endpoints.
         def.ea = e0; def.ra = R::P0;
         def.eb = e0; def.rb = R::P1;
         break;
-    case SketchConstraintType::Parallel:
-    case SketchConstraintType::Perpendicular:
-    case SketchConstraintType::EqualLength:
+    case T::Parallel:
+    case T::Perpendicular:
+    case T::EqualLength:
         def.ea = e0; def.eb = e1;   // two whole line segments (roles unused)
         break;
-    case SketchConstraintType::Coincident: {
+    case T::Coincident: {
         // Join the closest endpoint pair of the two picked lines.
         const SketchEntity& A = feat.entities[e0];
         const SketchEntity& B = feat.entities[e1];
@@ -824,10 +857,54 @@ void DesignPanel::apply_entity_constraint(SketchConstraintType type)
         def.ea = e0; def.ra = ra; def.eb = e1; def.rb = rb;
         break;
     }
+    case T::Concentric: {
+        // Two circles/arcs: make their centres coincide.
+        if (!is_round(feat.entities[e0]) || !is_round(feat.entities[e1])) {
+            fail(_L("Concentric needs two circles or arcs")); return;
+        }
+        def.ea = e0; def.ra = R::Center; def.eb = e1; def.rb = R::Center;
+        break;
+    }
+    case T::Tangent: {
+        // line+round or round+round; the kernel detects the entity types.
+        const bool ok = (is_round(feat.entities[e0]) && feat.entities[e1].type == SketchEntity::Type::Line) ||
+                        (is_round(feat.entities[e1]) && feat.entities[e0].type == SketchEntity::Type::Line) ||
+                        (is_round(feat.entities[e0]) && is_round(feat.entities[e1]));
+        if (!ok) { fail(_L("Tangent needs a line and a circle/arc, or two circles/arcs")); return; }
+        def.ea = e0; def.eb = e1;
+        break;
+    }
+    case T::Angle: {
+        // Angle between two line segments; value entered in degrees.
+        double deg = 90.0;
+        if (!prompt_dimension(_L("Angle (degrees)"), deg)) return;
+        def.ea = e0; def.eb = e1;
+        def.value = deg * M_PI / 180.0;
+        break;
+    }
+    case T::Midpoint: {
+        // One pick is a Point, the other a Line: the point is the line's midpoint.
+        const SketchEntity& A = feat.entities[e0];
+        const SketchEntity& B = feat.entities[e1];
+        int pt = -1, ln = -1;
+        if (A.type == SketchEntity::Type::Point && B.type == SketchEntity::Type::Line) { pt = e0; ln = e1; }
+        else if (B.type == SketchEntity::Type::Point && A.type == SketchEntity::Type::Line) { pt = e1; ln = e0; }
+        else { fail(_L("Midpoint needs a point and a line")); return; }
+        def.ea = pt; def.ra = R::P0; def.eb = ln;
+        break;
+    }
+    case T::Radius:
+    case T::Diameter: {
+        const SketchEntity& A = feat.entities[e0];
+        if (!is_round(A)) { fail(_L("Radius/Diameter needs a circle or arc")); return; }
+        double v = (type == T::Diameter) ? 2.0 * A.radius : A.radius;
+        if (!prompt_dimension(type == T::Diameter ? _L("Diameter") : _L("Radius"), v)) return;
+        if (v <= 0.0) { fail(_L("Dimension must be positive")); return; }
+        def.ea = e0; def.ra = R::Center; def.value = v;
+        break;
+    }
     default:
-        m_status->SetForegroundColour(wxColour(235, 110, 110));
-        m_status->SetLabel(_L("Unsupported constraint"));
-        m_status->Refresh();
+        fail(_L("Unsupported constraint"));
         return;
     }
 
