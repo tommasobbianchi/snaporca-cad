@@ -10,11 +10,14 @@
 
 class wxChoice;
 class wxCheckBox;
+class wxSpinCtrl;
 class wxSpinCtrlDouble;
 class wxListBox;
 class wxStaticText;
 class wxSizer;
 class wxButton;
+class wxPanel;
+class ScalableButton;
 
 namespace Slic3r { namespace GUI {
 
@@ -30,6 +33,12 @@ public:
 
 private:
     enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread };
+
+    // Onshape-style contextual top toolbar: only the active mode's tool group is
+    // shown (Feature = sketch/extrude/dress/hole/thread; Sketch = entity tools;
+    // Constrain = constraints + edit ops). Replaces the old always-visible wall.
+    enum class UiMode { Feature, Sketch, Constrain };
+    void set_ui_mode(UiMode m);
 
     void on_shape_changed();
     void on_add_sketch();
@@ -78,6 +87,15 @@ private:
 
     wxScrolledWindow* m_form{nullptr};
     DesignCanvas*     m_viewport{nullptr};
+
+    // Top contextual toolbar (parented to the panel, above the form/viewport row).
+    UiMode    m_ui_mode{UiMode::Feature};
+    wxPanel*  m_toolbar{nullptr};
+    wxSizer*  m_tb_feature{nullptr};
+    wxSizer*  m_tb_sketch{nullptr};
+    wxSizer*  m_tb_constrain{nullptr};
+    wxCheckBox*       m_construction{nullptr};   // sketch-mode construction toggle
+    wxSpinCtrl*       m_sides{nullptr};          // polygon sides
 
     wxChoice*         m_draw_plane{nullptr};
     wxChoice*         m_shape{nullptr};

@@ -10,10 +10,13 @@
 #include <wx/spinctrl.h>
 #include <wx/listbox.h>
 #include <wx/textdlg.h>
+#include <wx/statline.h>
+#include <wx/font.h>
 
 #include <string>
 #include <cmath>
 
+#include "slic3r/GUI/wxExtensions.hpp"   // ScalableButton, create_scaled_bitmap
 #include "libslic3r/Model.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
 #include "slic3r/GUI/Plater.hpp"
@@ -53,217 +56,213 @@ static int index_from_plane(const SketchPlane& p)
 DesignPanel::DesignPanel(wxWindow* parent)
     : wxPanel(parent, wxID_ANY)
 {
-    // Left column: the scrollable parameter form. All controls below are parented
-    // to m_form so the form can scroll independently of the live GL viewport.
+    // Left column: a slim feature-tree + docked tool-dialog column. All form
+    // controls are parented to m_form so it can scroll independently of the
+    // live GL viewport. The tool buttons live in the top toolbar (built below).
     m_form = new wxScrolledWindow(this, wxID_ANY);
 
     auto* root = new wxBoxSizer(wxVERTICAL);
-    root->Add(new wxStaticText(m_form, wxID_ANY, _L("Design (CAD) — Sketch-first parametric modeling")),
-              0, wxALL, 12);
+    {
+        auto* hdr = new wxStaticText(m_form, wxID_ANY, _L("Design"));
+        wxFont hf = hdr->GetFont();
+        hf.SetPointSize(hf.GetPointSize() + 2);
+        hf.SetWeight(wxFONTWEIGHT_BOLD);
+        hdr->SetFont(hf);
+        root->Add(hdr, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+        root->AddSpacer(2);
+    }
 
-    // Toolbar: Sketch-first flow — Sketch and Extrude are independent tools.
-    auto* tbar = new wxBoxSizer(wxVERTICAL);
-    auto* b_sketch = new wxButton(m_form, wxID_ANY, _L("New Sketch"));
-    b_sketch->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Sketch); });
-    tbar->Add(b_sketch, 0, wxEXPAND | wxBOTTOM, 4);
+    // === Top contextual toolbar (Onshape-style icon strip) ===
+    // Parented to the panel (sits above the form/viewport row). Only the active
+    // mode's group is shown; the others are hidden by set_ui_mode().
+    m_toolbar = new wxPanel(this, wxID_ANY);
+    m_toolbar->SetBackgroundColour(wxColour(0x32, 0x32, 0x37));
 
-    m_draw_plane = new wxChoice(m_form, wxID_ANY);
-    m_draw_plane->Append("XY"); m_draw_plane->Append("XZ"); m_draw_plane->Append("YZ");
-    m_draw_plane->SetSelection(0);
-    tbar->Add(m_draw_plane, 0, wxEXPAND | wxBOTTOM, 4);
+    auto icon_btn = [this](const char* icon, const wxString& tip) {
+        auto* b = new ScalableButton(m_toolbar, wxID_ANY, icon, "", wxSize(34, 34),
+                                     wxDefaultPosition, wxBU_EXACTFIT | wxBORDER_NONE, false, 22);
+        b->SetToolTip(tip);
+        return b;
+    };
+    auto add_sep = [this](wxSizer* row) {
+        row->AddSpacer(5);
+        row->Add(new wxStaticLine(m_toolbar, wxID_ANY, wxDefaultPosition, wxSize(1, 22), wxLI_VERTICAL),
+                 0, wxALIGN_CENTER_VERTICAL);
+        row->AddSpacer(5);
+    };
 
-    // Interactive multi-entity sketch (Onshape-style): pick a plane, Start the
-    // sketch, switch entity tools freely while entities accumulate, then Finish
-    // to commit them all as one sketch feature. The Construction toggle marks
-    // subsequently-drawn entities as construction geometry (excluded from the wire).
-    auto* b_newsk = new wxButton(m_form, wxID_ANY, _L("Sketch ▸ Start"));
-    auto* construction = new wxCheckBox(m_form, wxID_ANY, _L("Construction"));
-
-    auto select_tool = [this, construction](DesignSketchTool::Mode mode, const wxString& hint) {
+    // Shared sketch-tool selector: begins a session on first use, then switches
+    // the active entity tool. The Construction toggle marks following entities as
+    // construction geometry (excluded from the wire).
+    m_construction = new wxCheckBox(m_toolbar, wxID_ANY, _L("Construction"));
+    m_construction->SetForegroundColour(wxColour(0xC8, 0xC8, 0xC8));
+    auto select_tool = [this](DesignSketchTool::Mode mode, const wxString& hint) {
         if (!m_viewport) return;
         if (!m_viewport->is_sketching()) {
             const SketchPlane plane = plane_from_index(m_draw_plane->GetSelection());
             m_viewport->begin_sketch(plane, mode);
-            construction->SetValue(false);   // a fresh session starts non-construction
+            m_construction->SetValue(false);   // a fresh session starts non-construction
         } else {
             m_viewport->set_sketch_tool(mode);
         }
-        m_viewport->set_sketch_construction(construction->GetValue());
+        m_viewport->set_sketch_construction(m_construction->GetValue());
         m_status->SetForegroundColour(wxNullColour);
         m_status->SetLabel(hint);
         m_status->Refresh();
     };
 
-    b_newsk->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
-        select_tool(DesignSketchTool::Mode::Polyline,
-                    _L("Sketch started — draw entities, then Finish Sketch")); });
-    tbar->Add(b_newsk, 0, wxEXPAND | wxBOTTOM, 4);
-
-    auto* erow1 = new wxBoxSizer(wxHORIZONTAL);
-    auto* b_line = new wxButton(m_form, wxID_ANY, _L("Line"));
-    b_line->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
-        select_tool(DesignSketchTool::Mode::Polyline,
-                    _L("Click points; click first / right-click to close the loop")); });
-    auto* b_rect = new wxButton(m_form, wxID_ANY, _L("Rect"));
-    b_rect->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
-        select_tool(DesignSketchTool::Mode::CornerRect,
-                    _L("Click two opposite corners")); });
-    auto* b_crect = new wxButton(m_form, wxID_ANY, _L("C-Rect"));
-    b_crect->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
-        select_tool(DesignSketchTool::Mode::CenterRect,
-                    _L("Click center, then a corner")); });
-    erow1->Add(b_line, 1, wxEXPAND | wxRIGHT, 4);
-    erow1->Add(b_rect, 1, wxEXPAND | wxRIGHT, 4);
-    erow1->Add(b_crect, 1, wxEXPAND);
-    tbar->Add(erow1, 0, wxEXPAND | wxBOTTOM, 4);
-
-    auto* erow2 = new wxBoxSizer(wxHORIZONTAL);
-    auto* b_circle = new wxButton(m_form, wxID_ANY, _L("Circle"));
-    b_circle->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
-        select_tool(DesignSketchTool::Mode::CenterCircle,
-                    _L("Click center, then radius")); });
-    auto* b_point = new wxButton(m_form, wxID_ANY, _L("Point"));
-    b_point->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
-        select_tool(DesignSketchTool::Mode::Point,
-                    _L("Click to place a point")); });
-    erow2->Add(b_circle, 1, wxEXPAND | wxRIGHT, 4);
-    erow2->Add(b_point, 1, wxEXPAND);
-    tbar->Add(erow2, 0, wxEXPAND | wxBOTTOM, 4);
-
-    auto* erow3 = new wxBoxSizer(wxHORIZONTAL);
-    auto* b_circ3 = new wxButton(m_form, wxID_ANY, _L("Circle 3pt"));
-    b_circ3->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
-        select_tool(DesignSketchTool::Mode::ThreePointCircle,
-                    _L("Click three points on the circle")); });
-    auto* b_arc3 = new wxButton(m_form, wxID_ANY, _L("Arc 3pt"));
-    b_arc3->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
-        select_tool(DesignSketchTool::Mode::ThreePointArc,
-                    _L("Click start, end, then a point on the arc")); });
-    auto* b_tarc = new wxButton(m_form, wxID_ANY, _L("Tangent Arc"));
-    b_tarc->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
-        select_tool(DesignSketchTool::Mode::TangentArc,
-                    _L("Click start (on the last entity) then end")); });
-    erow3->Add(b_circ3, 1, wxEXPAND | wxRIGHT, 4);
-    erow3->Add(b_arc3, 1, wxEXPAND | wxRIGHT, 4);
-    erow3->Add(b_tarc, 1, wxEXPAND);
-    tbar->Add(erow3, 0, wxEXPAND | wxBOTTOM, 4);
-
-    auto* erow4 = new wxBoxSizer(wxHORIZONTAL);
-    auto* b_slot = new wxButton(m_form, wxID_ANY, _L("Slot"));
-    b_slot->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
-        select_tool(DesignSketchTool::Mode::Slot,
-                    _L("Click two centerline ends, then a point for width")); });
-    auto* sides = new wxSpinCtrl(m_form, wxID_ANY, "6", wxDefaultPosition, wxSize(56, -1));
-    sides->SetRange(3, 64);
-    sides->SetValue(6);
-    auto* b_poly = new wxButton(m_form, wxID_ANY, _L("Polygon"));
-    b_poly->Bind(wxEVT_BUTTON, [this, select_tool, sides](wxCommandEvent&) {
-        if (m_viewport) m_viewport->set_sketch_polygon_sides(sides->GetValue());
-        select_tool(DesignSketchTool::Mode::Polygon,
-                    _L("Click center then a vertex")); });
-    sides->Bind(wxEVT_SPINCTRL, [this, sides](wxSpinEvent&) {
-        if (m_viewport) m_viewport->set_sketch_polygon_sides(sides->GetValue()); });
-    erow4->Add(b_slot, 1, wxEXPAND | wxRIGHT, 4);
-    erow4->Add(b_poly, 1, wxEXPAND | wxRIGHT, 4);
-    erow4->Add(new wxStaticText(m_form, wxID_ANY, _L("sides")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
-    erow4->Add(sides, 0, wxALIGN_CENTER_VERTICAL);
-    tbar->Add(erow4, 0, wxEXPAND | wxBOTTOM, 4);
-
-    construction->Bind(wxEVT_CHECKBOX, [this, construction](wxCommandEvent&) {
-        if (m_viewport && m_viewport->is_sketching())
-            m_viewport->set_sketch_construction(construction->GetValue()); });
-    tbar->Add(construction, 0, wxBOTTOM, 4);
-
-    auto* b_finish = new wxButton(m_form, wxID_ANY, _L("✓ Finish Sketch"));
-    b_finish->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-        if (m_viewport && m_viewport->is_sketching())
-            m_viewport->finish_sketch(); });
-    tbar->Add(b_finish, 0, wxEXPAND | wxBOTTOM, 4);
-
-    // Constrain row: enter constrain mode on the selected sketch, then apply a
-    // geometric constraint to the picked geometry (re-solves in the kernel).
-    // Entity sketches pick Line entities; legacy profile sketches pick segments.
-    auto* b_constrain = new wxButton(m_form, wxID_ANY, _L("Constrain"));
-    b_constrain->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_begin_constrain(); });
-    tbar->Add(b_constrain, 0, wxEXPAND | wxBOTTOM, 4);
-
-    auto add_constraint_btn = [this](wxBoxSizer* row, const wxString& label,
-                                     SketchConstraintType type, bool last) {
-        auto* b = new wxButton(m_form, wxID_ANY, label);
-        b->Bind(wxEVT_BUTTON, [this, type](wxCommandEvent&) { apply_constraint(type); });
-        row->Add(b, 1, wxEXPAND | (last ? 0 : wxRIGHT), last ? 0 : 4);
-    };
-
-    auto* crow1 = new wxBoxSizer(wxHORIZONTAL);
-    add_constraint_btn(crow1, _L("Horizontal"),    SketchConstraintType::Horizontal,    false);
-    add_constraint_btn(crow1, _L("Vertical"),      SketchConstraintType::Vertical,      true);
-    tbar->Add(crow1, 0, wxEXPAND | wxBOTTOM, 4);
-
-    auto* crow2 = new wxBoxSizer(wxHORIZONTAL);
-    add_constraint_btn(crow2, _L("Parallel"),      SketchConstraintType::Parallel,      false);
-    add_constraint_btn(crow2, _L("Perpendicular"), SketchConstraintType::Perpendicular, true);
-    tbar->Add(crow2, 0, wxEXPAND | wxBOTTOM, 4);
-
-    auto* crow3 = new wxBoxSizer(wxHORIZONTAL);
-    add_constraint_btn(crow3, _L("Coincident"),    SketchConstraintType::Coincident,    false);
-    add_constraint_btn(crow3, _L("Equal"),         SketchConstraintType::EqualLength,   true);
-    tbar->Add(crow3, 0, wxEXPAND | wxBOTTOM, 4);
-
-    // Fase 4.3: circle/arc + dimension constraints.
-    auto* crow4 = new wxBoxSizer(wxHORIZONTAL);
-    add_constraint_btn(crow4, _L("Concentric"),    SketchConstraintType::Concentric,    false);
-    add_constraint_btn(crow4, _L("Tangent"),       SketchConstraintType::Tangent,       true);
-    tbar->Add(crow4, 0, wxEXPAND | wxBOTTOM, 4);
-
-    auto* crow5 = new wxBoxSizer(wxHORIZONTAL);
-    add_constraint_btn(crow5, _L("Midpoint"),      SketchConstraintType::Midpoint,      false);
-    add_constraint_btn(crow5, _L("Angle"),         SketchConstraintType::Angle,         true);
-    tbar->Add(crow5, 0, wxEXPAND | wxBOTTOM, 4);
-
-    auto* crow6 = new wxBoxSizer(wxHORIZONTAL);
-    add_constraint_btn(crow6, _L("Radius"),        SketchConstraintType::Radius,        false);
-    add_constraint_btn(crow6, _L("Diameter"),      SketchConstraintType::Diameter,      true);
-    tbar->Add(crow6, 0, wxEXPAND | wxBOTTOM, 4);
-
-    // Fase 4.4: sketch edit ops on the selected sketch's picked entities.
-    auto add_edit_btn = [this](wxBoxSizer* row, const wxString& label, EditOp op, bool last) {
-        auto* b = new wxButton(m_form, wxID_ANY, label);
-        b->Bind(wxEVT_BUTTON, [this, op](wxCommandEvent&) { apply_edit_op(op); });
-        row->Add(b, 1, wxEXPAND | (last ? 0 : wxRIGHT), last ? 0 : 4);
-    };
-    auto* editrow1 = new wxBoxSizer(wxHORIZONTAL);
-    add_edit_btn(editrow1, _L("Mirror"),  EditOp::Mirror, false);
-    add_edit_btn(editrow1, _L("Offset"),  EditOp::Offset, false);
-    add_edit_btn(editrow1, _L("Fillet"),  EditOp::Fillet, true);
-    tbar->Add(editrow1, 0, wxEXPAND | wxBOTTOM, 4);
-
-    auto* editrow2 = new wxBoxSizer(wxHORIZONTAL);
-    add_edit_btn(editrow2, _L("Trim"),   EditOp::Trim,   false);
-    add_edit_btn(editrow2, _L("Extend"), EditOp::Extend, true);
-    tbar->Add(editrow2, 0, wxEXPAND | wxBOTTOM, 4);
-
-    auto* b_extrude = new wxButton(m_form, wxID_ANY, _L("Extrude"));
-    b_extrude->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-        m_extrude_sketch_ref = resolve_extrude_sketch();
-        if (m_extrude_sketch_ref < 0) {
-            m_status->SetForegroundColour(wxColour(235, 110, 110));
-            m_status->SetLabel(_L("Create a sketch first"));
+    // --- Feature group: Sketch / Extrude / Fillet-Chamfer / Hole / Thread / Constrain
+    m_tb_feature = new wxBoxSizer(wxHORIZONTAL);
+    auto fadd = [this](wxWindow* w) { m_tb_feature->Add(w, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 2); };
+    {
+        auto* b_sketch = icon_btn("design_sketch", _L("Sketch"));
+        b_sketch->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            set_ui_mode(UiMode::Sketch);
+            m_status->SetForegroundColour(wxNullColour);
+            m_status->SetLabel(_L("Pick a plane and a sketch tool, then draw"));
             m_status->Refresh();
-            return;
-        }
-        open_tool(Tool::Extrude);
-    });
-    tbar->Add(b_extrude, 0, wxEXPAND | wxBOTTOM, 4);
-    auto* b_dressup = new wxButton(m_form, wxID_ANY, _L("Fillet / Chamfer"));
-    b_dressup->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Dressup); });
-    tbar->Add(b_dressup, 0, wxEXPAND | wxBOTTOM, 4);
-    auto* b_hole = new wxButton(m_form, wxID_ANY, _L("Hole"));
-    b_hole->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Hole); });
-    tbar->Add(b_hole, 0, wxEXPAND | wxBOTTOM, 4);
-    auto* b_thread = new wxButton(m_form, wxID_ANY, _L("Thread"));
-    b_thread->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Thread); });
-    tbar->Add(b_thread, 0, wxEXPAND | wxBOTTOM, 4);
-    root->Add(tbar, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 12);
+        });
+        fadd(b_sketch);
+        add_sep(m_tb_feature);
+        auto* b_extrude = icon_btn("design_extrude", _L("Extrude"));
+        b_extrude->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            m_extrude_sketch_ref = resolve_extrude_sketch();
+            if (m_extrude_sketch_ref < 0) {
+                m_status->SetForegroundColour(wxColour(235, 110, 110));
+                m_status->SetLabel(_L("Create a sketch first"));
+                m_status->Refresh();
+                return;
+            }
+            open_tool(Tool::Extrude);
+        });
+        fadd(b_extrude);
+        auto* b_dressup = icon_btn("design_dressup", _L("Fillet / Chamfer"));
+        b_dressup->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Dressup); });
+        fadd(b_dressup);
+        auto* b_hole = icon_btn("design_hole", _L("Hole"));
+        b_hole->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Hole); });
+        fadd(b_hole);
+        auto* b_thread = icon_btn("design_thread", _L("Thread"));
+        b_thread->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Thread); });
+        fadd(b_thread);
+        add_sep(m_tb_feature);
+        auto* b_constrain = icon_btn("design_constrain", _L("Constrain selected sketch"));
+        b_constrain->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            on_begin_constrain();
+            if (m_viewport && (m_viewport->is_constraining() || m_viewport->is_constraining_entities()))
+                set_ui_mode(UiMode::Constrain);
+        });
+        fadd(b_constrain);
+    }
+
+    // --- Sketch group: plane + entity tools + Construction + Finish
+    m_tb_sketch = new wxBoxSizer(wxHORIZONTAL);
+    auto sadd = [this](wxWindow* w) { m_tb_sketch->Add(w, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 2); };
+    {
+        m_draw_plane = new wxChoice(m_toolbar, wxID_ANY);
+        m_draw_plane->Append("XY"); m_draw_plane->Append("XZ"); m_draw_plane->Append("YZ");
+        m_draw_plane->SetSelection(0);
+        sadd(m_draw_plane);
+        add_sep(m_tb_sketch);
+        auto skbtn = [&](const char* icon, DesignSketchTool::Mode mode,
+                         const wxString& tip, const wxString& hint) {
+            auto* b = icon_btn(icon, tip);
+            b->Bind(wxEVT_BUTTON, [select_tool, mode, hint](wxCommandEvent&) { select_tool(mode, hint); });
+            sadd(b);
+        };
+        skbtn("design_line",      DesignSketchTool::Mode::Polyline,         _L("Line"),
+              _L("Click points; click first / right-click to close the loop"));
+        skbtn("design_rect",      DesignSketchTool::Mode::CornerRect,       _L("Corner rectangle"),
+              _L("Click two opposite corners"));
+        skbtn("design_crect",     DesignSketchTool::Mode::CenterRect,       _L("Center rectangle"),
+              _L("Click center, then a corner"));
+        skbtn("design_circle",    DesignSketchTool::Mode::CenterCircle,     _L("Center circle"),
+              _L("Click center, then radius"));
+        skbtn("design_point",     DesignSketchTool::Mode::Point,            _L("Point"),
+              _L("Click to place a point"));
+        skbtn("design_circle3pt", DesignSketchTool::Mode::ThreePointCircle, _L("3-point circle"),
+              _L("Click three points on the circle"));
+        skbtn("design_arc3pt",    DesignSketchTool::Mode::ThreePointArc,    _L("3-point arc"),
+              _L("Click start, end, then a point on the arc"));
+        skbtn("design_tangentarc", DesignSketchTool::Mode::TangentArc,      _L("Tangent arc"),
+              _L("Click start (on the last entity) then end"));
+        skbtn("design_slot",      DesignSketchTool::Mode::Slot,             _L("Slot"),
+              _L("Click two centerline ends, then a point for width"));
+
+        m_sides = new wxSpinCtrl(m_toolbar, wxID_ANY, "6", wxDefaultPosition, wxSize(50, -1));
+        m_sides->SetRange(3, 64);
+        m_sides->SetValue(6);
+        auto* b_poly = icon_btn("design_polygon", _L("Polygon"));
+        b_poly->Bind(wxEVT_BUTTON, [this, select_tool](wxCommandEvent&) {
+            if (m_viewport) m_viewport->set_sketch_polygon_sides(m_sides->GetValue());
+            select_tool(DesignSketchTool::Mode::Polygon, _L("Click center then a vertex")); });
+        m_sides->Bind(wxEVT_SPINCTRL, [this](wxSpinEvent&) {
+            if (m_viewport) m_viewport->set_sketch_polygon_sides(m_sides->GetValue()); });
+        sadd(b_poly);
+        sadd(m_sides);
+        add_sep(m_tb_sketch);
+        m_construction->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
+            if (m_viewport && m_viewport->is_sketching())
+                m_viewport->set_sketch_construction(m_construction->GetValue()); });
+        sadd(m_construction);
+        add_sep(m_tb_sketch);
+        auto* b_finish = icon_btn("design_check", _L("Finish sketch"));
+        b_finish->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            if (m_viewport && m_viewport->is_sketching()) m_viewport->finish_sketch();
+            set_ui_mode(UiMode::Feature); });
+        sadd(b_finish);
+    }
+
+    // --- Constrain group: geometric constraints + dimensions + edit ops + Done
+    m_tb_constrain = new wxBoxSizer(wxHORIZONTAL);
+    auto cadd = [this](wxWindow* w) { m_tb_constrain->Add(w, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 2); };
+    {
+        auto cbtn = [&](const char* icon, const wxString& tip, SketchConstraintType type) {
+            auto* b = icon_btn(icon, tip);
+            b->Bind(wxEVT_BUTTON, [this, type](wxCommandEvent&) { apply_constraint(type); });
+            cadd(b);
+        };
+        cbtn("design_c_horizontal",    _L("Horizontal"),    SketchConstraintType::Horizontal);
+        cbtn("design_c_vertical",      _L("Vertical"),      SketchConstraintType::Vertical);
+        cbtn("design_c_parallel",      _L("Parallel"),      SketchConstraintType::Parallel);
+        cbtn("design_c_perpendicular", _L("Perpendicular"), SketchConstraintType::Perpendicular);
+        cbtn("design_c_coincident",    _L("Coincident"),    SketchConstraintType::Coincident);
+        cbtn("design_c_equal",         _L("Equal length"),  SketchConstraintType::EqualLength);
+        cbtn("design_c_concentric",    _L("Concentric"),    SketchConstraintType::Concentric);
+        cbtn("design_c_tangent",       _L("Tangent"),       SketchConstraintType::Tangent);
+        cbtn("design_c_midpoint",      _L("Midpoint"),      SketchConstraintType::Midpoint);
+        cbtn("design_c_angle",         _L("Angle"),         SketchConstraintType::Angle);
+        cbtn("design_c_radius",        _L("Radius"),        SketchConstraintType::Radius);
+        cbtn("design_c_diameter",      _L("Diameter"),      SketchConstraintType::Diameter);
+        add_sep(m_tb_constrain);
+        auto ebtn = [&](const char* icon, const wxString& tip, EditOp op) {
+            auto* b = icon_btn(icon, tip);
+            b->Bind(wxEVT_BUTTON, [this, op](wxCommandEvent&) { apply_edit_op(op); });
+            cadd(b);
+        };
+        ebtn("design_mirror",     _L("Mirror"),       EditOp::Mirror);
+        ebtn("design_offset",     _L("Offset"),       EditOp::Offset);
+        ebtn("design_filletedge", _L("Sketch fillet"),EditOp::Fillet);
+        ebtn("design_trim",       _L("Trim"),         EditOp::Trim);
+        ebtn("design_extend",     _L("Extend"),       EditOp::Extend);
+        add_sep(m_tb_constrain);
+        auto* b_done = icon_btn("design_check", _L("Done constraining"));
+        b_done->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            m_constrain_feat = -1;
+            set_ui_mode(UiMode::Feature);
+            m_status->SetForegroundColour(wxNullColour);
+            m_status->SetLabel(wxString());
+            m_status->Refresh(); });
+        cadd(b_done);
+    }
+
+    auto* tbrow = new wxBoxSizer(wxHORIZONTAL);
+    tbrow->AddSpacer(8);
+    tbrow->Add(m_tb_feature,   0, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, 5);
+    tbrow->Add(m_tb_sketch,    0, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, 5);
+    tbrow->Add(m_tb_constrain, 0, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, 5);
+    tbrow->AddStretchSpacer();
+    m_toolbar->SetSizer(tbrow);
 
     // --- Sketch dialog (shape definition only — no distance/mode) ---
     auto* form = new wxFlexGridSizer(2, 6, 8);
@@ -533,7 +532,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
 
     m_form->FitInside();
     m_form->SetScrollRate(10, 10);
-    m_form->SetMinSize(wxSize(380, -1));
+    m_form->SetMinSize(wxSize(264, -1));
 
     // Right column: a small view toolbar over the live 3D viewport that mirrors
     // the CadDocument body.
@@ -584,10 +583,28 @@ DesignPanel::DesignPanel(wxWindow* parent)
     vcol->Add(vbar, 0, wxALL, 4);
     vcol->Add(m_viewport, 1, wxEXPAND);
 
-    auto* outer = new wxBoxSizer(wxHORIZONTAL);
-    outer->Add(m_form, 0, wxEXPAND);
-    outer->Add(vcol,   1, wxEXPAND);
+    // Onshape layout: top toolbar over [ slim left column | center viewport ].
+    auto* body = new wxBoxSizer(wxHORIZONTAL);
+    body->Add(m_form, 0, wxEXPAND);
+    body->Add(vcol,   1, wxEXPAND);
+
+    auto* outer = new wxBoxSizer(wxVERTICAL);
+    outer->Add(m_toolbar, 0, wxEXPAND);
+    outer->Add(new wxStaticLine(this, wxID_ANY), 0, wxEXPAND);
+    outer->Add(body, 1, wxEXPAND);
     SetSizer(outer);
+
+    set_ui_mode(UiMode::Feature);
+}
+
+void DesignPanel::set_ui_mode(UiMode m)
+{
+    m_ui_mode = m;
+    wxSizer* s = m_toolbar->GetSizer();
+    s->Show(m_tb_feature,   m == UiMode::Feature,   true);
+    s->Show(m_tb_sketch,    m == UiMode::Sketch,    true);
+    s->Show(m_tb_constrain, m == UiMode::Constrain, true);
+    m_toolbar->Layout();
 }
 
 void DesignPanel::on_shape_changed()
