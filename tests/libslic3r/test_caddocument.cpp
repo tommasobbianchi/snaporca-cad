@@ -423,3 +423,86 @@ TEST_CASE("entity constraints: arc/circle registration + concentric", "[CadDocum
         REQUIRE(e[0].end_angle > e[0].start_angle);
     }
 }
+
+TEST_CASE("entity constraints: tangent/midpoint/symmetric/angle", "[CadDocument]")
+{
+    using R = SketchPointRole;
+    using T = SketchConstraintType;
+
+    auto dir = [](const SketchEntity& e) { return Vec2d(e.p1 - e.p0); };
+
+    SECTION("angle 90 between two lines") {
+        CadDocument doc;
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Line, Vec2d(0,0), Vec2d(10,0)},    // line0
+            {SketchEntity::Type::Line, Vec2d(0,0), Vec2d(5,5)},     // line1
+        };
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "S");
+        auto& ec = doc.features[sk].entity_constraints;
+        ec.push_back({T::Fix,  0,-1, R::P0,R::P0, 0.0,  -1,R::P0});
+        ec.push_back({T::Fix,  0,-1, R::P1,R::P0, 0.0,  -1,R::P0});
+        ec.push_back({T::Fix,  1,-1, R::P0,R::P0, 0.0,  -1,R::P0});
+        ec.push_back({T::Angle,0, 1, R::P0,R::P0, M_PI/2,-1,R::P0});
+
+        REQUIRE(doc.solve_sketch_feature(sk));
+        const auto& e = doc.features[sk].entities;
+        const Vec2d d0 = dir(e[0]).normalized();
+        const Vec2d d1 = dir(e[1]).normalized();
+        REQUIRE(std::abs(d0.dot(d1)) < 1e-3);
+    }
+
+    SECTION("midpoint of a line") {
+        CadDocument doc;
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Line,  Vec2d(0,0), Vec2d(10,0)},  // line0
+            {SketchEntity::Type::Point, Vec2d(3,9)},                // point p
+        };
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "S");
+        auto& ec = doc.features[sk].entity_constraints;
+        ec.push_back({T::Fix,     0,-1, R::P0,R::P0, 0.0,-1,R::P0});
+        ec.push_back({T::Fix,     0,-1, R::P1,R::P0, 0.0,-1,R::P0});
+        ec.push_back({T::Midpoint,1, 0, R::P0,R::P0, 0.0,-1,R::P0});
+
+        REQUIRE(doc.solve_sketch_feature(sk));
+        const auto& e = doc.features[sk].entities;
+        REQUIRE((e[1].p0 - Vec2d(5,0)).norm() < 1e-3);
+    }
+
+    SECTION("tangent line to circle") {
+        CadDocument doc;
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Circle, Vec2d(0,0), Vec2d(0,0), Vec2d(0,0), 5.0},   // circle0 r=5
+            {SketchEntity::Type::Line,   Vec2d(-10,8), Vec2d(10,8)},                  // line1 y=8
+        };
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "S");
+        auto& ec = doc.features[sk].entity_constraints;
+        ec.push_back({T::Fix,        0,-1, R::Center,R::Center,  0.0,-1,R::P0});
+        ec.push_back({T::LockX,      1,-1, R::P0,    R::P0,   -10.0,-1,R::P0});
+        ec.push_back({T::LockX,      1,-1, R::P1,    R::P0,    10.0,-1,R::P0});
+        ec.push_back({T::Horizontal, 1, 1, R::P0,    R::P1,     0.0,-1,R::P0});
+        ec.push_back({T::Tangent,    0, 1, R::Center,R::P0,     0.0,-1,R::P0});
+
+        REQUIRE(doc.solve_sketch_feature(sk));
+        const auto& e = doc.features[sk].entities;
+        REQUIRE(std::abs(std::abs(e[1].p0.y()) - 5.0) < 1e-3);
+    }
+
+    SECTION("symmetric across a line") {
+        CadDocument doc;
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Point, Vec2d(2,3)},            // pointA
+            {SketchEntity::Type::Point, Vec2d(-1,1)},           // pointB
+            {SketchEntity::Type::Line,  Vec2d(0,0), Vec2d(0,10)}// axis (Y axis)
+        };
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "S");
+        auto& ec = doc.features[sk].entity_constraints;
+        ec.push_back({T::Fix,       0,-1, R::P0,R::P0, 0.0,-1,R::P0});
+        ec.push_back({T::Fix,       2,-1, R::P0,R::P0, 0.0,-1,R::P0});
+        ec.push_back({T::Fix,       2,-1, R::P1,R::P0, 0.0,-1,R::P0});
+        ec.push_back({T::Symmetric, 0, 1, R::P0,R::P0, 0.0, 2,R::P0});
+
+        REQUIRE(doc.solve_sketch_feature(sk));
+        const auto& e = doc.features[sk].entities;
+        REQUIRE((e[1].p0 - Vec2d(-2,3)).norm() < 1e-3);
+    }
+}

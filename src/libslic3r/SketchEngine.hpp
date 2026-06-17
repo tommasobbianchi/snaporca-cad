@@ -76,7 +76,8 @@ struct SketchProfile {
 enum class SketchConstraintType {
     Fix, Coincident, Horizontal, Vertical, Distance,
     LockX, LockY, EqualLength, Parallel, Perpendicular,
-    Concentric
+    Concentric,
+    Tangent, Midpoint, Symmetric, Angle
 };
 
 // Constraint on a SketchProfile, referencing profile point indices (a,b,c,d).
@@ -106,7 +107,9 @@ struct SketchEntityConstraintDef {
     SketchPointRole ra{SketchPointRole::P0};            // role within ea
     SketchPointRole rb{SketchPointRole::P0};            // role within eb
     double          value{0.0};
-    template<class Archive> void serialize(Archive& ar) { ar(type, ea, eb, ra, rb, value); }
+    int             ec{-1};                             // third entity ref (Symmetric axis)
+    SketchPointRole rc{SketchPointRole::P0};            // role within ec
+    template<class Archive> void serialize(Archive& ar) { ar(type, ea, eb, ra, rb, value, ec, rc); }
 };
 
 struct SketchParams {

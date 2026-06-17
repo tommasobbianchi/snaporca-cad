@@ -203,6 +203,48 @@ bool solve_entity_constraints(CadFeature& f)
             if (a >= 0 && b >= 0) sc.coincident(a, b);
             break;
         }
+        case SketchConstraintType::Midpoint: {
+            int m = pid(c.ea, c.ra);
+            int a = pid(c.eb, SketchPointRole::P0);
+            int b = pid(c.eb, SketchPointRole::P1);
+            if (m >= 0 && a >= 0 && b >= 0) sc.midpoint(m, a, b);
+            break;
+        }
+        case SketchConstraintType::Symmetric: {
+            int a  = pid(c.ea, c.ra);
+            int b  = pid(c.eb, c.rb);
+            int x0 = pid(c.ec, SketchPointRole::P0);
+            int x1 = pid(c.ec, SketchPointRole::P1);
+            if (a >= 0 && b >= 0 && x0 >= 0 && x1 >= 0) sc.symmetric(a, b, x0, x1);
+            break;
+        }
+        case SketchConstraintType::Angle: {
+            int a0 = pid(c.ea, SketchPointRole::P0), a1 = pid(c.ea, SketchPointRole::P1);
+            int b0 = pid(c.eb, SketchPointRole::P0), b1 = pid(c.eb, SketchPointRole::P1);
+            if (a0 >= 0 && a1 >= 0 && b0 >= 0 && b1 >= 0) sc.angle(a0, a1, b0, b1, c.value);
+            break;
+        }
+        case SketchConstraintType::Tangent: {
+            auto in_range = [&](int e){ return e >= 0 && e < (int)f.entities.size(); };
+            if (!in_range(c.ea) || !in_range(c.eb)) break;
+            const SketchEntity& ea_e = f.entities[c.ea];
+            const SketchEntity& eb_e = f.entities[c.eb];
+            auto is_round = [](const SketchEntity& e){
+                return e.type == SketchEntity::Type::Circle || e.type == SketchEntity::Type::Arc; };
+            if (is_round(ea_e) && eb_e.type == SketchEntity::Type::Line) {
+                int cen = pid(c.ea, SketchPointRole::Center);
+                int l0 = pid(c.eb, SketchPointRole::P0), l1 = pid(c.eb, SketchPointRole::P1);
+                if (cen >= 0 && l0 >= 0 && l1 >= 0) sc.point_line_distance(cen, l0, l1, ea_e.radius);
+            } else if (is_round(eb_e) && ea_e.type == SketchEntity::Type::Line) {
+                int cen = pid(c.eb, SketchPointRole::Center);
+                int l0 = pid(c.ea, SketchPointRole::P0), l1 = pid(c.ea, SketchPointRole::P1);
+                if (cen >= 0 && l0 >= 0 && l1 >= 0) sc.point_line_distance(cen, l0, l1, eb_e.radius);
+            } else if (is_round(ea_e) && is_round(eb_e)) {
+                int c0 = pid(c.ea, SketchPointRole::Center), c1 = pid(c.eb, SketchPointRole::Center);
+                if (c0 >= 0 && c1 >= 0) sc.distance(c0, c1, ea_e.radius + eb_e.radius);
+            }
+            break;
+        }
         }
     }
 
