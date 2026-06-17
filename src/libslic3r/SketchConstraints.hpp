@@ -24,6 +24,10 @@ public:
     void equal_length(int a, int b, int c, int d);
     void parallel(int a, int b, int c, int d);
     void perpendicular(int a, int b, int c, int d);
+    void midpoint(int m, int a, int b);
+    void symmetric(int a, int b, int c, int d);
+    void angle(int a, int b, int c, int d, double radians);
+    void point_line_distance(int p, int a, int b, double dist);
 
     bool   solve(int max_iter = 200, double tol = 1e-10);
     double residual_norm() const;
@@ -41,7 +45,11 @@ private:
         LOCK_Y,
         EQUAL_LENGTH,
         PARALLEL,
-        PERPENDICULAR
+        PERPENDICULAR,
+        MIDPOINT,
+        SYMMETRIC,
+        ANGLE,
+        PT_LINE_DIST
     };
 
     struct Con {

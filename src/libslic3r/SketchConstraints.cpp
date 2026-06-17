@@ -124,6 +124,42 @@ void SketchConstraints::perpendicular(int a, int b, int c, int d)
     m_cons.push_back(con);
 }
 
+void SketchConstraints::midpoint(int m, int a, int b)
+{
+    Con con;
+    con.type = MIDPOINT;
+    con.a = m; con.b = a; con.c = b; con.d = -1;
+    con.k0 = con.k1 = 0;
+    m_cons.push_back(con);
+}
+
+void SketchConstraints::symmetric(int a, int b, int c, int d)
+{
+    Con con;
+    con.type = SYMMETRIC;
+    con.a = a; con.b = b; con.c = c; con.d = d;
+    con.k0 = con.k1 = 0;
+    m_cons.push_back(con);
+}
+
+void SketchConstraints::angle(int a, int b, int c, int d, double radians)
+{
+    Con con;
+    con.type = ANGLE;
+    con.a = a; con.b = b; con.c = c; con.d = d;
+    con.k0 = radians; con.k1 = 0;
+    m_cons.push_back(con);
+}
+
+void SketchConstraints::point_line_distance(int p, int a, int b, double dist)
+{
+    Con con;
+    con.type = PT_LINE_DIST;
+    con.a = p; con.b = a; con.c = b; con.d = -1;
+    con.k0 = dist; con.k1 = 0;
+    m_cons.push_back(con);
+}
+
 Eigen::VectorXd SketchConstraints::residuals(const std::vector<double>& v) const
 {
     auto X = [&](int i) { return v[2 * i]; };
@@ -167,6 +203,35 @@ Eigen::VectorXd SketchConstraints::residuals(const std::vector<double>& v) const
             res.push_back((X(c.b) - X(c.a)) * (X(c.d) - X(c.c)) +
                           (Y(c.b) - Y(c.a)) * (Y(c.d) - Y(c.c)));
             break;
+        case MIDPOINT:
+            res.push_back(X(c.a) - 0.5 * (X(c.b) + X(c.c)));
+            res.push_back(Y(c.a) - 0.5 * (Y(c.b) + Y(c.c)));
+            break;
+        case SYMMETRIC: {
+            const double abx = X(c.b) - X(c.a), aby = Y(c.b) - Y(c.a);
+            const double cdx = X(c.d) - X(c.c), cdy = Y(c.d) - Y(c.c);
+            res.push_back(abx * cdx + aby * cdy);
+            const double mx = 0.5 * (X(c.a) + X(c.b));
+            const double my = 0.5 * (Y(c.a) + Y(c.b));
+            res.push_back((mx - X(c.c)) * cdy - (my - Y(c.c)) * cdx);
+            break;
+        }
+        case ANGLE: {
+            const double ux = X(c.b) - X(c.a), uy = Y(c.b) - Y(c.a);
+            const double wx = X(c.d) - X(c.c), wy = Y(c.d) - Y(c.c);
+            const double cross = ux * wy - uy * wx;
+            const double dot   = ux * wx + uy * wy;
+            res.push_back(std::atan2(cross, dot) - c.k0);
+            break;
+        }
+        case PT_LINE_DIST: {
+            const double bx = X(c.b), by = Y(c.b);
+            const double cx = X(c.c), cy = Y(c.c);
+            const double L  = std::hypot(cx - bx, cy - by);
+            const double num = (X(c.a) - bx) * (cy - by) - (Y(c.a) - by) * (cx - bx);
+            res.push_back((L > 1e-12 ? std::abs(num) / L : 0.0) - c.k0);
+            break;
+        }
         }
     }
 
