@@ -87,6 +87,27 @@ struct SketchConstraintDef {
     template<class Archive> void serialize(Archive& ar) { ar(type, a, b, c, d, value); }
 };
 
+// Which point of an entity a constraint reference names.
+//   P0 = SketchEntity::p0 (Line start / Point position)
+//   P1 = SketchEntity::p1 (Line end)
+//   Center = SketchEntity::center (Arc/Circle center)
+enum class SketchPointRole { P0, P1, Center };
+
+// Constraint on coexisting SketchEntity objects (Fase 4.2). Each reference is an
+// (entity index, point role) pair. Point-form constraints
+// (Fix/Coincident/Horizontal/Vertical/Distance/LockX/LockY) use refs A and B as
+// individual points. Segment-form constraints (Parallel/Perpendicular/EqualLength)
+// use entity indices `ea`/`eb` as whole line segments (their P0->P1); roles are
+// ignored for those. `value` carries the target for Distance/LockX/LockY.
+struct SketchEntityConstraintDef {
+    SketchConstraintType type{SketchConstraintType::Coincident};
+    int             ea{-1}, eb{-1};                     // entity indices
+    SketchPointRole ra{SketchPointRole::P0};            // role within ea
+    SketchPointRole rb{SketchPointRole::P0};            // role within eb
+    double          value{0.0};
+    template<class Archive> void serialize(Archive& ar) { ar(type, ea, eb, ra, rb, value); }
+};
+
 struct SketchParams {
     // Extrude/Revolve
     double extrude_len{10}; bool extrude_sym{false}; double extrude_taper{0};

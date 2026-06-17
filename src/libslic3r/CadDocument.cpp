@@ -1,6 +1,8 @@
 #include "CadDocument.hpp"
 #include "SketchConstraints.hpp"
 
+#include <array>
+
 #include <Standard_Failure.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -104,11 +106,112 @@ int CadDocument::add_sketch_entities(const std::vector<SketchEntity>& entities,
     return int(features.size()) - 1;
 }
 
+namespace {
+// Solve Onshape-style constraints on a feature's SketchEntity list (Fase 4.2).
+// Only Line and Point entities participate; Arc/Circle endpoints are not yet
+// registered (concentric/tangent + arc reflow are deferred to 4.3). Solved
+// coordinates are written back into the entities' p0/p1.
+bool solve_entity_constraints(CadFeature& f)
+{
+    if (f.entity_constraints.empty()) return true;
+
+    SketchConstraints sc;
+    // table[entity][role] -> solver point id, or -1 if that role is unregistered.
+    std::vector<std::array<int, 3>> table(f.entities.size(), {-1, -1, -1});
+    auto reg = [&](int ei, SketchPointRole role, const Vec2d& p) {
+        table[ei][int(role)] = sc.add_point(p.x(), p.y());
+    };
+    for (size_t i = 0; i < f.entities.size(); ++i) {
+        const SketchEntity& e = f.entities[i];
+        if (e.type == SketchEntity::Type::Line) {
+            reg(int(i), SketchPointRole::P0, e.p0);
+            reg(int(i), SketchPointRole::P1, e.p1);
+        } else if (e.type == SketchEntity::Type::Point) {
+            reg(int(i), SketchPointRole::P0, e.p0);
+        }
+    }
+
+    auto pid = [&](int ei, SketchPointRole role) -> int {
+        if (ei < 0 || ei >= int(table.size())) return -1;
+        return table[ei][int(role)];
+    };
+
+    for (const SketchEntityConstraintDef& c : f.entity_constraints) {
+        switch (c.type) {
+        // Point-form: refs A and B name individual entity points.
+        case SketchConstraintType::Fix: {
+            int a = pid(c.ea, c.ra);
+            if (a >= 0) sc.fix_point(a);
+            break;
+        }
+        case SketchConstraintType::Coincident: {
+            int a = pid(c.ea, c.ra), b = pid(c.eb, c.rb);
+            if (a >= 0 && b >= 0) sc.coincident(a, b);
+            break;
+        }
+        case SketchConstraintType::Horizontal: {
+            int a = pid(c.ea, c.ra), b = pid(c.eb, c.rb);
+            if (a >= 0 && b >= 0) sc.horizontal(a, b);
+            break;
+        }
+        case SketchConstraintType::Vertical: {
+            int a = pid(c.ea, c.ra), b = pid(c.eb, c.rb);
+            if (a >= 0 && b >= 0) sc.vertical(a, b);
+            break;
+        }
+        case SketchConstraintType::Distance: {
+            int a = pid(c.ea, c.ra), b = pid(c.eb, c.rb);
+            if (a >= 0 && b >= 0) sc.distance(a, b, c.value);
+            break;
+        }
+        case SketchConstraintType::LockX: {
+            int a = pid(c.ea, c.ra);
+            if (a >= 0) sc.lock_x(a, c.value);
+            break;
+        }
+        case SketchConstraintType::LockY: {
+            int a = pid(c.ea, c.ra);
+            if (a >= 0) sc.lock_y(a, c.value);
+            break;
+        }
+        // Segment-form: ea and eb name whole line segments (their P0->P1).
+        case SketchConstraintType::Parallel:
+        case SketchConstraintType::Perpendicular:
+        case SketchConstraintType::EqualLength: {
+            int a0 = pid(c.ea, SketchPointRole::P0), a1 = pid(c.ea, SketchPointRole::P1);
+            int b0 = pid(c.eb, SketchPointRole::P0), b1 = pid(c.eb, SketchPointRole::P1);
+            if (a0 < 0 || a1 < 0 || b0 < 0 || b1 < 0) break;
+            if (c.type == SketchConstraintType::Parallel)      sc.parallel(a0, a1, b0, b1);
+            else if (c.type == SketchConstraintType::Perpendicular) sc.perpendicular(a0, a1, b0, b1);
+            else                                               sc.equal_length(a0, a1, b0, b1);
+            break;
+        }
+        }
+    }
+
+    const bool ok = sc.solve();
+    // Write solved coordinates back into the participating entities.
+    for (size_t i = 0; i < f.entities.size(); ++i) {
+        SketchEntity& e = f.entities[i];
+        int p0 = table[i][int(SketchPointRole::P0)];
+        int p1 = table[i][int(SketchPointRole::P1)];
+        if (p0 >= 0) e.p0 = sc.get_point(p0);
+        if (p1 >= 0) e.p1 = sc.get_point(p1);
+    }
+    return ok;
+}
+} // namespace
+
 bool CadDocument::solve_sketch_feature(int index)
 {
     if (index < 0 || index >= int(features.size())) return false;
     CadFeature& f = features[index];
     if (f.type != CadFeatureType::Sketch) return false;
+
+    // Onshape-style entity sketches solve against entity endpoints (Fase 4.2).
+    if (!f.entities.empty())
+        return solve_entity_constraints(f);
+
     if (f.constraints.empty()) return true;
 
     SketchConstraints sc;

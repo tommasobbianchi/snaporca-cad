@@ -298,3 +298,85 @@ TEST_CASE("slot (line+arc closed wire) -> extrude", "[CadDocument]")
     REQUIRE(std::abs(sz.y() - 10.0) < 0.5);
     REQUIRE(std::abs(sz.z() -  4.0) < 0.5);
 }
+
+// Onshape-style constraints on coexisting entities (Fase 4.2). The solver maps
+// each Line/Point entity endpoint to a solver variable, applies the entity
+// constraints, and writes the solved coordinates back into the entities.
+TEST_CASE("entity constraints: solve on SketchEntity endpoints", "[CadDocument]")
+{
+    using R = SketchPointRole;
+    using T = SketchConstraintType;
+
+    auto dir = [](const SketchEntity& e) { return Vec2d(e.p1 - e.p0); };
+
+    SECTION("perpendicular rotates line1 normal to a pinned line0") {
+        CadDocument doc;
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Line, Vec2d(0,0), Vec2d(10,0)},   // line0 (pinned)
+            {SketchEntity::Type::Line, Vec2d(0,0), Vec2d(7,7)},    // line1 @45 deg
+        };
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "S");
+        auto& ec = doc.features[sk].entity_constraints;
+        ec.push_back({T::Fix,           0, -1, R::P0, R::P0, 0.0});
+        ec.push_back({T::Fix,           0, -1, R::P1, R::P0, 0.0});
+        ec.push_back({T::Perpendicular, 0,  1, R::P0, R::P0, 0.0});
+
+        REQUIRE(doc.solve_sketch_feature(sk));
+        const auto& e = doc.features[sk].entities;
+        // line0 stayed put.
+        REQUIRE(std::abs(e[0].p0.x() - 0.0)  < 1e-6);
+        REQUIRE(std::abs(e[0].p1.x() - 10.0) < 1e-6);
+        // line1 is now perpendicular to line0: directions dot to ~0.
+        const double d = dir(e[0]).dot(dir(e[1]));
+        REQUIRE(std::abs(d) < 1e-6);
+    }
+
+    SECTION("parallel flattens line1 onto a pinned horizontal line0") {
+        CadDocument doc;
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Line, Vec2d(0,0), Vec2d(10,0)},   // line0 (pinned)
+            {SketchEntity::Type::Line, Vec2d(0,5), Vec2d(7,9)},    // line1 tilted
+        };
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "S");
+        auto& ec = doc.features[sk].entity_constraints;
+        ec.push_back({T::Fix,      0, -1, R::P0, R::P0, 0.0});
+        ec.push_back({T::Fix,      0, -1, R::P1, R::P0, 0.0});
+        ec.push_back({T::Parallel, 0,  1, R::P0, R::P0, 0.0});
+
+        REQUIRE(doc.solve_sketch_feature(sk));
+        const auto& e = doc.features[sk].entities;
+        const Vec2d d0 = dir(e[0]), d1 = dir(e[1]);
+        const double cross = d0.x() * d1.y() - d0.y() * d1.x();
+        REQUIRE(std::abs(cross) < 1e-6);
+    }
+
+    SECTION("coincident merges a line endpoint onto another") {
+        CadDocument doc;
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Line, Vec2d(0,0),  Vec2d(10,0)},   // line0
+            {SketchEntity::Type::Line, Vec2d(12,1), Vec2d(20,1)},   // line1
+        };
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "S");
+        auto& ec = doc.features[sk].entity_constraints;
+        ec.push_back({T::Coincident, 0, 1, R::P1, R::P0, 0.0});   // line0.end == line1.start
+
+        REQUIRE(doc.solve_sketch_feature(sk));
+        const auto& e = doc.features[sk].entities;
+        const Vec2d gap = Vec2d(e[0].p1 - e[1].p0);
+        REQUIRE(gap.norm() < 1e-6);
+    }
+
+    SECTION("horizontal levels a tilted line's endpoints") {
+        CadDocument doc;
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Line, Vec2d(0,0), Vec2d(10,2)},   // tilted line
+        };
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "S");
+        auto& ec = doc.features[sk].entity_constraints;
+        ec.push_back({T::Horizontal, 0, 0, R::P0, R::P1, 0.0});   // p0.y == p1.y
+
+        REQUIRE(doc.solve_sketch_feature(sk));
+        const auto& e = doc.features[sk].entities;
+        REQUIRE(std::abs(e[0].p0.y() - e[0].p1.y()) < 1e-6);
+    }
+}

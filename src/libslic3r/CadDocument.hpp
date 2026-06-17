@@ -39,6 +39,11 @@ struct CadFeature {
     // 2D geometric constraints on `profile` (point indices). Solved in place.
     std::vector<SketchConstraintDef> constraints;
 
+    // Onshape-style constraints on `entities` (Fase 4.2). Solved in place against
+    // entity endpoints. Used when `entities` is non-empty (the legacy `constraints`
+    // vector applies only to the `profile` path).
+    std::vector<SketchEntityConstraintDef> entity_constraints;
+
     // Extrude params
     int         sketch_ref{-1};   // index into features[] of the consumed sketch
     double      distance{10};
