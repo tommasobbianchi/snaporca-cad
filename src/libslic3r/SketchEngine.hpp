@@ -75,7 +75,8 @@ struct SketchProfile {
 
 enum class SketchConstraintType {
     Fix, Coincident, Horizontal, Vertical, Distance,
-    LockX, LockY, EqualLength, Parallel, Perpendicular
+    LockX, LockY, EqualLength, Parallel, Perpendicular,
+    Concentric
 };
 
 // Constraint on a SketchProfile, referencing profile point indices (a,b,c,d).

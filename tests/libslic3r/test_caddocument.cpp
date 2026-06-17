@@ -380,3 +380,46 @@ TEST_CASE("entity constraints: solve on SketchEntity endpoints", "[CadDocument]"
         REQUIRE(std::abs(e[0].p0.y() - e[0].p1.y()) < 1e-6);
     }
 }
+
+TEST_CASE("entity constraints: arc/circle registration + concentric", "[CadDocument]")
+{
+    using R = SketchPointRole;
+    using T = SketchConstraintType;
+
+    SECTION("concentric centers coincide") {
+        CadDocument doc;
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Circle, Vec2d(0,0), Vec2d(0,0), Vec2d(0,0), 5.0},   // circle0
+            {SketchEntity::Type::Circle, Vec2d(10,2), Vec2d(10,2), Vec2d(10,2), 3.0}, // circle1
+        };
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "S");
+        auto& ec = doc.features[sk].entity_constraints;
+        ec.push_back({T::Fix,        0, -1, R::Center, R::Center, 0.0});
+        ec.push_back({T::Concentric, 0,  1, R::Center, R::Center, 0.0});
+
+        REQUIRE(doc.solve_sketch_feature(sk));
+        const auto& e = doc.features[sk].entities;
+        REQUIRE((e[1].center - e[0].center).norm() < 1e-6);
+        REQUIRE(e[0].center.x() < 1e-6);
+        REQUIRE(e[0].center.y() < 1e-6);
+    }
+
+    SECTION("arc reflow keeps radius and angle consistent") {
+        CadDocument doc;
+        const double PI2 = M_PI / 2;
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Arc, Vec2d(5,0), Vec2d(0,5), Vec2d(0,0), 5.0, 0.0, PI2},
+        };
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "S");
+        auto& ec = doc.features[sk].entity_constraints;
+        ec.push_back({T::Fix, 0, -1, R::Center, R::Center, 0.0});
+        ec.push_back({T::Fix, 0, -1, R::P0,     R::P0,     0.0});
+
+        REQUIRE(doc.solve_sketch_feature(sk));
+        const auto& e = doc.features[sk].entities;
+        REQUIRE(std::abs((e[0].p0 - e[0].center).norm() - 5.0) < 1e-6);
+        REQUIRE(std::abs(e[0].start_angle - 0.0) < 1e-6);
+        REQUIRE(std::abs(e[0].end_angle - PI2) < 1e-3);
+        REQUIRE(e[0].end_angle > e[0].start_angle);
+    }
+}

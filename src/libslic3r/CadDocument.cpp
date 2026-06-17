@@ -107,10 +107,10 @@ int CadDocument::add_sketch_entities(const std::vector<SketchEntity>& entities,
 }
 
 namespace {
-// Solve Onshape-style constraints on a feature's SketchEntity list (Fase 4.2).
-// Only Line and Point entities participate; Arc/Circle endpoints are not yet
-// registered (concentric/tangent + arc reflow are deferred to 4.3). Solved
-// coordinates are written back into the entities' p0/p1.
+// Solve Onshape-style constraints on a feature's SketchEntity list (Fase 4.3).
+// All entity types participate: Line (P0,P1), Arc (P0,P1,Center), Circle
+// (Center), Point (P0). Solved coordinates are written back, with arc angles
+// reflowed from the solved center+endpoints.
 bool solve_entity_constraints(CadFeature& f)
 {
     if (f.entity_constraints.empty()) return true;
@@ -123,11 +123,22 @@ bool solve_entity_constraints(CadFeature& f)
     };
     for (size_t i = 0; i < f.entities.size(); ++i) {
         const SketchEntity& e = f.entities[i];
-        if (e.type == SketchEntity::Type::Line) {
+        switch (e.type) {
+        case SketchEntity::Type::Line:
             reg(int(i), SketchPointRole::P0, e.p0);
             reg(int(i), SketchPointRole::P1, e.p1);
-        } else if (e.type == SketchEntity::Type::Point) {
+            break;
+        case SketchEntity::Type::Arc:
             reg(int(i), SketchPointRole::P0, e.p0);
+            reg(int(i), SketchPointRole::P1, e.p1);
+            reg(int(i), SketchPointRole::Center, e.center);
+            break;
+        case SketchEntity::Type::Circle:
+            reg(int(i), SketchPointRole::Center, e.center);
+            break;
+        case SketchEntity::Type::Point:
+            reg(int(i), SketchPointRole::P0, e.p0);
+            break;
         }
     }
 
@@ -186,6 +197,12 @@ bool solve_entity_constraints(CadFeature& f)
             else                                               sc.equal_length(a0, a1, b0, b1);
             break;
         }
+        case SketchConstraintType::Concentric: {
+            int a = pid(c.ea, SketchPointRole::Center);
+            int b = pid(c.eb, SketchPointRole::Center);
+            if (a >= 0 && b >= 0) sc.coincident(a, b);
+            break;
+        }
         }
     }
 
@@ -193,10 +210,35 @@ bool solve_entity_constraints(CadFeature& f)
     // Write solved coordinates back into the participating entities.
     for (size_t i = 0; i < f.entities.size(); ++i) {
         SketchEntity& e = f.entities[i];
-        int p0 = table[i][int(SketchPointRole::P0)];
-        int p1 = table[i][int(SketchPointRole::P1)];
-        if (p0 >= 0) e.p0 = sc.get_point(p0);
-        if (p1 >= 0) e.p1 = sc.get_point(p1);
+        int ip0 = table[i][int(SketchPointRole::P0)];
+        int ip1 = table[i][int(SketchPointRole::P1)];
+        int ic  = table[i][int(SketchPointRole::Center)];
+        if (ip0 >= 0) e.p0     = sc.get_point(ip0);
+        if (ip1 >= 0) e.p1     = sc.get_point(ip1);
+        if (ic  >= 0) e.center = sc.get_point(ic);
+
+        if (e.type == SketchEntity::Type::Arc && ic >= 0) {
+            // Reflow arc angles from solved center + endpoints, preserving the
+            // original sweep direction (CCW vs CW).
+            const double old_sweep = e.end_angle - e.start_angle;     // signed, original
+            double ns = std::atan2(e.p0.y() - e.center.y(), e.p0.x() - e.center.x());
+            double ne = std::atan2(e.p1.y() - e.center.y(), e.p1.x() - e.center.x());
+            double sweep = ne - ns;
+            // Normalize `sweep` into (-2pi, 2pi) then match the sign of old_sweep so
+            // the arc keeps turning the same way it did before solving.
+            const double TWO_PI = 2.0 * M_PI;
+            while (sweep <=  -TWO_PI) sweep += TWO_PI;
+            while (sweep >=   TWO_PI) sweep -= TWO_PI;
+            if (old_sweep >= 0.0 && sweep < 0.0) sweep += TWO_PI;
+            if (old_sweep <  0.0 && sweep > 0.0) sweep -= TWO_PI;
+            e.start_angle = ns;
+            e.end_angle   = ns + sweep;
+            e.radius = 0.5 * ((e.p0 - e.center).norm() + (e.p1 - e.center).norm());
+        }
+        if (e.type == SketchEntity::Type::Circle && ic >= 0) {
+            // p0 mirrors the center for circles; keep them consistent.
+            e.p0 = e.center;
+        }
     }
     return ok;
 }
