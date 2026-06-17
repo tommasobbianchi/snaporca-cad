@@ -332,4 +332,113 @@ TopoDS_Wire SketchEngine::entities_to_wire(const std::vector<SketchEntity>& enti
     return TopoDS_Wire{};
 }
 
+std::vector<SketchEntity> SketchEngine::mirror_entities(
+    const std::vector<SketchEntity>& src, const Vec2d& a, const Vec2d& b)
+{
+    Vec2d dir = b - a;
+    if (dir.norm() < 1e-12)
+        return src;
+
+    dir.normalize();
+
+    auto reflect = [&](const Vec2d& p) -> Vec2d {
+        Vec2d v = p - a;
+        return a + (2.0 * v.dot(dir)) * dir - v;
+    };
+
+    std::vector<SketchEntity> out;
+    out.reserve(src.size());
+
+    for (const auto& e : src) {
+        SketchEntity m = e;
+        switch (e.type) {
+        case SketchEntity::Type::Line:
+            m.p0 = reflect(e.p0);
+            m.p1 = reflect(e.p1);
+            break;
+        case SketchEntity::Type::Point:
+            m.p0 = reflect(e.p0);
+            break;
+        case SketchEntity::Type::Circle:
+            m.center = reflect(e.center);
+            m.p0 = m.center;
+            break;
+        case SketchEntity::Type::Arc: {
+            m.p0     = reflect(e.p0);
+            m.p1     = reflect(e.p1);
+            m.center = reflect(e.center);
+
+            const Vec2d& c = m.center;
+            m.start_angle = std::atan2(m.p0.y() - c.y(), m.p0.x() - c.x());
+            double raw_end = std::atan2(m.p1.y() - c.y(), m.p1.x() - c.x());
+
+            double s = e.end_angle - e.start_angle;
+
+            double sweep = raw_end - m.start_angle;
+            while (sweep <= -2.0 * M_PI) sweep += 2.0 * M_PI;
+            while (sweep >=  2.0 * M_PI) sweep -= 2.0 * M_PI;
+
+            if (s != 0.0 && sweep * s > 0.0) {
+                if (sweep > 0.0)
+                    sweep -= 2.0 * M_PI;
+                else
+                    sweep += 2.0 * M_PI;
+            }
+
+            m.end_angle = m.start_angle + sweep;
+            m.radius    = e.radius;
+            break;
+        }
+        }
+        out.push_back(m);
+    }
+
+    return out;
+}
+
+std::vector<SketchEntity> SketchEngine::offset_entities(
+    const std::vector<SketchEntity>& src, double d)
+{
+    std::vector<SketchEntity> out;
+
+    for (const auto& e : src) {
+        switch (e.type) {
+        case SketchEntity::Type::Line: {
+            Vec2d t = e.p1 - e.p0;
+            if (t.norm() < 1e-12) continue;
+            t.normalize();
+            Vec2d n(-t.y(), t.x());
+            SketchEntity o = e;
+            o.p0 = e.p0 + d * n;
+            o.p1 = e.p1 + d * n;
+            out.push_back(o);
+            break;
+        }
+        case SketchEntity::Type::Circle: {
+            double r = e.radius + d;
+            if (r <= 1e-9) continue;
+            SketchEntity o = e;
+            o.radius = r;
+            o.p0     = o.center;
+            out.push_back(o);
+            break;
+        }
+        case SketchEntity::Type::Arc: {
+            double r = e.radius + d;
+            if (r <= 1e-9) continue;
+            SketchEntity o = e;
+            o.radius = r;
+            o.p0     = e.center + r * Vec2d(std::cos(e.start_angle), std::sin(e.start_angle));
+            o.p1     = e.center + r * Vec2d(std::cos(e.end_angle),   std::sin(e.end_angle));
+            out.push_back(o);
+            break;
+        }
+        case SketchEntity::Type::Point:
+            continue;
+        }
+    }
+
+    return out;
+}
+
 } // namespace Slic3r

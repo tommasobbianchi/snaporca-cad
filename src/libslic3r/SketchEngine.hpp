@@ -157,6 +157,12 @@ public:
 
     static TopoDS_Wire entities_to_wire(const std::vector<SketchEntity>& entities,
                                         const SketchPlane& plane);
+
+    static std::vector<SketchEntity> mirror_entities(
+        const std::vector<SketchEntity>& src, const Vec2d& a, const Vec2d& b);
+
+    static std::vector<SketchEntity> offset_entities(
+        const std::vector<SketchEntity>& src, double d);
 };
 
 } // namespace Slic3r
