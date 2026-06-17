@@ -381,6 +381,8 @@ set(lisbslic3r_sources
     SLA/Pad.hpp
     SketchEngine.cpp
     SketchEngine.hpp
+    SketchConstraints.cpp
+    SketchConstraints.hpp
     CadDocument.cpp
     CadDocument.hpp
     SLAPrint.cpp
