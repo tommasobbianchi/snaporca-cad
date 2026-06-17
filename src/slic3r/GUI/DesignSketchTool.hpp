@@ -21,11 +21,14 @@ class GLCanvas3D;
 // committed profile's points (entity constraints land in a later chunk).
 class DesignSketchTool {
 public:
-    enum class Mode { Polyline, CornerRect, CenterRect, CenterCircle, Point, Constrain };
+    enum class Mode { Polyline, CornerRect, CenterRect, CenterCircle, Point,
+                      ThreePointCircle, ThreePointArc, TangentArc, Slot, Polygon,
+                      Constrain };
 
     void begin(const SketchPlane& plane, Mode mode = Mode::Polyline);
     void set_tool(Mode mode);                 // switch tool, keep accumulated entities
     void set_construction(bool c) { m_construction = c; }
+    void set_polygon_sides(int n) { m_polygon_sides = (n < 3 ? 3 : n); }
     void finish();                            // emit accumulated entities, end session
     void cancel();
     bool is_active() const { return m_active; }
@@ -58,6 +61,16 @@ private:
     void push_circle(const Vec2d& center, double radius);
     void push_point(const Vec2d& p);
 
+    // Multi-click tool builders: return the entities for a finished gesture so
+    // both on_mouse (append) and render (preview) share one geometry path.
+    std::vector<SketchEntity> make_three_point_circle(const Vec2d& a, const Vec2d& b, const Vec2d& c) const;
+    std::vector<SketchEntity> make_three_point_arc(const Vec2d& start, const Vec2d& end, const Vec2d& on_arc) const;
+    std::vector<SketchEntity> make_tangent_arc(const Vec2d& start, const Vec2d& end) const;
+    std::vector<SketchEntity> make_slot(const Vec2d& c0, const Vec2d& c1, double half_width) const;
+    std::vector<SketchEntity> make_polygon(const Vec2d& center, const Vec2d& vertex, int sides) const;
+    void append_entities(const std::vector<SketchEntity>& ents);
+    void draw_entities_preview(const std::vector<SketchEntity>& ents, const ColorRGBA& color);
+
     // Sample an entity into a 2D polyline for the overlay renderer.
     std::vector<Vec2d> entity_polyline(const SketchEntity& e, bool& closed) const;
 
@@ -69,6 +82,7 @@ private:
     std::vector<Vec2d>  m_points;       // clicks of the in-progress entity / chain
     std::vector<SketchEntity> m_entities; // committed entities of this session
     bool                m_construction{false};
+    int                 m_polygon_sides{6};
     Vec2d               m_cursor{0,0};
     bool                m_has_cursor{false};
     Mode                m_mode{Mode::Polyline};

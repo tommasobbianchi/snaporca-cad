@@ -204,6 +204,11 @@ void DesignCanvas::set_sketch_construction(bool c)
     m_sketch_tool.set_construction(c);
 }
 
+void DesignCanvas::set_sketch_polygon_sides(int n)
+{
+    m_sketch_tool.set_polygon_sides(n);
+}
+
 void DesignCanvas::finish_sketch()
 {
     m_sketch_tool.finish();

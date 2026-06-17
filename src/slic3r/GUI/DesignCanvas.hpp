@@ -39,6 +39,7 @@ public:
     void begin_sketch(const SketchPlane& plane, DesignSketchTool::Mode mode);
     void set_sketch_tool(DesignSketchTool::Mode mode);
     void set_sketch_construction(bool c);
+    void set_sketch_polygon_sides(int n);
     void finish_sketch();
     bool is_sketching() const;
     void cancel_sketch();

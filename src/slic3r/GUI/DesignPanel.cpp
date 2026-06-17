@@ -129,6 +129,45 @@ DesignPanel::DesignPanel(wxWindow* parent)
     erow2->Add(b_point, 1, wxEXPAND);
     tbar->Add(erow2, 0, wxEXPAND | wxBOTTOM, 4);
 
+    auto* erow3 = new wxBoxSizer(wxHORIZONTAL);
+    auto* b_circ3 = new wxButton(m_form, wxID_ANY, _L("Circle 3pt"));
+    b_circ3->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
+        select_tool(DesignSketchTool::Mode::ThreePointCircle,
+                    _L("Click three points on the circle")); });
+    auto* b_arc3 = new wxButton(m_form, wxID_ANY, _L("Arc 3pt"));
+    b_arc3->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
+        select_tool(DesignSketchTool::Mode::ThreePointArc,
+                    _L("Click start, end, then a point on the arc")); });
+    auto* b_tarc = new wxButton(m_form, wxID_ANY, _L("Tangent Arc"));
+    b_tarc->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
+        select_tool(DesignSketchTool::Mode::TangentArc,
+                    _L("Click start (on the last entity) then end")); });
+    erow3->Add(b_circ3, 1, wxEXPAND | wxRIGHT, 4);
+    erow3->Add(b_arc3, 1, wxEXPAND | wxRIGHT, 4);
+    erow3->Add(b_tarc, 1, wxEXPAND);
+    tbar->Add(erow3, 0, wxEXPAND | wxBOTTOM, 4);
+
+    auto* erow4 = new wxBoxSizer(wxHORIZONTAL);
+    auto* b_slot = new wxButton(m_form, wxID_ANY, _L("Slot"));
+    b_slot->Bind(wxEVT_BUTTON, [select_tool](wxCommandEvent&) {
+        select_tool(DesignSketchTool::Mode::Slot,
+                    _L("Click two centerline ends, then a point for width")); });
+    auto* sides = new wxSpinCtrl(m_form, wxID_ANY, "6", wxDefaultPosition, wxSize(56, -1));
+    sides->SetRange(3, 64);
+    sides->SetValue(6);
+    auto* b_poly = new wxButton(m_form, wxID_ANY, _L("Polygon"));
+    b_poly->Bind(wxEVT_BUTTON, [this, select_tool, sides](wxCommandEvent&) {
+        if (m_viewport) m_viewport->set_sketch_polygon_sides(sides->GetValue());
+        select_tool(DesignSketchTool::Mode::Polygon,
+                    _L("Click center then a vertex")); });
+    sides->Bind(wxEVT_SPINCTRL, [this, sides](wxSpinEvent&) {
+        if (m_viewport) m_viewport->set_sketch_polygon_sides(sides->GetValue()); });
+    erow4->Add(b_slot, 1, wxEXPAND | wxRIGHT, 4);
+    erow4->Add(b_poly, 1, wxEXPAND | wxRIGHT, 4);
+    erow4->Add(new wxStaticText(m_form, wxID_ANY, _L("sides")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+    erow4->Add(sides, 0, wxALIGN_CENTER_VERTICAL);
+    tbar->Add(erow4, 0, wxEXPAND | wxBOTTOM, 4);
+
     construction->Bind(wxEVT_CHECKBOX, [this, construction](wxCommandEvent&) {
         if (m_viewport && m_viewport->is_sketching())
             m_viewport->set_sketch_construction(construction->GetValue()); });

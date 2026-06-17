@@ -260,3 +260,41 @@ TEST_CASE("add_sketch_entities commit path -> extrude", "[CadDocument]")
         REQUIRE(std::abs(sz.z() -  4.0) < 0.5);
     }
 }
+
+// A slot (stadium): 2 lines + 2 semicircular Arc entities forming one closed
+// loop — the shape the Fase 4.1b Slot tool emits. Validates the kernel's Arc
+// edge path (GC_MakeArcOfCircle via center/radius/start_angle/end_angle, with
+// the mid reconstructed at (start+end)/2) inside a mixed Line/Arc wire.
+TEST_CASE("slot (line+arc closed wire) -> extrude", "[CadDocument]")
+{
+    const double PI = 3.14159265358979323846;
+    CadDocument doc;
+
+    // Centerline ends c0=(-10,0), c1=(10,0); half-width w=5 → stadium 30 x 10.
+    SketchEntity top;   // top line A0(-10,5) -> A1(10,5)
+    top.type = SketchEntity::Type::Line; top.p0 = Vec2d(-10, 5); top.p1 = Vec2d(10, 5);
+
+    SketchEntity cap1;  // right cap @c1=(10,0): A1(10,5) -> B1(10,-5) through (15,0)
+    cap1.type = SketchEntity::Type::Arc; cap1.center = Vec2d(10, 0); cap1.radius = 5;
+    cap1.p0 = Vec2d(10, 5); cap1.p1 = Vec2d(10, -5);
+    cap1.start_angle = PI / 2; cap1.end_angle = -PI / 2;   // mid angle 0 -> (15,0)
+
+    SketchEntity bot;   // bottom line B1(10,-5) -> B0(-10,-5)
+    bot.type = SketchEntity::Type::Line; bot.p0 = Vec2d(10, -5); bot.p1 = Vec2d(-10, -5);
+
+    SketchEntity cap0;  // left cap @c0=(-10,0): B0(-10,-5) -> A0(-10,5) through (-15,0)
+    cap0.type = SketchEntity::Type::Arc; cap0.center = Vec2d(-10, 0); cap0.radius = 5;
+    cap0.p0 = Vec2d(-10, -5); cap0.p1 = Vec2d(-10, 5);
+    cap0.start_angle = -PI / 2; cap0.end_angle = -3 * PI / 2; // mid angle -PI -> (-15,0)
+
+    int sk = doc.add_sketch_entities({top, cap1, bot, cap0}, SketchPlane::XY(), "Slot");
+    doc.add_extrude(sk, 4.0, false, BooleanMode::New, "Extrude1");
+
+    REQUIRE(doc.recompute());
+    REQUIRE(doc.error.empty());
+    REQUIRE(doc.display_mesh.facets_count() > 0);
+    auto sz = doc.display_mesh.bounding_box().size();
+    REQUIRE(std::abs(sz.x() - 30.0) < 0.5);
+    REQUIRE(std::abs(sz.y() - 10.0) < 0.5);
+    REQUIRE(std::abs(sz.z() -  4.0) < 0.5);
+}
