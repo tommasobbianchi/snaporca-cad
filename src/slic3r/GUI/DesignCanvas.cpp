@@ -49,6 +49,13 @@ DesignCanvas::DesignCanvas(wxWindow* parent)
     m_canvas->enable_plate_chrome(false);
     m_canvas->enable_labels(false);
 
+    m_canvas->set_design_sketch_tool(&m_sketch_tool);
+    m_sketch_tool.on_commit = [this](const SketchProfile& prof, const SketchPlane& pl) {
+        if (m_on_sketch_commit) m_on_sketch_commit(prof, pl);
+        if (m_canvas) m_canvas->set_as_dirty();
+        if (m_canvas_widget) m_canvas_widget->Refresh();
+    };
+
     const DynamicPrintConfig* config = wxGetApp().plater()->config();
     if (config) {
         const auto* bed_shape_opt = config->opt<ConfigOptionPoints>("printable_area");
@@ -171,6 +178,27 @@ void DesignCanvas::set_view(const std::string& view_name)
         if (m_canvas_widget)
             m_canvas_widget->Refresh();
     }
+}
+
+void DesignCanvas::begin_sketch(const SketchPlane& plane)
+{
+    m_sketch_tool.begin(plane);
+    if (m_canvas) m_canvas->set_as_dirty();
+    if (m_canvas_widget) m_canvas_widget->Refresh();
+}
+
+bool DesignCanvas::is_sketching() const { return m_sketch_tool.is_active(); }
+
+void DesignCanvas::cancel_sketch()
+{
+    m_sketch_tool.cancel();
+    if (m_canvas) m_canvas->set_as_dirty();
+    if (m_canvas_widget) m_canvas_widget->Refresh();
+}
+
+void DesignCanvas::set_on_sketch_commit(std::function<void(const SketchProfile&, const SketchPlane&)> cb)
+{
+    m_on_sketch_commit = std::move(cb);
 }
 
 }} // namespace Slic3r::GUI

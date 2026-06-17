@@ -103,6 +103,7 @@ set(SLIC3R_GUI_SOURCES
     GUI/DesignPanel.hpp
     GUI/DesignCanvas.cpp
     GUI/DesignCanvas.hpp
+    GUI/DesignSketchTool.cpp
     GUI/DragCanvas.cpp
     GUI/DragCanvas.hpp
     GUI/EditGCodeDialog.cpp

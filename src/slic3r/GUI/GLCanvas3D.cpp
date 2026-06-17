@@ -1,5 +1,6 @@
 #include "libslic3r/libslic3r.h"
 #include "GLCanvas3D.hpp"
+#include "DesignSketchTool.hpp"   // SnapOrca Design: interactive 2D sketch tool
 
 #include <igl/unproject.h>
 
@@ -2043,6 +2044,11 @@ void GLCanvas3D::render(bool only_init)
     if (m_picking_enabled && m_rectangle_selection.is_dragging())
         m_rectangle_selection.render(*this);
 
+    // SnapOrca Design: interactive 2D sketch overlay, drawn over the scene but
+    // beneath the UI overlays (toolbars, labels).
+    if (m_design_sketch_tool != nullptr && m_design_sketch_tool->is_active())
+        m_design_sketch_tool->render(*this);
+
     // draw overlays
     _render_overlays();
 
@@ -4049,6 +4055,16 @@ void GLCanvas3D::on_mouse(wxMouseEvent& evt)
         // also, do not return if the mouse is moving and also is inside MM gizmo to allow update seed fill selection
         if (!m_mouse.dragging && m_tooltip.is_empty() && (m_gizmos.get_current_type() != GLGizmosManager::MmSegmentation || !evt.Moving()))
             return;
+    }
+
+    // SnapOrca Design: an active interactive sketch tool owns the mouse. It runs
+    // after ImGui (so dialogs still work) but before camera/toolbar/gizmo handling.
+    if (m_design_sketch_tool != nullptr && m_design_sketch_tool->is_active()) {
+        if (m_design_sketch_tool->on_mouse(evt, *this)) {
+            m_dirty = true;
+            render();   // force an immediate redraw so the sketch overlay updates live
+            return;
+        }
     }
 
 #ifdef __WXMSW__

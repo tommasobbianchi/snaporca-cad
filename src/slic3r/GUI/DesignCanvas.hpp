@@ -3,10 +3,13 @@
 
 #include <wx/panel.h>
 
+#include <functional>
 #include <string>
 
 #include "3DBed.hpp"
 #include "libslic3r/Model.hpp"
+#include "libslic3r/SketchEngine.hpp"
+#include "DesignSketchTool.hpp"
 
 class wxGLCanvas;
 
@@ -33,6 +36,11 @@ public:
     void fit_view();
     void set_view(const std::string& view_name);
 
+    void begin_sketch(const SketchPlane& plane);
+    bool is_sketching() const;
+    void cancel_sketch();
+    void set_on_sketch_commit(std::function<void(const SketchProfile&, const SketchPlane&)> cb);
+
 private:
     void reload(bool keep_view);
 
@@ -41,6 +49,9 @@ private:
     Bed3D       m_bed;
     Model       m_model;
     bool        m_first_frame{true};
+
+    DesignSketchTool m_sketch_tool;
+    std::function<void(const SketchProfile&, const SketchPlane&)> m_on_sketch_commit;
 };
 
 }} // namespace Slic3r::GUI

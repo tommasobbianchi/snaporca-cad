@@ -64,6 +64,15 @@ DesignPanel::DesignPanel(wxWindow* parent)
     auto* b_sketch = new wxButton(m_form, wxID_ANY, _L("New Sketch"));
     b_sketch->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Sketch); });
     tbar->Add(b_sketch, 0, wxEXPAND | wxBOTTOM, 4);
+    auto* b_draw = new wxButton(m_form, wxID_ANY, _L("Draw Sketch"));
+    b_draw->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        if (m_viewport) {
+            m_viewport->begin_sketch(SketchPlane::XY());
+            m_status->SetForegroundColour(wxNullColour);
+            m_status->SetLabel(_L("Click to place points; click the first point or right-click to close; right-click with <3 points cancels"));
+        }
+    });
+    tbar->Add(b_draw, 0, wxEXPAND | wxBOTTOM, 4);
     auto* b_extrude = new wxButton(m_form, wxID_ANY, _L("Extrude"));
     b_extrude->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
         m_extrude_sketch_ref = resolve_extrude_sketch();
@@ -360,6 +369,15 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // Right column: a small view toolbar over the live 3D viewport that mirrors
     // the CadDocument body.
     m_viewport = new DesignCanvas(this);
+
+    m_viewport->set_on_sketch_commit([this](const SketchProfile& prof, const SketchPlane& plane) {
+        m_feature_counter++;
+        m_doc.add_sketch_profile(prof, plane, "Sketch" + std::to_string(m_feature_counter));
+        m_doc.recompute();
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(_L("Sketch created — select it and Extrude"));
+        refresh_tree();
+    });
 
     auto* vcol = new wxBoxSizer(wxVERTICAL);
     auto* vbar = new wxBoxSizer(wxHORIZONTAL);
