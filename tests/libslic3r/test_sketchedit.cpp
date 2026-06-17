@@ -137,3 +137,69 @@ TEST_CASE("Offset Arc by positive d", "[SketchEdit]")
     REQUIRE_THAT(o.p1.x(), WithinAbs(0.0, 1e-9));
     REQUIRE_THAT(o.p1.y(), WithinAbs(5.0, 1e-9));
 }
+
+TEST_CASE("Fillet right-angle corner", "[SketchEdit]")
+{
+    SketchEntity a;
+    a.type = SketchEntity::Type::Line;
+    a.p0   = Vec2d(0, 0);
+    a.p1   = Vec2d(10, 0);
+
+    SketchEntity b;
+    b.type = SketchEntity::Type::Line;
+    b.p0   = Vec2d(10, 0);
+    b.p1   = Vec2d(10, 10);
+
+    SketchEntity a_out, b_out, arc_out;
+    bool ok = SketchEngine::fillet_lines(a, b, 2.0, a_out, b_out, arc_out);
+    REQUIRE(ok);
+
+    REQUIRE_THAT(a_out.p0.x(), WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(a_out.p0.y(), WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(a_out.p1.x(), WithinAbs(8.0, 1e-9));
+    REQUIRE_THAT(a_out.p1.y(), WithinAbs(0.0, 1e-9));
+
+    REQUIRE_THAT(b_out.p0.x(), WithinAbs(10.0, 1e-9));
+    REQUIRE_THAT(b_out.p0.y(), WithinAbs(2.0, 1e-9));
+    REQUIRE_THAT(b_out.p1.x(), WithinAbs(10.0, 1e-9));
+    REQUIRE_THAT(b_out.p1.y(), WithinAbs(10.0, 1e-9));
+
+    REQUIRE(arc_out.type == SketchEntity::Type::Arc);
+    REQUIRE_THAT(arc_out.radius, WithinAbs(2.0, 1e-9));
+    REQUIRE_THAT(arc_out.center.x(), WithinAbs(8.0, 1e-9));
+    REQUIRE_THAT(arc_out.center.y(), WithinAbs(2.0, 1e-9));
+    REQUIRE_THAT((arc_out.p0 - arc_out.center).norm(), WithinAbs(2.0, 1e-9));
+    REQUIRE_THAT((arc_out.p1 - arc_out.center).norm(), WithinAbs(2.0, 1e-9));
+}
+
+TEST_CASE("Fillet parallel lines returns false", "[SketchEdit]")
+{
+    SketchEntity a;
+    a.type = SketchEntity::Type::Line;
+    a.p0   = Vec2d(0, 0);
+    a.p1   = Vec2d(10, 0);
+
+    SketchEntity b;
+    b.type = SketchEntity::Type::Line;
+    b.p0   = Vec2d(0, 5);
+    b.p1   = Vec2d(10, 5);
+
+    SketchEntity a_out, b_out, arc_out;
+    REQUIRE_FALSE(SketchEngine::fillet_lines(a, b, 1.0, a_out, b_out, arc_out));
+}
+
+TEST_CASE("Fillet arc too big returns false", "[SketchEdit]")
+{
+    SketchEntity a;
+    a.type = SketchEntity::Type::Line;
+    a.p0   = Vec2d(0, 0);
+    a.p1   = Vec2d(1, 0);
+
+    SketchEntity b;
+    b.type = SketchEntity::Type::Line;
+    b.p0   = Vec2d(1, 0);
+    b.p1   = Vec2d(1, 1);
+
+    SketchEntity a_out, b_out, arc_out;
+    REQUIRE_FALSE(SketchEngine::fillet_lines(a, b, 5.0, a_out, b_out, arc_out));
+}

@@ -441,4 +441,105 @@ std::vector<SketchEntity> SketchEngine::offset_entities(
     return out;
 }
 
+bool SketchEngine::fillet_lines(const SketchEntity& a, const SketchEntity& b, double r,
+                                SketchEntity& a_out, SketchEntity& b_out, SketchEntity& arc_out)
+{
+    if (a.type != SketchEntity::Type::Line || b.type != SketchEntity::Type::Line || r <= 1e-9)
+        return false;
+
+    Vec2d da = a.p1 - a.p0;
+    Vec2d db = b.p1 - b.p0;
+    double denom = da.x() * db.y() - da.y() * db.x();
+    if (std::abs(denom) < 1e-12)
+        return false;
+
+    Vec2d diff = b.p0 - a.p0;
+    double s = (diff.x() * db.y() - diff.y() * db.x()) / denom;
+    Vec2d C = a.p0 + s * da;
+
+    Vec2d ua;
+    int   a_near_idx;
+    {
+        double d0 = (a.p0 - C).norm();
+        double d1 = (a.p1 - C).norm();
+        if (d0 <= d1) {
+            a_near_idx = 0;
+            ua = a.p1 - C;
+        } else {
+            a_near_idx = 1;
+            ua = a.p0 - C;
+        }
+    }
+    if (ua.norm() < 1e-12) return false;
+    ua.normalize();
+
+    Vec2d ub;
+    int   b_near_idx;
+    {
+        double d0 = (b.p0 - C).norm();
+        double d1 = (b.p1 - C).norm();
+        if (d0 <= d1) {
+            b_near_idx = 0;
+            ub = b.p1 - C;
+        } else {
+            b_near_idx = 1;
+            ub = b.p0 - C;
+        }
+    }
+    if (ub.norm() < 1e-12) return false;
+    ub.normalize();
+
+    double cosT = ua.dot(ub);
+    cosT = std::max(-1.0, std::min(1.0, cosT));
+    double theta = std::acos(cosT);
+    if (theta < 1e-6 || theta > M_PI - 1e-6)
+        return false;
+
+    double t = r / std::tan(theta / 2.0);
+    {
+        Vec2d a_far = (a_near_idx == 0) ? a.p1 : a.p0;
+        Vec2d b_far = (b_near_idx == 0) ? b.p1 : b.p0;
+        if (t > (a_far - C).norm() || t > (b_far - C).norm())
+            return false;
+    }
+
+    Vec2d Ta = C + t * ua;
+    Vec2d Tb = C + t * ub;
+
+    Vec2d bis = ua + ub;
+    if (bis.norm() < 1e-12) return false;
+    bis.normalize();
+
+    double dCO = r / std::sin(theta / 2.0);
+    Vec2d O = C + dCO * bis;
+
+    a_out = a;
+    b_out = b;
+    if (a_near_idx == 0)
+        a_out.p0 = Ta;
+    else
+        a_out.p1 = Ta;
+
+    if (b_near_idx == 0)
+        b_out.p0 = Tb;
+    else
+        b_out.p1 = Tb;
+
+    arc_out = SketchEntity{};
+    arc_out.type        = SketchEntity::Type::Arc;
+    arc_out.center      = O;
+    arc_out.radius      = r;
+    arc_out.p0          = Ta;
+    arc_out.p1          = Tb;
+    arc_out.start_angle = std::atan2(Ta.y() - O.y(), Ta.x() - O.x());
+
+    double sb = std::atan2(Tb.y() - O.y(), Tb.x() - O.x());
+    double sweep = sb - arc_out.start_angle;
+    while (sweep <= -M_PI) sweep += 2.0 * M_PI;
+    while (sweep >   M_PI) sweep -= 2.0 * M_PI;
+    arc_out.end_angle = arc_out.start_angle + sweep;
+
+    return true;
+}
+
 } // namespace Slic3r

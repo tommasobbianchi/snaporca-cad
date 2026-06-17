@@ -163,6 +163,9 @@ public:
 
     static std::vector<SketchEntity> offset_entities(
         const std::vector<SketchEntity>& src, double d);
+
+    static bool fillet_lines(const SketchEntity& a, const SketchEntity& b, double r,
+                             SketchEntity& a_out, SketchEntity& b_out, SketchEntity& arc_out);
 };
 
 } // namespace Slic3r
