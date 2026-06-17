@@ -71,6 +71,7 @@ private:
     wxScrolledWindow* m_form{nullptr};
     DesignCanvas*     m_viewport{nullptr};
 
+    wxChoice*         m_draw_plane{nullptr};
     wxChoice*         m_shape{nullptr};
     wxChoice*         m_plane{nullptr};
     wxChoice*         m_mode{nullptr};

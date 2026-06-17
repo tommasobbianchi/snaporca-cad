@@ -1,5 +1,6 @@
 #include "DesignPanel.hpp"
 #include "DesignCanvas.hpp"
+#include "DesignSketchTool.hpp"
 
 #include <wx/sizer.h>
 #include <wx/button.h>
@@ -64,15 +65,35 @@ DesignPanel::DesignPanel(wxWindow* parent)
     auto* b_sketch = new wxButton(m_form, wxID_ANY, _L("New Sketch"));
     b_sketch->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Sketch); });
     tbar->Add(b_sketch, 0, wxEXPAND | wxBOTTOM, 4);
-    auto* b_draw = new wxButton(m_form, wxID_ANY, _L("Draw Sketch"));
-    b_draw->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-        if (m_viewport) {
-            m_viewport->begin_sketch(SketchPlane::XY());
-            m_status->SetForegroundColour(wxNullColour);
-            m_status->SetLabel(_L("Click to place points; click the first point or right-click to close; right-click with <3 points cancels"));
-        }
-    });
-    tbar->Add(b_draw, 0, wxEXPAND | wxBOTTOM, 4);
+
+    m_draw_plane = new wxChoice(m_form, wxID_ANY);
+    m_draw_plane->Append("XY"); m_draw_plane->Append("XZ"); m_draw_plane->Append("YZ");
+    m_draw_plane->SetSelection(0);
+    tbar->Add(m_draw_plane, 0, wxEXPAND | wxBOTTOM, 4);
+
+    auto begin_draw = [this](DesignSketchTool::Mode mode, const wxString& hint) {
+        if (!m_viewport) return;
+        const SketchPlane plane = plane_from_index(m_draw_plane->GetSelection());
+        m_viewport->begin_sketch(plane, mode);
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(hint);
+    };
+    auto* b_line = new wxButton(m_form, wxID_ANY, _L("Sketch: Line"));
+    b_line->Bind(wxEVT_BUTTON, [begin_draw](wxCommandEvent&) {
+        begin_draw(DesignSketchTool::Mode::Polyline,
+                   _L("Click to place points; click first point or right-click to close")); });
+    tbar->Add(b_line, 0, wxEXPAND | wxBOTTOM, 4);
+    auto* b_rect = new wxButton(m_form, wxID_ANY, _L("Sketch: Rect"));
+    b_rect->Bind(wxEVT_BUTTON, [begin_draw](wxCommandEvent&) {
+        begin_draw(DesignSketchTool::Mode::Rectangle,
+                   _L("Click two opposite corners; right-click cancels")); });
+    tbar->Add(b_rect, 0, wxEXPAND | wxBOTTOM, 4);
+    auto* b_circle = new wxButton(m_form, wxID_ANY, _L("Sketch: Circle"));
+    b_circle->Bind(wxEVT_BUTTON, [begin_draw](wxCommandEvent&) {
+        begin_draw(DesignSketchTool::Mode::Circle,
+                   _L("Click center then radius; right-click cancels")); });
+    tbar->Add(b_circle, 0, wxEXPAND | wxBOTTOM, 4);
+
     auto* b_extrude = new wxButton(m_form, wxID_ANY, _L("Extrude"));
     b_extrude->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
         m_extrude_sketch_ref = resolve_extrude_sketch();

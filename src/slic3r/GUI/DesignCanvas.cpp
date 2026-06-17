@@ -180,9 +180,9 @@ void DesignCanvas::set_view(const std::string& view_name)
     }
 }
 
-void DesignCanvas::begin_sketch(const SketchPlane& plane)
+void DesignCanvas::begin_sketch(const SketchPlane& plane, DesignSketchTool::Mode mode)
 {
-    m_sketch_tool.begin(plane);
+    m_sketch_tool.begin(plane, mode);
     if (m_canvas) m_canvas->set_as_dirty();
     if (m_canvas_widget) m_canvas_widget->Refresh();
 }

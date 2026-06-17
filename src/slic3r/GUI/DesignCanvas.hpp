@@ -36,7 +36,7 @@ public:
     void fit_view();
     void set_view(const std::string& view_name);
 
-    void begin_sketch(const SketchPlane& plane);
+    void begin_sketch(const SketchPlane& plane, DesignSketchTool::Mode mode);
     bool is_sketching() const;
     void cancel_sketch();
     void set_on_sketch_commit(std::function<void(const SketchProfile&, const SketchPlane&)> cb);
