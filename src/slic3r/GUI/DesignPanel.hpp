@@ -3,8 +3,10 @@
 
 #include <wx/panel.h>
 #include <wx/scrolwin.h>
+#include <wx/treebase.h>   // wxTreeItemId
 
 #include <vector>
+#include <functional>
 
 #include "libslic3r/CadDocument.hpp"
 
@@ -12,7 +14,8 @@ class wxChoice;
 class wxCheckBox;
 class wxSpinCtrl;
 class wxSpinCtrlDouble;
-class wxListBox;
+class wxTreeCtrl;
+class wxImageList;
 class wxStaticText;
 class wxSizer;
 class wxButton;
@@ -61,6 +64,15 @@ private:
     void apply_entity_constraint(SketchConstraintType type);  // Fase 4.2 entity path
     enum class EditOp { Mirror, Offset, Fillet, Trim, Extend }; // Fase 4.4 sketch edit ops
     void apply_edit_op(EditOp op);                            // mutate selected sketch entities
+    // Onshape-style docked value entry (replaces wxGetTextFromUser popups for
+    // Angle/Radius/Diameter constraints + Offset/Fillet edit ops). request_value
+    // shows the card and stows a continuation run by confirm_value().
+    void request_value(const wxString& label, double def, double mn, double mx,
+                       std::function<void(double)> cont);
+    void confirm_value();
+    void cancel_value();
+    void commit_entity_constraint(const SketchEntityConstraintDef& def); // shared solve/refresh tail
+    void after_edit_op();                                                // shared edit-op refresh tail
     void on_edit_feature();            // reopen the selected feature's dialog populated
     void after_tree_edit(bool ok);     // shared post-op refresh of tree/viewport/status
     void load_feature_into_dialog(const CadFeature& f);
@@ -129,7 +141,22 @@ private:
     wxSpinCtrlDouble* m_thread_x{nullptr};
     wxSpinCtrlDouble* m_thread_y{nullptr};
 
-    wxListBox*        m_tree{nullptr};
+    // Onshape-style docked value-entry card (Angle/Radius/Diameter/Offset/Fillet).
+    wxSizer*          m_box_value{nullptr};
+    wxStaticText*     m_value_label{nullptr};
+    wxSpinCtrlDouble* m_value_input{nullptr};
+    std::function<void(double)> m_value_cont;   // deferred apply, run on Confirm
+
+    // Feature tree: a wxTreeCtrl with per-feature-type icons. Callers keep using
+    // integer row indices via tree_selection()/set_tree_selection(); m_tree_items
+    // maps feature order -> tree node, rebuilt by refresh_tree().
+    wxTreeCtrl*               m_tree{nullptr};
+    wxImageList*              m_tree_images{nullptr};
+    std::vector<wxTreeItemId> m_tree_items;
+    int  tree_selection() const;          // selected feature row, or wxNOT_FOUND
+    void set_tree_selection(int row);
+    static int tree_icon_for(CadFeatureType t);
+
     wxStaticText*     m_status{nullptr};
     int               m_feature_counter{0};
 

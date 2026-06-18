@@ -49,6 +49,8 @@ public:
 
     // Constrain mode: load a committed profile for picking + constraint editing.
     void begin_constrain(const SketchProfile& prof, const SketchPlane& plane);
+    // Leave constrain mode and clear any picked-entity highlight from the overlay.
+    void end_constrain();
     bool is_constraining() const;
     bool selected_segment(int& a, int& b) const;
     void update_constrain_profile(const std::vector<Vec2d>& pts);

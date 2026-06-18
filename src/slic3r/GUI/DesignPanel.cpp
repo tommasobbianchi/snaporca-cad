@@ -8,8 +8,8 @@
 #include <wx/choice.h>
 #include <wx/checkbox.h>
 #include <wx/spinctrl.h>
-#include <wx/listbox.h>
-#include <wx/textdlg.h>
+#include <wx/treectrl.h>
+#include <wx/imaglist.h>
 #include <wx/statline.h>
 #include <wx/font.h>
 
@@ -78,11 +78,29 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_toolbar = new wxPanel(this, wxID_ANY);
     m_toolbar->SetBackgroundColour(wxColour(0x32, 0x32, 0x37));
 
-    auto icon_btn = [this](const char* icon, const wxString& tip) {
+    const wxColour tb_bg(0x32, 0x32, 0x37);
+    const wxColour tb_hover(0x45, 0x45, 0x4C);
+    auto icon_btn = [this, tb_bg, tb_hover](const char* icon, const wxString& tip) {
         auto* b = new ScalableButton(m_toolbar, wxID_ANY, icon, "", wxSize(34, 34),
                                      wxDefaultPosition, wxBU_EXACTFIT | wxBORDER_NONE, false, 22);
         b->SetToolTip(tip);
+        b->SetBackgroundColour(tb_bg);
+        // Subtle hover affordance (no theme-native highlight on a borderless button).
+        b->Bind(wxEVT_ENTER_WINDOW, [b, tb_hover](wxMouseEvent& e) {
+            b->SetBackgroundColour(tb_hover); b->Refresh(); e.Skip(); });
+        b->Bind(wxEVT_LEAVE_WINDOW, [b, tb_bg](wxMouseEvent& e) {
+            b->SetBackgroundColour(tb_bg); b->Refresh(); e.Skip(); });
         return b;
+    };
+    // Small grey group caption (Onshape-style section hint) for each toolbar mode.
+    auto caption = [this](const wxString& t) {
+        auto* s = new wxStaticText(m_toolbar, wxID_ANY, t);
+        wxFont f = s->GetFont();
+        f.SetPointSize(f.GetPointSize() - 2);
+        f.SetWeight(wxFONTWEIGHT_BOLD);
+        s->SetFont(f);
+        s->SetForegroundColour(wxColour(0x80, 0x80, 0x88));
+        return s;
     };
     auto add_sep = [this](wxSizer* row) {
         row->AddSpacer(5);
@@ -114,6 +132,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // --- Feature group: Sketch / Extrude / Fillet-Chamfer / Hole / Thread / Constrain
     m_tb_feature = new wxBoxSizer(wxHORIZONTAL);
     auto fadd = [this](wxWindow* w) { m_tb_feature->Add(w, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 2); };
+    m_tb_feature->Add(caption(_L("FEATURES")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
     {
         auto* b_sketch = icon_btn("design_sketch", _L("Sketch"));
         b_sketch->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
@@ -158,6 +177,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // --- Sketch group: plane + entity tools + Construction + Finish
     m_tb_sketch = new wxBoxSizer(wxHORIZONTAL);
     auto sadd = [this](wxWindow* w) { m_tb_sketch->Add(w, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 2); };
+    m_tb_sketch->Add(caption(_L("SKETCH")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
     {
         m_draw_plane = new wxChoice(m_toolbar, wxID_ANY);
         m_draw_plane->Append("XY"); m_draw_plane->Append("XZ"); m_draw_plane->Append("YZ");
@@ -216,6 +236,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // --- Constrain group: geometric constraints + dimensions + edit ops + Done
     m_tb_constrain = new wxBoxSizer(wxHORIZONTAL);
     auto cadd = [this](wxWindow* w) { m_tb_constrain->Add(w, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 2); };
+    m_tb_constrain->Add(caption(_L("CONSTRAIN")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
     {
         auto cbtn = [&](const char* icon, const wxString& tip, SketchConstraintType type) {
             auto* b = icon_btn(icon, tip);
@@ -248,6 +269,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
         add_sep(m_tb_constrain);
         auto* b_done = icon_btn("design_check", _L("Done constraining"));
         b_done->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            cancel_value();                              // drop any open value card
+            if (m_viewport) m_viewport->end_constrain(); // clear viewport pick highlight
             m_constrain_feat = -1;
             set_ui_mode(UiMode::Feature);
             m_status->SetForegroundColour(wxNullColour);
@@ -483,24 +506,61 @@ DesignPanel::DesignPanel(wxWindow* parent)
     }
     root->Add(m_box_thread, 0, wxEXPAND);
 
+    // --- Docked value-entry card (Onshape Button->Dialog->Confirm for dimensions) ---
+    m_box_value = new wxBoxSizer(wxVERTICAL);
+    {
+        auto* vrow = new wxBoxSizer(wxHORIZONTAL);
+        m_value_label = new wxStaticText(m_form, wxID_ANY, _L("Value"));
+        m_value_input = make_spin(m_form, 1.0, -100000.0, 100000.0);
+        vrow->Add(m_value_label, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+        vrow->Add(m_value_input, 0, wxALIGN_CENTER_VERTICAL);
+        m_box_value->Add(vrow, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_value(); });
+        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_value(); });
+        row->Add(ok, 0, wxRIGHT, 8);
+        row->Add(no, 0);
+        m_box_value->Add(row, 0, wxALL, 12);
+    }
+    root->Add(m_box_value, 0, wxEXPAND);
+
     root->Add(new wxStaticText(m_form, wxID_ANY, _L("Feature tree")), 0, wxLEFT | wxTOP, 12);
-    m_tree = new wxListBox(m_form, wxID_ANY, wxDefaultPosition, wxSize(-1, 140));
+    m_tree = new wxTreeCtrl(m_form, wxID_ANY, wxDefaultPosition, wxSize(-1, 140),
+                            wxTR_HIDE_ROOT | wxTR_SINGLE | wxTR_NO_LINES |
+                            wxTR_FULL_ROW_HIGHLIGHT | wxBORDER_SIMPLE);
+    // Per-feature-type icons (indices match tree_icon_for): sketch/extrude/dressup/hole/thread.
+    m_tree_images = new wxImageList(16, 16);
+    m_tree_images->Add(create_scaled_bitmap("design_sketch",  nullptr, 16)); // 0 Sketch
+    m_tree_images->Add(create_scaled_bitmap("design_extrude", nullptr, 16)); // 1 Extrude
+    m_tree_images->Add(create_scaled_bitmap("design_dressup", nullptr, 16)); // 2 Fillet/Chamfer
+    m_tree_images->Add(create_scaled_bitmap("design_hole",    nullptr, 16)); // 3 Hole
+    m_tree_images->Add(create_scaled_bitmap("design_thread",  nullptr, 16)); // 4 Thread
+    m_tree->AssignImageList(m_tree_images);
     root->Add(m_tree, 0, wxEXPAND | wxALL, 12);
 
     // Feature-tree edit row: act on the selected feature (delete / reorder).
     {
         auto* trow = new wxBoxSizer(wxHORIZONTAL);
-        auto* edit = new wxButton(m_form, wxID_ANY, _L("Edit"));
+        auto edit_btn = [this](const char* icon, const wxString& tip) {
+            auto* b = new ScalableButton(m_form, wxID_ANY, icon, "", wxSize(30, 30),
+                                         wxDefaultPosition, wxBU_EXACTFIT | wxBORDER_NONE, false, 20);
+            b->SetToolTip(tip);
+            return b;
+        };
+        auto* edit = edit_btn("design_edit", _L("Edit"));
         edit->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_edit_feature(); });
-        auto* del  = new wxButton(m_form, wxID_ANY, _L("Delete"));
+        auto* del  = edit_btn("design_delete", _L("Delete"));
         del->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_delete_feature(); });
-        auto* up   = new wxButton(m_form, wxID_ANY, _L("↑"), wxDefaultPosition, wxSize(40, -1));
+        auto* up   = edit_btn("design_moveup", _L("Move up"));
         up->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_move_feature(-1); });
-        auto* down = new wxButton(m_form, wxID_ANY, _L("↓"), wxDefaultPosition, wxSize(40, -1));
+        auto* down = edit_btn("design_movedown", _L("Move down"));
         down->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_move_feature(+1); });
-        trow->Add(edit, 0, wxRIGHT, 8);
-        trow->Add(del, 0, wxRIGHT, 8);
-        trow->Add(up,  0, wxRIGHT, 4);
+        trow->Add(edit, 0, wxRIGHT, 4);
+        trow->Add(del,  0, wxRIGHT, 4);
+        trow->Add(up,   0, wxRIGHT, 4);
         trow->Add(down, 0);
         root->Add(trow, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
     }
@@ -529,6 +589,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     root->Show(m_box_dressup, false, true);
     root->Show(m_box_hole,    false, true);
     root->Show(m_box_thread,  false, true);
+    root->Show(m_box_value,   false, true);
 
     m_form->FitInside();
     m_form->SetScrollRate(10, 10);
@@ -722,11 +783,44 @@ void DesignPanel::on_add_thread()
     refresh_tree();
 }
 
+int DesignPanel::tree_icon_for(CadFeatureType t)
+{
+    switch (t) {
+    case CadFeatureType::Sketch:  return 0;
+    case CadFeatureType::Extrude: return 1;
+    case CadFeatureType::Fillet:
+    case CadFeatureType::Chamfer: return 2;
+    case CadFeatureType::Hole:    return 3;
+    case CadFeatureType::Thread:  return 4;
+    }
+    return 0;
+}
+
 void DesignPanel::refresh_tree()
 {
-    m_tree->Clear();
-    for (const auto& f : m_doc.features)
-        m_tree->Append(wxString::FromUTF8(f.name));
+    m_tree->DeleteAllItems();
+    m_tree_items.clear();
+    wxTreeItemId root = m_tree->AddRoot("root");
+    for (const auto& f : m_doc.features) {
+        const int img = tree_icon_for(f.type);
+        m_tree_items.push_back(
+            m_tree->AppendItem(root, wxString::FromUTF8(f.name), img, img));
+    }
+}
+
+int DesignPanel::tree_selection() const
+{
+    const wxTreeItemId sel = m_tree->GetSelection();
+    if (!sel.IsOk()) return wxNOT_FOUND;
+    for (size_t i = 0; i < m_tree_items.size(); ++i)
+        if (m_tree_items[i] == sel) return int(i);
+    return wxNOT_FOUND;
+}
+
+void DesignPanel::set_tree_selection(int row)
+{
+    if (row >= 0 && row < int(m_tree_items.size()))
+        m_tree->SelectItem(m_tree_items[row]);
 }
 
 void DesignPanel::after_tree_edit(bool ok)
@@ -751,7 +845,7 @@ void DesignPanel::after_tree_edit(bool ok)
 
 void DesignPanel::on_delete_feature()
 {
-    int sel = m_tree->GetSelection();
+    int sel = tree_selection();
     if (sel == wxNOT_FOUND) {
         m_status->SetLabel(_L("Select a feature in the tree first"));
         m_status->Refresh();
@@ -762,7 +856,7 @@ void DesignPanel::on_delete_feature()
 
 void DesignPanel::on_move_feature(int delta)
 {
-    int sel = m_tree->GetSelection();
+    int sel = tree_selection();
     if (sel == wxNOT_FOUND) {
         m_status->SetLabel(_L("Select a feature in the tree first"));
         m_status->Refresh();
@@ -773,7 +867,7 @@ void DesignPanel::on_move_feature(int delta)
         return; // already at the end
     if (m_doc.move_feature(sel, delta)) {
         after_tree_edit(true);
-        m_tree->SetSelection(target); // keep the moved feature selected
+        set_tree_selection(target); // keep the moved feature selected
     } else {
         after_tree_edit(false);
     }
@@ -781,7 +875,7 @@ void DesignPanel::on_move_feature(int delta)
 
 void DesignPanel::on_begin_constrain()
 {
-    int sel = m_tree->GetSelection();
+    int sel = tree_selection();
     if (sel == wxNOT_FOUND || sel >= int(m_doc.features.size())) {
         m_status->SetForegroundColour(wxColour(235, 110, 110));
         m_status->SetLabel(_L("Select a sketch in the tree first"));
@@ -836,15 +930,6 @@ void DesignPanel::apply_entity_constraint(SketchConstraintType type)
         m_status->SetForegroundColour(wxColour(235, 110, 110));
         m_status->SetLabel(msg);
         m_status->Refresh();
-    };
-    // Onshape-style dimension entry: Button -> dialog -> confirm. Returns false on cancel.
-    auto prompt_dimension = [this](const wxString& label, double& value) -> bool {
-        const wxString preset = wxString::Format(wxT("%g"), value);
-        const wxString s = wxGetTextFromUser(label, _L("Dimension"), preset, this);
-        double parsed = 0.0;
-        if (s.empty() || !s.ToDouble(&parsed)) return false;   // cancelled / invalid
-        value = parsed;
-        return true;
     };
 
     CadFeature& feat = m_doc.features[m_constrain_feat];
@@ -909,12 +994,15 @@ void DesignPanel::apply_entity_constraint(SketchConstraintType type)
         break;
     }
     case T::Angle: {
-        // Angle between two line segments; value entered in degrees.
-        double deg = 90.0;
-        if (!prompt_dimension(_L("Angle (degrees)"), deg)) return;
-        def.ea = e0; def.eb = e1;
-        def.value = deg * M_PI / 180.0;
-        break;
+        // Angle between two line segments; value entered (degrees) in the docked card.
+        const int a = e0, b = e1;
+        request_value(_L("Angle (degrees)"), 90.0, 0.0, 360.0, [this, a, b](double deg) {
+            SketchEntityConstraintDef d;
+            d.type = T::Angle; d.ea = a; d.eb = b;
+            d.value = deg * M_PI / 180.0;
+            commit_entity_constraint(d);
+        });
+        return;   // deferred: commit runs on Confirm
     }
     case T::Midpoint: {
         // One pick is a Point, the other a Line: the point is the line's midpoint.
@@ -931,17 +1019,29 @@ void DesignPanel::apply_entity_constraint(SketchConstraintType type)
     case T::Diameter: {
         const SketchEntity& A = feat.entities[e0];
         if (!is_round(A)) { fail(_L("Radius/Diameter needs a circle or arc")); return; }
-        double v = (type == T::Diameter) ? 2.0 * A.radius : A.radius;
-        if (!prompt_dimension(type == T::Diameter ? _L("Diameter") : _L("Radius"), v)) return;
-        if (v <= 0.0) { fail(_L("Dimension must be positive")); return; }
-        def.ea = e0; def.ra = R::Center; def.value = v;
-        break;
+        const double cur = (type == T::Diameter) ? 2.0 * A.radius : A.radius;
+        const int a = e0; const T tt = type;
+        request_value(tt == T::Diameter ? _L("Diameter") : _L("Radius"), cur, 0.001, 100000.0,
+            [this, a, tt](double v) {
+                SketchEntityConstraintDef d;
+                d.type = tt; d.ea = a; d.ra = R::Center; d.value = v;
+                commit_entity_constraint(d);
+            });
+        return;   // deferred: commit runs on Confirm
     }
     default:
         fail(_L("Unsupported constraint"));
         return;
     }
 
+    commit_entity_constraint(def);
+}
+
+void DesignPanel::commit_entity_constraint(const SketchEntityConstraintDef& def)
+{
+    if (m_constrain_feat < 0 || m_constrain_feat >= int(m_doc.features.size()) || !m_viewport)
+        return;
+    CadFeature& feat = m_doc.features[m_constrain_feat];
     // solve_sketch_feature rewrites entity coords even on failure, so snapshot
     // to roll back a rejected (over-constrained) addition cleanly.
     const std::vector<SketchEntity> saved = feat.entities;
@@ -977,15 +1077,6 @@ void DesignPanel::apply_edit_op(EditOp op)
         m_status->SetLabel(msg);
         m_status->Refresh();
     };
-    // Onshape-style value entry: Button -> dialog -> confirm. Returns false on cancel.
-    auto prompt_value = [this](const wxString& label, double& value) -> bool {
-        const wxString preset = wxString::Format(wxT("%g"), value);
-        const wxString s = wxGetTextFromUser(label, _L("Value"), preset, this);
-        double parsed = 0.0;
-        if (s.empty() || !s.ToDouble(&parsed)) return false;
-        value = parsed;
-        return true;
-    };
 
     int e0 = -1, e1 = -1;
     m_viewport->selected_constrain_entities(e0, e1);
@@ -1005,29 +1096,42 @@ void DesignPanel::apply_edit_op(EditOp op)
         break;
     }
     case EditOp::Offset: {
-        double d = 1.0;
-        if (!prompt_value(_L("Offset distance (+left / -right of direction)"), d)) return;
-        auto out = SketchEngine::offset_entities({ feat.entities[e0] }, d);
-        if (out.empty()) { fail(_L("Offset collapsed the entity")); return; }
-        for (auto& o : out) feat.entities.push_back(o);
-        break;
+        const int a = e0;
+        request_value(_L("Offset distance (+left / -right of direction)"), 1.0, -100000.0, 100000.0,
+            [this, a](double d) {
+                CadFeature& f = m_doc.features[m_constrain_feat];
+                if (a >= int(f.entities.size())) return;
+                auto out = SketchEngine::offset_entities({ f.entities[a] }, d);
+                if (out.empty()) {
+                    m_status->SetForegroundColour(wxColour(235, 110, 110));
+                    m_status->SetLabel(_L("Offset collapsed the entity")); m_status->Refresh(); return;
+                }
+                for (auto& o : out) f.entities.push_back(o);
+                after_edit_op();
+            });
+        return;   // deferred: edit runs on Confirm
     }
     case EditOp::Fillet: {
         if (e1 < 0 || e1 >= n) { fail(_L("Pick two lines to fillet")); return; }
         if (feat.entities[e0].type != Type::Line || feat.entities[e1].type != Type::Line) {
             fail(_L("Fillet needs two lines")); return;
         }
-        double r = 1.0;
-        if (!prompt_value(_L("Fillet radius"), r)) return;
-        if (r <= 0.0) { fail(_L("Radius must be positive")); return; }
-        SketchEntity a_out, b_out, arc_out;
-        if (!SketchEngine::fillet_lines(feat.entities[e0], feat.entities[e1], r, a_out, b_out, arc_out)) {
-            fail(_L("Fillet failed (parallel lines or radius too large)")); return;
-        }
-        feat.entities[e0] = a_out;
-        feat.entities[e1] = b_out;
-        feat.entities.push_back(arc_out);
-        break;
+        const int a = e0, b = e1;
+        request_value(_L("Fillet radius"), 1.0, 0.001, 100000.0, [this, a, b](double r) {
+            CadFeature& f = m_doc.features[m_constrain_feat];
+            if (a >= int(f.entities.size()) || b >= int(f.entities.size())) return;
+            SketchEntity a_out, b_out, arc_out;
+            if (!SketchEngine::fillet_lines(f.entities[a], f.entities[b], r, a_out, b_out, arc_out)) {
+                m_status->SetForegroundColour(wxColour(235, 110, 110));
+                m_status->SetLabel(_L("Fillet failed (parallel lines or radius too large)"));
+                m_status->Refresh(); return;
+            }
+            f.entities[a] = a_out;
+            f.entities[b] = b_out;
+            f.entities.push_back(arc_out);
+            after_edit_op();
+        });
+        return;   // deferred: edit runs on Confirm
     }
     case EditOp::Trim:
     case EditOp::Extend: {
@@ -1047,6 +1151,13 @@ void DesignPanel::apply_edit_op(EditOp op)
     }
     }
 
+    after_edit_op();
+}
+
+void DesignPanel::after_edit_op()
+{
+    if (m_constrain_feat < 0 || m_constrain_feat >= int(m_doc.features.size()) || !m_viewport)
+        return;
     m_doc.recompute();
     m_viewport->update_constrain_entities(m_doc.features[m_constrain_feat].entities);
     if (!m_doc.display_mesh.its.indices.empty())
@@ -1054,6 +1165,49 @@ void DesignPanel::apply_edit_op(EditOp op)
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(_L("Applied edit"));
     m_status->Refresh();
+}
+
+void DesignPanel::request_value(const wxString& label, double def, double mn, double mx,
+                                std::function<void(double)> cont)
+{
+    m_value_cont = std::move(cont);
+    m_value_label->SetLabel(label);
+    m_value_input->SetRange(mn, mx);
+    m_value_input->SetValue(def);
+    m_form->GetSizer()->Show(m_box_value, true, true);
+    m_form->Layout();
+    m_form->FitInside();
+    m_value_input->SetFocus();
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(label + _L(" — enter a value and Confirm"));
+    m_status->Refresh();
+}
+
+void DesignPanel::confirm_value()
+{
+    if (!m_value_cont) { cancel_value(); return; }
+    const double v = m_value_input->GetValue();
+    auto cont = m_value_cont;            // copy, then clear before running so a
+    m_value_cont = nullptr;              // re-entrant request_value can re-arm cleanly
+    m_form->GetSizer()->Show(m_box_value, false, true);
+    m_form->Layout();
+    m_form->FitInside();
+    cont(v);                            // run the deferred constraint / edit-op apply
+}
+
+void DesignPanel::cancel_value()
+{
+    const bool was_open = (m_value_cont != nullptr);
+    m_value_cont = nullptr;
+    if (m_box_value)
+        m_form->GetSizer()->Show(m_box_value, false, true);
+    m_form->Layout();
+    m_form->FitInside();
+    if (was_open) {
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(wxString());
+        m_status->Refresh();
+    }
 }
 
 void DesignPanel::apply_constraint(SketchConstraintType type)
@@ -1115,7 +1269,7 @@ void DesignPanel::reset_edit_state()
 
 int DesignPanel::resolve_extrude_sketch() const
 {
-    int sel = m_tree->GetSelection();
+    int sel = tree_selection();
     if (sel != wxNOT_FOUND && sel < int(m_doc.features.size()) &&
         m_doc.features[sel].type == CadFeatureType::Sketch)
         return sel;
@@ -1171,7 +1325,7 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
 
 void DesignPanel::on_edit_feature()
 {
-    int sel = m_tree->GetSelection();
+    int sel = tree_selection();
     if (sel == wxNOT_FOUND) {
         m_status->SetLabel(_L("Select a feature in the tree first"));
         m_status->Refresh();

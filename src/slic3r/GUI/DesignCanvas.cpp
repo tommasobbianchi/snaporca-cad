@@ -244,6 +244,14 @@ void DesignCanvas::begin_constrain(const SketchProfile& prof, const SketchPlane&
     if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
 }
 
+void DesignCanvas::end_constrain()
+{
+    // cancel() clears m_active + the picked-segment/entity indices, so the
+    // constrain overlay (highlighted picks) disappears on the next render.
+    m_sketch_tool.cancel();
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
 bool DesignCanvas::is_constraining() const { return m_sketch_tool.is_constraining(); }
 
 bool DesignCanvas::selected_segment(int& a, int& b) const
