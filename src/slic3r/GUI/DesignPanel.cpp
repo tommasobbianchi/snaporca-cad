@@ -11,6 +11,7 @@
 #include <wx/treectrl.h>
 #include <wx/imaglist.h>
 #include <wx/statline.h>
+#include <wx/statbmp.h>
 #include <wx/font.h>
 
 #include <string>
@@ -287,6 +288,21 @@ DesignPanel::DesignPanel(wxWindow* parent)
     tbrow->AddStretchSpacer();
     m_toolbar->SetSizer(tbrow);
 
+    // Onshape-style dialog-card header: feature icon + bold title. out receives
+    // the title control so open_tool() can retitle it per feature.
+    auto card_header = [this](const char* icon, const wxString& title, wxStaticText*& out) -> wxSizer* {
+        auto* h  = new wxBoxSizer(wxHORIZONTAL);
+        auto* ic = new wxStaticBitmap(m_form, wxID_ANY, create_scaled_bitmap(icon, m_form, 18));
+        out = new wxStaticText(m_form, wxID_ANY, title);
+        wxFont f = out->GetFont();
+        f.SetPointSize(f.GetPointSize() + 1);
+        f.SetWeight(wxFONTWEIGHT_BOLD);
+        out->SetFont(f);
+        h->Add(ic,  0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+        h->Add(out, 0, wxALIGN_CENTER_VERTICAL);
+        return h;
+    };
+
     // --- Sketch dialog (shape definition only — no distance/mode) ---
     auto* form = new wxFlexGridSizer(2, 6, 8);
 
@@ -318,6 +334,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
     form->Add(m_radius);
 
     m_box_sketch = new wxBoxSizer(wxVERTICAL);
+    m_box_sketch->Add(card_header("design_sketch", _L("Sketch"), m_hdr_sketch), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_sketch->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
     m_box_sketch->Add(form, 0, wxALL, 12);
     {
         auto* row = new wxBoxSizer(wxHORIZONTAL);
@@ -334,6 +352,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
 
     // --- Extrude dialog (consumes the selected sketch) ---
     m_box_extrude = new wxBoxSizer(wxVERTICAL);
+    m_box_extrude->Add(card_header("design_extrude", _L("Extrude"), m_hdr_extrude), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_extrude->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
     m_extrude_sketch_label = new wxStaticText(m_form, wxID_ANY, _L("Sketch: —"));
     m_box_extrude->Add(m_extrude_sketch_label, 0, wxLEFT | wxRIGHT | wxTOP, 12);
     {
@@ -390,6 +410,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
     dform->Add(m_dressup_size);
 
     m_box_dressup = new wxBoxSizer(wxVERTICAL);
+    m_box_dressup->Add(card_header("design_dressup", _L("Fillet / Chamfer"), m_hdr_dressup), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_dressup->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
     m_box_dressup->Add(dform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
     {
         auto* row = new wxBoxSizer(wxHORIZONTAL);
@@ -437,6 +459,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
     hform->Add(m_hole_through);
 
     m_box_hole = new wxBoxSizer(wxVERTICAL);
+    m_box_hole->Add(card_header("design_hole", _L("Hole"), m_hdr_hole), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_hole->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
     m_box_hole->Add(hform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
     {
         auto* row = new wxBoxSizer(wxHORIZONTAL);
@@ -492,6 +516,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
     tform->Add(m_thread_internal);
 
     m_box_thread = new wxBoxSizer(wxVERTICAL);
+    m_box_thread->Add(card_header("design_thread", _L("Thread"), m_hdr_thread), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_thread->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
     m_box_thread->Add(tform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
     {
         auto* row = new wxBoxSizer(wxHORIZONTAL);
@@ -509,10 +535,12 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // --- Docked value-entry card (Onshape Button->Dialog->Confirm for dimensions) ---
     m_box_value = new wxBoxSizer(wxVERTICAL);
     {
+        // Header title doubles as the operation label (set by request_value()).
+        m_box_value->Add(card_header("design_constrain", _L("Value"), m_value_label), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+        m_box_value->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
         auto* vrow = new wxBoxSizer(wxHORIZONTAL);
-        m_value_label = new wxStaticText(m_form, wxID_ANY, _L("Value"));
         m_value_input = make_spin(m_form, 1.0, -100000.0, 100000.0);
-        vrow->Add(m_value_label, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+        vrow->Add(new wxStaticText(m_form, wxID_ANY, _L("Value")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
         vrow->Add(m_value_input, 0, wxALIGN_CENTER_VERTICAL);
         m_box_value->Add(vrow, 0, wxLEFT | wxRIGHT | wxTOP, 12);
 
@@ -1495,6 +1523,23 @@ void DesignPanel::open_tool(Tool t)
         if (m_extrude_sketch_ref >= 0 && m_extrude_sketch_ref < int(m_doc.features.size()))
             m_extrude_sketch_label->SetLabel(_L("Sketch: ") +
                 wxString::FromUTF8(m_doc.features[m_extrude_sketch_ref].name));
+    }
+
+    // Retitle the active card's header: edit-mode shows the feature's real name,
+    // add-mode previews the type + next feature number (Onshape "Extrude 1").
+    const bool editing = (m_edit_index >= 0 && m_edit_index < int(m_doc.features.size()));
+    auto title = [&](const wxString& base) -> wxString {
+        return editing ? wxString::FromUTF8(m_doc.features[m_edit_index].name)
+                       : base + wxString::Format(" %d", m_feature_counter + 1);
+    };
+    switch (t) {
+    case Tool::Sketch:  m_hdr_sketch->SetLabel(title(_L("Sketch")));   break;
+    case Tool::Extrude: m_hdr_extrude->SetLabel(title(_L("Extrude"))); break;
+    case Tool::Dressup: m_hdr_dressup->SetLabel(title(
+                            m_dressup_type->GetSelection() == 0 ? _L("Fillet") : _L("Chamfer"))); break;
+    case Tool::Hole:    m_hdr_hole->SetLabel(title(_L("Hole")));       break;
+    case Tool::Thread:  m_hdr_thread->SetLabel(title(_L("Thread")));   break;
+    case Tool::None:    break;
     }
 
     m_form->Layout();

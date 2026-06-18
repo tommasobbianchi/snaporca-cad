@@ -97,6 +97,14 @@ private:
     wxSizer*  m_box_hole{nullptr};
     wxSizer*  m_box_thread{nullptr};
 
+    // Onshape-style dialog-card title rows (icon + bold feature name), retitled
+    // per tool in open_tool() (edit-mode shows the feature's actual name).
+    wxStaticText* m_hdr_sketch{nullptr};
+    wxStaticText* m_hdr_extrude{nullptr};
+    wxStaticText* m_hdr_dressup{nullptr};
+    wxStaticText* m_hdr_hole{nullptr};
+    wxStaticText* m_hdr_thread{nullptr};
+
     wxScrolledWindow* m_form{nullptr};
     DesignCanvas*     m_viewport{nullptr};
 
