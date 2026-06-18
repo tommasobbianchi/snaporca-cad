@@ -75,6 +75,14 @@ public:
     void delete_selected();                         // erase selected entities
     std::function<void(int count)> on_selection_changed;
 
+    // Dimension tool: infer a driving dimension from the current selection and set
+    // it exactly. 1 line=Length, 1 circle=Diameter, 1 arc=Radius, 2 lines=Angle,
+    // 2 points=Distance.
+    enum class DimType { None, Length, Diameter, Radius, Angle, Distance };
+    DimType dimension_kind() const;     // what the selection supports (None if invalid)
+    double  dimension_current() const;  // current value, to pre-fill the dialog
+    void    apply_dimension(double v);  // set it exactly, then clear the selection
+
     // Emitted by finish() with the accumulated entities (Onshape multi-entity path).
     std::function<void(const std::vector<SketchEntity>&, const SketchPlane&)> on_commit_entities;
     // Legacy single-profile commit (kept for compatibility; unused by entity tools).
@@ -92,6 +100,8 @@ private:
     // Selection helpers (Mode::Select).
     int hit_test(const Vec2d& p, double tol) const;       // nearest entity within tol, or -1
     std::vector<int> connected_loop(int seed) const;      // entities joined by shared endpoints
+    void apply_angle_between(int ia, int ib, double deg); // rotate line B to set the A^B angle
+    bool selection_valid() const;                         // all selection indices in range
 
     // Entity builders: append to m_entities (honoring the construction flag).
     void push_line(const Vec2d& a, const Vec2d& b);

@@ -275,6 +275,22 @@ void DesignCanvas::clear_sketch_selection()
     if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
 }
 
+DesignSketchTool::DimType DesignCanvas::sketch_dimension_kind() const
+{
+    return m_sketch_tool.dimension_kind();
+}
+
+double DesignCanvas::sketch_dimension_current() const
+{
+    return m_sketch_tool.dimension_current();
+}
+
+void DesignCanvas::apply_sketch_dimension(double v)
+{
+    m_sketch_tool.apply_dimension(v);
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
 void DesignCanvas::begin_constrain(const SketchProfile& prof, const SketchPlane& plane)
 {
     m_sketch_tool.begin_constrain(prof, plane);

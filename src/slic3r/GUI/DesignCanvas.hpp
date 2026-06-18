@@ -58,6 +58,11 @@ public:
     void delete_selected_sketch_entities();
     void clear_sketch_selection();
 
+    // Dimension tool: act on the current sketch selection.
+    DesignSketchTool::DimType sketch_dimension_kind() const;
+    double sketch_dimension_current() const;
+    void   apply_sketch_dimension(double v);
+
     // Constrain mode: load a committed profile for picking + constraint editing.
     void begin_constrain(const SketchProfile& prof, const SketchPlane& plane);
     // Leave constrain mode and clear any picked-entity highlight from the overlay.

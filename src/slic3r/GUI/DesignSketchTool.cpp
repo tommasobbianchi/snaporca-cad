@@ -71,6 +71,125 @@ void DesignSketchTool::delete_selected()
     if (on_selection_changed) on_selection_changed(0);
 }
 
+bool DesignSketchTool::selection_valid() const
+{
+    for (int i : m_selection)
+        if (i < 0 || i >= int(m_entities.size())) return false;
+    return true;
+}
+
+DesignSketchTool::DimType DesignSketchTool::dimension_kind() const
+{
+    if (!selection_valid()) return DimType::None;
+    if (m_selection.size() == 1) {
+        switch (m_entities[m_selection[0]].type) {
+        case SketchEntity::Type::Line:   return DimType::Length;
+        case SketchEntity::Type::Circle: return DimType::Diameter;
+        case SketchEntity::Type::Arc:    return DimType::Radius;
+        default: return DimType::None;
+        }
+    }
+    if (m_selection.size() == 2) {
+        const auto ta = m_entities[m_selection[0]].type;
+        const auto tb = m_entities[m_selection[1]].type;
+        if (ta == SketchEntity::Type::Line  && tb == SketchEntity::Type::Line)  return DimType::Angle;
+        if (ta == SketchEntity::Type::Point && tb == SketchEntity::Type::Point) return DimType::Distance;
+    }
+    return DimType::None;
+}
+
+double DesignSketchTool::dimension_current() const
+{
+    switch (dimension_kind()) {
+    case DimType::Length:   { const auto& e = m_entities[m_selection[0]]; return (e.p1 - e.p0).norm(); }
+    case DimType::Diameter: return 2.0 * m_entities[m_selection[0]].radius;
+    case DimType::Radius:   return m_entities[m_selection[0]].radius;
+    case DimType::Angle: {
+        const auto& a = m_entities[m_selection[0]];
+        const auto& b = m_entities[m_selection[1]];
+        const Vec2d da = a.p1 - a.p0, db = b.p1 - b.p0;
+        const double na = da.norm(), nb = db.norm();
+        if (na < 1e-9 || nb < 1e-9) return 0.0;
+        const double c = std::max(-1.0, std::min(1.0, da.dot(db) / (na * nb)));
+        return std::acos(c) * 180.0 / M_PI;
+    }
+    case DimType::Distance: {
+        const auto& a = m_entities[m_selection[0]];
+        const auto& b = m_entities[m_selection[1]];
+        return (b.p0 - a.p0).norm();
+    }
+    default: return 0.0;
+    }
+}
+
+void DesignSketchTool::apply_angle_between(int ia, int ib, double deg)
+{
+    SketchEntity& A = m_entities[ia];
+    SketchEntity& B = m_entities[ib];
+    const Vec2d aE[2] = { A.p0, A.p1 };
+    const Vec2d bE[2] = { B.p0, B.p1 };
+    int si = -1, sj = -1;
+    double best = 1e-6;
+    for (int i = 0; i < 2; ++i)
+        for (int j = 0; j < 2; ++j) {
+            const double d = (aE[i] - bE[j]).squaredNorm();
+            if (d < best) { best = d; si = i; sj = j; }
+        }
+    Vec2d pivot, refDir, bMoving;
+    bool moveP1;
+    if (si >= 0) {                       // shared vertex: pivot there, A's arm is the reference
+        pivot   = aE[si];
+        refDir  = aE[1 - si] - pivot;
+        moveP1  = (sj == 0);             // move the B end that is NOT at the pivot
+        bMoving = moveP1 ? B.p1 : B.p0;
+    } else {                             // no shared vertex: pivot B.p0, A's direction is reference
+        pivot   = B.p0;
+        refDir  = A.p1 - A.p0;
+        moveP1  = true;
+        bMoving = B.p1;
+    }
+    double nr = refDir.norm();
+    if (nr < 1e-9) return;
+    refDir /= nr;
+    const Vec2d db = bMoving - pivot;
+    const double Lb = db.norm();
+    if (Lb < 1e-9) return;
+    const double cross = refDir.x() * db.y() - refDir.y() * db.x();
+    const double sign  = (cross >= 0.0) ? 1.0 : -1.0;   // keep B on its current side
+    const double rad   = sign * deg * M_PI / 180.0;
+    const Vec2d ndir(refDir.x() * std::cos(rad) - refDir.y() * std::sin(rad),
+                     refDir.x() * std::sin(rad) + refDir.y() * std::cos(rad));
+    const Vec2d nb = pivot + Lb * ndir;
+    if (moveP1) B.p1 = nb; else B.p0 = nb;
+}
+
+void DesignSketchTool::apply_dimension(double v)
+{
+    switch (dimension_kind()) {
+    case DimType::Length: {
+        SketchEntity& e = m_entities[m_selection[0]];
+        const Vec2d d = e.p1 - e.p0;
+        const double r = d.norm();
+        if (r > 1e-9 && v > 1e-9) e.p1 = e.p0 + (v / r) * d;
+        break;
+    }
+    case DimType::Diameter: if (v > 1e-9) m_entities[m_selection[0]].radius = 0.5 * v; break;
+    case DimType::Radius:   if (v > 1e-9) m_entities[m_selection[0]].radius = v;       break;
+    case DimType::Angle:    apply_angle_between(m_selection[0], m_selection[1], v);     break;
+    case DimType::Distance: {
+        const SketchEntity& a = m_entities[m_selection[0]];
+        SketchEntity& b = m_entities[m_selection[1]];
+        const Vec2d d = b.p0 - a.p0;
+        const double r = d.norm();
+        if (r > 1e-9 && v > 1e-9) b.p0 = a.p0 + (v / r) * d;
+        break;
+    }
+    default: break;
+    }
+    m_selection.clear();
+    if (on_selection_changed) on_selection_changed(0);
+}
+
 void DesignSketchTool::apply_segment_length(double len)
 {
     if (m_points.size() == 2 && len > 1e-9) {
