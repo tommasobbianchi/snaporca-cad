@@ -108,6 +108,37 @@ bool DesignSketchTool::near_first(const Vec2d& p) const
     return m_points.size() >= 3 && (p - m_points[0]).squaredNorm() < 4.0;
 }
 
+Vec2d DesignSketchTool::snap_dir(const Vec2d& anchor, const Vec2d& raw, bool& locked) const
+{
+    locked = false;
+    if (m_snap_off) return raw;
+
+    const Vec2d d = raw - anchor;
+    const double r = d.norm();
+    if (r < 1e-9) return raw;
+
+    const double tol_deg = 5.0;                 // inference half-window
+    double ang = std::atan2(d.y(), d.x()) * 180.0 / M_PI;  // (-180,180]
+    if (ang < 0.0) ang += 360.0;                            // [0,360)
+
+    // Base angles within one quadrant, replicated every 90 deg up to 360.
+    static const double base[] = {0.0, 30.0, 45.0, 60.0};
+    double best_cand = ang, best_diff = 1e30;
+    for (int q = 0; q < 4; ++q) {
+        for (double b : base) {
+            const double cand = b + 90.0 * q;
+            double diff = std::abs(ang - cand);
+            if (diff > 180.0) diff = 360.0 - diff;
+            if (diff < best_diff) { best_diff = diff; best_cand = cand; }
+        }
+    }
+    if (best_diff > tol_deg) return raw;
+
+    locked = true;
+    const double rad = best_cand * M_PI / 180.0;
+    return anchor + r * Vec2d(std::cos(rad), std::sin(rad));
+}
+
 static std::vector<Vec2d> circle_polygon(const Vec2d& c, double r, int n = 48)
 {
     std::vector<Vec2d> v; v.reserve(n);
@@ -517,6 +548,12 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
             pts.push_back(m_cursor);
         draw_quad_strip(m_highlight_model, pts, false, preview);
         draw_vertices(m_vertex_model, m_points, yellow);
+        // Teal rubber-band = the new segment is locked to an inference angle.
+        if (m_cursor_locked && m_has_cursor && !m_points.empty()) {
+            const ColorRGBA lock(0.10f, 0.85f, 0.80f, 1.0f);
+            std::vector<Vec2d> seg = { m_points.back(), m_cursor };
+            draw_quad_strip(m_line_model, seg, false, lock);
+        }
         break;
     }
 
@@ -690,8 +727,12 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     }
 
     if (evt.Moving()) {
+        m_snap_off = evt.ShiftDown();
         screen_to_plane(canvas, evt, m_cursor);
         m_has_cursor = true;
+        m_cursor_locked = false;
+        if (m_mode == Mode::Polyline && !m_points.empty())
+            m_cursor = snap_dir(m_points.back(), m_cursor, m_cursor_locked);
         return true;
     }
 
@@ -701,10 +742,15 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
         if (evt.LeftDown()) {
             Vec2d p;
             screen_to_plane(canvas, evt, p);
-            if (near_first(p)) {
+            m_snap_off = evt.ShiftDown();
+            if (near_first(p)) {              // closure tests the raw (un-snapped) point
                 push_closed_lines(m_points);  // close the loop
                 m_points.clear();
                 return true;
+            }
+            if (!m_points.empty()) {
+                bool lk = false;
+                p = snap_dir(m_points.back(), p, lk);  // lock new segment to inference angle
             }
             m_points.push_back(p);
             return true;

@@ -67,6 +67,11 @@ private:
     bool screen_to_plane(GLCanvas3D& canvas, const wxMouseEvent& evt, Vec2d& out) const;
     bool near_first(const Vec2d& p) const;
 
+    // Onshape-style angle inference: snap the direction anchor->raw to the nearest
+    // of {0,30,45,60,90} deg (replicated every 90 deg) when within tolerance, keeping
+    // the same length. Sets `locked` when a snap was applied. Suppressed by m_snap_off.
+    Vec2d snap_dir(const Vec2d& anchor, const Vec2d& raw, bool& locked) const;
+
     // Entity builders: append to m_entities (honoring the construction flag).
     void push_line(const Vec2d& a, const Vec2d& b);
     void push_closed_lines(const std::vector<Vec2d>& corners);
@@ -98,6 +103,8 @@ private:
     int                 m_polygon_sides{6};
     Vec2d               m_cursor{0,0};
     bool                m_has_cursor{false};
+    bool                m_snap_off{false};      // Shift held -> suppress angle snapping
+    bool                m_cursor_locked{false}; // rubber-band segment is angle-locked
     Mode                m_mode{Mode::Polyline};
     int                 m_sel_a{-1};   // picked segment endpoints (legacy Constrain mode)
     int                 m_sel_b{-1};
