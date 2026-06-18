@@ -180,11 +180,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
     auto sadd = [this](wxWindow* w) { m_tb_sketch->Add(w, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 2); };
     m_tb_sketch->Add(caption(_L("SKETCH")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
     {
-        m_draw_plane = new wxChoice(m_toolbar, wxID_ANY);
-        m_draw_plane->Append("XY"); m_draw_plane->Append("XZ"); m_draw_plane->Append("YZ");
-        m_draw_plane->SetSelection(0);
-        sadd(m_draw_plane);
-        add_sep(m_tb_sketch);
+        // The plane/orientation choice lives in the docked Sketch card (Phase 3),
+        // not in the toolbar; the toolbar carries only the drawing tools.
         auto skbtn = [&](const char* icon, DesignSketchTool::Mode mode,
                          const wxString& tip, const wxString& hint) {
             auto* b = icon_btn(icon, tip);
@@ -594,6 +591,27 @@ DesignPanel::DesignPanel(wxWindow* parent)
     }
     root->Add(m_box_value, 0, wxEXPAND);
 
+    // --- Sketch-entry card (Phase 3): plane/orientation, opens on "New sketch",
+    //     persists until Finish. The toolbar holds only the drawing tools. ---
+    m_box_sketch_session = new wxBoxSizer(wxVERTICAL);
+    m_box_sketch_session->Add(card_header("design_sketch", _L("Sketch"), m_hdr_sketch_session),
+                              0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_sketch_session->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
+    {
+        auto* prow = new wxBoxSizer(wxHORIZONTAL);
+        prow->Add(new wxStaticText(m_form, wxID_ANY, _L("Plane")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+        m_draw_plane = new wxChoice(m_form, wxID_ANY);
+        m_draw_plane->Append("XY"); m_draw_plane->Append("XZ"); m_draw_plane->Append("YZ");
+        m_draw_plane->SetSelection(0);
+        prow->Add(m_draw_plane, 0, wxALIGN_CENTER_VERTICAL);
+        m_box_sketch_session->Add(prow, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+        auto* hint = new wxStaticText(m_form, wxID_ANY,
+            _L("Pick a plane, then draw. Finish (✓) when done."));
+        hint->SetForegroundColour(wxColour(0x90, 0x90, 0x90));
+        m_box_sketch_session->Add(hint, 0, wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, 12);
+    }
+    root->Add(m_box_sketch_session, 0, wxEXPAND);
+
     root->Add(new wxStaticText(m_form, wxID_ANY, _L("Feature tree")), 0, wxLEFT | wxTOP, 12);
     m_tree = new wxTreeCtrl(m_form, wxID_ANY, wxDefaultPosition, wxSize(-1, 140),
                             wxTR_HIDE_ROOT | wxTR_SINGLE | wxTR_NO_LINES |
@@ -657,6 +675,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     root->Show(m_box_hole,    false, true);
     root->Show(m_box_thread,  false, true);
     root->Show(m_box_value,   false, true);
+    root->Show(m_box_sketch_session, false, true);
 
     m_form->FitInside();
     m_form->SetScrollRate(10, 10);
@@ -766,6 +785,15 @@ void DesignPanel::set_ui_mode(UiMode m)
     s->Show(m_tb_sketch,    m == UiMode::Sketch,    true);
     s->Show(m_tb_constrain, m == UiMode::Constrain, true);
     m_toolbar->Layout();
+    // Phase 3: the docked Sketch card (plane/orientation) shows for the whole Sketch
+    // session and hides on Finish/Constrain.
+    if (m_box_sketch_session != nullptr && m_form != nullptr && m_form->GetSizer() != nullptr) {
+        if (m == UiMode::Sketch && m_hdr_sketch_session != nullptr)
+            m_hdr_sketch_session->SetLabel(wxString::Format(_L("Sketch %d"), m_feature_counter + 1));
+        m_form->GetSizer()->Show(m_box_sketch_session, m == UiMode::Sketch, true);
+        m_form->Layout();
+        m_form->FitInside();
+    }
 }
 
 void DesignPanel::on_shape_changed()

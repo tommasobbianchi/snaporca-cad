@@ -102,6 +102,10 @@ private:
     // Onshape-style dialog-card title rows (icon + bold feature name), retitled
     // per tool in open_tool() (edit-mode shows the feature's actual name).
     wxStaticText* m_hdr_sketch{nullptr};
+    // Onshape sketch-entry card (plane/orientation) that opens on "New sketch" and
+    // persists until Finish (Phase 3).
+    wxSizer*      m_box_sketch_session{nullptr};
+    wxStaticText* m_hdr_sketch_session{nullptr};
     wxStaticText* m_hdr_extrude{nullptr};
     wxStaticText* m_hdr_dressup{nullptr};
     wxStaticText* m_hdr_hole{nullptr};
