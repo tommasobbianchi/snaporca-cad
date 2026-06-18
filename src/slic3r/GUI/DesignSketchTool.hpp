@@ -138,9 +138,12 @@ private:
         double          value{0.0};
         double          side{1.0};   // perpendicular offset sign of the quote line
         int             con{-1};     // slot in m_constraints driving this dimension
+        Vec2d           label_pos{0, 0};  // cached label centre (plane coords), for picking
     };
     bool point_at(int ei, SketchPointRole role, Vec2d& out) const;          // current coords
     bool hit_test_point(const Vec2d& p, double tol, int& ei, SketchPointRole& role) const;
+    int  hit_test_dimension(const Vec2d& p, double tol) const;              // nearest dim label
+    void edit_dimension(int di);                                            // reopen value card for di
     double measure_dim(const DimAnnot& a) const;                            // value from geometry
     SketchEntityConstraintDef constraint_for(const DimAnnot& a) const;      // driving def
     int  place_dimension(DimAnnot a);                                       // create+drive+notify

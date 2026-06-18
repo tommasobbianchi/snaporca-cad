@@ -441,6 +441,26 @@ int DesignSketchTool::place_dimension(DimAnnot a)
     return m_pending_dim;
 }
 
+// Nearest placed-dimension label within tol (uses the centre cached by render).
+int DesignSketchTool::hit_test_dimension(const Vec2d& p, double tol) const
+{
+    double best = tol;
+    int bi = -1;
+    for (size_t i = 0; i < m_dimensions.size(); ++i) {
+        const double d = (m_dimensions[i].label_pos - p).norm();
+        if (d < best) { best = d; bi = int(i); }
+    }
+    return bi;
+}
+
+// Reopen the value card on an existing dimension (double-click its label).
+void DesignSketchTool::edit_dimension(int di)
+{
+    if (di < 0 || di >= int(m_dimensions.size())) return;
+    m_pending_dim = di;
+    if (on_dimension_pick_complete) on_dimension_pick_complete(m_dimensions[di].value);
+}
+
 DesignSketchTool::DimType DesignSketchTool::pending_dimension_type() const
 {
     return (m_pending_dim >= 0 && m_pending_dim < int(m_dimensions.size()))
@@ -1025,7 +1045,8 @@ void DesignSketchTool::render_dimensions(double unit_per_px)
     // Label text is a CONSTANT screen size (like real CAD), not scaled to geometry,
     // so a long line doesn't get huge text. ~15 px tall in plane units at this zoom.
     const double th = std::max(15.0 * unit_per_px, 1e-4);
-    for (const DimAnnot& a : m_dimensions) {
+    for (size_t di = 0; di < m_dimensions.size(); ++di) {
+        const DimAnnot& a = m_dimensions[di];
         std::vector<std::pair<Vec2d, Vec2d>> segs;
         if (a.kind == DimType::Length || a.kind == DimType::Distance) {
             Vec2d pa, pb;
@@ -1054,6 +1075,7 @@ void DesignSketchTool::render_dimensions(double unit_per_px)
             };
             arrow(A2, u); arrow(B2, -u);
             const Vec2d label = (A2 + B2) * 0.5 + nrm * (a.side * (th * 0.7 + 1.5));
+            m_dimensions[di].label_pos = label;
             draw_strokes(m_highlight_model, segs, 0.6, dimcol);
             draw_text(m_line_model, dim_text(a), label, th, dimcol);
         } else if (a.kind == DimType::Diameter || a.kind == DimType::Radius) {
@@ -1079,6 +1101,7 @@ void DesignSketchTool::render_dimensions(double unit_per_px)
                 segs.emplace_back(p2, p2 - u * as - Vec2d(0, 1) * (as * 0.5));
                 label = (c + p2) * 0.5 + Vec2d(0, 1) * (th * 0.8);
             }
+            m_dimensions[di].label_pos = label;
             draw_strokes(m_highlight_model, segs, 0.6, dimcol);
             draw_text(m_line_model, dim_text(a), label, th, dimcol);
         } else if (a.kind == DimType::DistanceToLine) {
@@ -1093,6 +1116,7 @@ void DesignSketchTool::render_dimensions(double unit_per_px)
             const Vec2d foot = Ln.p0 + u * t;       // perpendicular foot on the line
             segs.emplace_back(pa, foot);
             const Vec2d label = (pa + foot) * 0.5 + u * (th * 0.7 + 1.5);
+            m_dimensions[di].label_pos = label;
             draw_strokes(m_highlight_model, segs, 0.6, dimcol);
             draw_text(m_line_model, dim_text(a), label, th, dimcol);
         }
@@ -1478,6 +1502,12 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
         if (evt.LeftDown() || evt.LeftDClick()) {
             Vec2d p;
             screen_to_plane(canvas, evt, p);
+            if (evt.LeftDClick()) {                // double-click a quote label -> edit it
+                const Linef3 rd = canvas.mouse_ray(Point(evt.GetX() + 28, evt.GetY()));
+                const double dtol = std::max(2.0, (m_plane.project(rd.a, rd.vector()) - p).norm());
+                const int di = hit_test_dimension(p, dtol);
+                if (di >= 0) { edit_dimension(di); return true; }
+            }
             // Zoom-aware tolerance: project a point 8 px away and measure in plane units.
             const Linef3 r2 = canvas.mouse_ray(Point(evt.GetX() + 8, evt.GetY()));
             const Vec2d p2 = m_plane.project(r2.a, r2.vector());
@@ -1515,6 +1545,17 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     // a circle -> Diameter, an arc -> Radius, a point then a line -> DistanceToLine.
     // Each resolved pick places a driving quote and pops the value card.
     if (m_mode == Mode::Dimension) {
+        if (evt.LeftDClick()) {                    // double-click a quote label -> edit it
+            Vec2d p;
+            screen_to_plane(canvas, evt, p);
+            const Linef3 r2 = canvas.mouse_ray(Point(evt.GetX() + 28, evt.GetY()));
+            const Vec2d p2 = m_plane.project(r2.a, r2.vector());
+            const double di_tol = std::max(2.0, (p2 - p).norm());
+            const int di = hit_test_dimension(p, di_tol);
+            if (di >= 0) edit_dimension(di);
+            m_dim_has0 = false;
+            return true;
+        }
         if (evt.LeftDown()) {
             Vec2d p;
             screen_to_plane(canvas, evt, p);

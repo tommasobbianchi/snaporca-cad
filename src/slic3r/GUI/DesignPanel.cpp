@@ -549,7 +549,13 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_box_value->Add(card_header("design_constrain", _L("Value"), m_value_label), 0, wxLEFT | wxRIGHT | wxTOP, 12);
         m_box_value->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
         auto* vrow = new wxBoxSizer(wxHORIZONTAL);
-        m_value_input = make_spin(m_form, 1.0, -100000.0, 100000.0);
+        // wxTE_PROCESS_ENTER so the user can just type a value and press Enter to
+        // apply it (the natural CAD-dimension gesture), not only click Confirm.
+        m_value_input = new wxSpinCtrlDouble(m_form, wxID_ANY, "", wxDefaultPosition,
+                                             wxSize(90, -1), wxSP_ARROW_KEYS | wxTE_PROCESS_ENTER);
+        m_value_input->SetRange(-100000.0, 100000.0);
+        m_value_input->SetDigits(2);
+        m_value_input->Bind(wxEVT_TEXT_ENTER, [this](wxCommandEvent&) { confirm_value(); });
         vrow->Add(new wxStaticText(m_form, wxID_ANY, _L("Value")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
         vrow->Add(m_value_input, 0, wxALIGN_CENTER_VERTICAL);
         m_box_value->Add(vrow, 0, wxLEFT | wxRIGHT | wxTOP, 12);
@@ -1345,8 +1351,9 @@ void DesignPanel::request_value(const wxString& label, double def, double mn, do
     m_form->Layout();
     m_form->FitInside();
     m_value_input->SetFocus();
+    m_value_input->SetSelection(-1, -1);   // select all so typing replaces the value
     m_status->SetForegroundColour(wxNullColour);
-    m_status->SetLabel(label + _L(" — enter a value and Confirm"));
+    m_status->SetLabel(label + _L(" — type a value, press Enter (or Confirm)"));
     m_status->Refresh();
 }
 
