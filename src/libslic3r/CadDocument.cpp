@@ -1,5 +1,6 @@
 #include "CadDocument.hpp"
 #include "SketchConstraints.hpp"
+#include "SketchSolver.hpp"
 
 #include <array>
 
@@ -114,6 +115,15 @@ int CadDocument::add_sketch_entities(const std::vector<SketchEntity>& entities,
 // center+endpoints. Free function (declared in SketchEngine.hpp) so the in-session
 // GUI sketch tool can live-solve the same way committed features do.
 bool solve_sketch_entities(std::vector<SketchEntity>& entities,
+                           const std::vector<SketchEntityConstraintDef>& constraints)
+{
+    // Delegated to the vendored SolveSpace solver (SketchSolver / libslvs): full
+    // constraint set, real DoF + over-constrained detection.
+    return sketch_solve(entities, constraints).ok;
+}
+
+#if 0  // legacy hand-rolled Gauss-Newton solver — superseded by libslvs, kept for reference
+static bool legacy_solve_sketch_entities(std::vector<SketchEntity>& entities,
                            const std::vector<SketchEntityConstraintDef>& constraints)
 {
     if (constraints.empty()) return true;
@@ -322,6 +332,7 @@ bool solve_sketch_entities(std::vector<SketchEntity>& entities,
     }
     return ok;
 }
+#endif  // legacy solver
 
 bool CadDocument::solve_sketch_feature(int index)
 {

@@ -18,6 +18,9 @@ endif()
 
 option(BUILD_SHARED_LIBS "Build shared libs" OFF)
 
+# Vendored SolveSpace constraint solver (2D sketch solver backbone).
+add_subdirectory(slvs)
+
 set(lisbslic3r_sources
     AABBMesh.cpp
     AABBMesh.hpp
@@ -383,6 +386,8 @@ set(lisbslic3r_sources
     SketchEngine.hpp
     SketchConstraints.cpp
     SketchConstraints.hpp
+    SketchSolver.cpp
+    SketchSolver.hpp
     CadDocument.cpp
     CadDocument.hpp
     SLAPrint.cpp
@@ -582,6 +587,7 @@ target_link_libraries(libslic3r
         cereal::cereal
         clipper
         eigen
+        libslvs
         glu-libtess
         JPEG::JPEG
         libslic3r_cgal
