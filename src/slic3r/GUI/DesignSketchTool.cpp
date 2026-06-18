@@ -963,7 +963,7 @@ void glyph_strokes(char c, std::vector<std::pair<Vec2d, Vec2d>>& out, double& ad
     advance = 0.85;
     switch (c) {
     case '0': seg(TL, TR); seg(TR, BR); seg(BR, BL); seg(BL, TL); break;
-    case '1': seg(TR, BR); advance = 0.45; break;
+    case '1': seg(Vec2d(0.3, 1), Vec2d(0.3, 0)); advance = 0.55; break;  // centred stem
     case '2': seg(TL, TR); seg(TR, MR); seg(MR, ML); seg(ML, BL); seg(BL, BR); break;
     case '3': seg(TL, TR); seg(TR, BR); seg(BR, BL); seg(MR, ML); break;
     case '4': seg(TL, ML); seg(ML, MR); seg(TR, BR); break;
