@@ -258,6 +258,23 @@ void DesignCanvas::keep_segment_as_drawn()
     if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
 }
 
+void DesignCanvas::set_on_sketch_selection_changed(std::function<void(int)> cb)
+{
+    m_sketch_tool.on_selection_changed = std::move(cb);
+}
+
+void DesignCanvas::delete_selected_sketch_entities()
+{
+    m_sketch_tool.delete_selected();
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
+void DesignCanvas::clear_sketch_selection()
+{
+    m_sketch_tool.clear_selection();
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
 void DesignCanvas::begin_constrain(const SketchProfile& prof, const SketchPlane& plane)
 {
     m_sketch_tool.begin_constrain(prof, plane);

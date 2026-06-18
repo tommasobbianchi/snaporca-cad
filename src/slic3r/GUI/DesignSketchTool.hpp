@@ -21,7 +21,7 @@ class GLCanvas3D;
 // committed profile's points (entity constraints land in a later chunk).
 class DesignSketchTool {
 public:
-    enum class Mode { Polyline, Line, CornerRect, CenterRect, CenterCircle, Point,
+    enum class Mode { Select, Polyline, Line, CornerRect, CenterRect, CenterCircle, Point,
                       ThreePointCircle, ThreePointArc, TangentArc, Slot, Polygon,
                       Constrain };
 
@@ -68,6 +68,13 @@ public:
     // Live readout while drawing a Line/Polyline segment (anchor->cursor metrics).
     std::function<void(double length, double angle_deg, bool locked)> on_cursor_metrics;
 
+    // Selection (Mode::Select): pick points/lines/arcs/circles of the in-session
+    // sketch; Shift/Ctrl extends, double-click grabs the whole connected loop.
+    const std::vector<int>& selection() const { return m_selection; }
+    void clear_selection();
+    void delete_selected();                         // erase selected entities
+    std::function<void(int count)> on_selection_changed;
+
     // Emitted by finish() with the accumulated entities (Onshape multi-entity path).
     std::function<void(const std::vector<SketchEntity>&, const SketchPlane&)> on_commit_entities;
     // Legacy single-profile commit (kept for compatibility; unused by entity tools).
@@ -81,6 +88,10 @@ private:
     // of {0,30,45,60,90} deg (replicated every 90 deg) when within tolerance, keeping
     // the same length. Sets `locked` when a snap was applied. Suppressed by m_snap_off.
     Vec2d snap_dir(const Vec2d& anchor, const Vec2d& raw, bool& locked) const;
+
+    // Selection helpers (Mode::Select).
+    int hit_test(const Vec2d& p, double tol) const;       // nearest entity within tol, or -1
+    std::vector<int> connected_loop(int seed) const;      // entities joined by shared endpoints
 
     // Entity builders: append to m_entities (honoring the construction flag).
     void push_line(const Vec2d& a, const Vec2d& b);
@@ -116,6 +127,7 @@ private:
     bool                m_snap_off{false};      // Shift held -> suppress angle snapping
     bool                m_cursor_locked{false}; // rubber-band segment is angle-locked
     bool                m_awaiting_length{false}; // Line tool: length dialog is open
+    std::vector<int>    m_selection;              // selected entity indices (Mode::Select)
     Mode                m_mode{Mode::Polyline};
     int                 m_sel_a{-1};   // picked segment endpoints (legacy Constrain mode)
     int                 m_sel_b{-1};

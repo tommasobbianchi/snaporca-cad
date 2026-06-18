@@ -7,6 +7,7 @@
 #include "GLShader.hpp"
 
 #include <GL/glew.h>
+#include <algorithm>
 #include <cmath>
 
 namespace Slic3r {
@@ -24,6 +25,7 @@ void DesignSketchTool::begin(const SketchPlane& plane, Mode mode)
     m_constrain_entities = false;
     m_pick0 = m_pick1 = m_pick2 = -1;
     m_awaiting_length = false;
+    m_selection.clear();
     m_active = true;
 }
 
@@ -47,6 +49,26 @@ void DesignSketchTool::cancel()
     m_constrain_entities = false;
     m_pick0 = m_pick1 = m_pick2 = -1;
     m_awaiting_length = false;
+    m_selection.clear();
+}
+
+void DesignSketchTool::clear_selection()
+{
+    if (m_selection.empty()) return;
+    m_selection.clear();
+    if (on_selection_changed) on_selection_changed(0);
+}
+
+void DesignSketchTool::delete_selected()
+{
+    if (m_selection.empty()) return;
+    std::vector<int> idx = m_selection;
+    std::sort(idx.begin(), idx.end(), std::greater<int>());
+    for (int i : idx)
+        if (i >= 0 && i < int(m_entities.size()))
+            m_entities.erase(m_entities.begin() + i);
+    m_selection.clear();
+    if (on_selection_changed) on_selection_changed(0);
 }
 
 void DesignSketchTool::apply_segment_length(double len)
@@ -546,24 +568,33 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         return;
     }
 
-    // Committed entities of this session.
-    std::vector<Vec2d> point_markers;
-    for (const SketchEntity& e : m_entities) {
-        const ColorRGBA col = e.construction ? grey : orange;
+    // Committed entities of this session (selected ones drawn white).
+    const ColorRGBA white(1.0f, 1.0f, 1.0f, 1.0f);
+    std::vector<Vec2d> point_markers, sel_point_markers;
+    for (size_t i = 0; i < m_entities.size(); ++i) {
+        const SketchEntity& e = m_entities[i];
+        const bool selected =
+            std::find(m_selection.begin(), m_selection.end(), int(i)) != m_selection.end();
+        const ColorRGBA col = selected ? white : (e.construction ? grey : orange);
         if (e.type == SketchEntity::Type::Point) {
-            point_markers.push_back(e.p0);
+            (selected ? sel_point_markers : point_markers).push_back(e.p0);
             continue;
         }
         bool closed = false;
         std::vector<Vec2d> poly = entity_polyline(e, closed);
-        draw_quad_strip(m_line_model, poly, closed, col);
+        draw_quad_strip(selected ? m_highlight_model : m_line_model, poly, closed, col);
     }
     if (!point_markers.empty())
         draw_vertices(m_vertex_model, point_markers, yellow);
+    if (!sel_point_markers.empty())
+        draw_vertices(m_highlight_model, sel_point_markers, white);
 
     // In-progress entity preview for the active tool.
     const ColorRGBA preview = m_construction ? grey : orange;
     switch (m_mode) {
+
+    case Mode::Select:
+        break;   // selection highlight is drawn above; no rubber-band preview
 
     case Mode::Polyline: {
         std::vector<Vec2d> pts = m_points;
@@ -707,6 +738,60 @@ static double entity_pick_dist(const Vec2d& p, const SketchEntity& e)
     return 1e30;
 }
 
+// Adjacency endpoints for loop walking (Circles/Points have none -> stand-alone).
+static void entity_endpoints(const SketchEntity& e, std::vector<Vec2d>& out)
+{
+    out.clear();
+    if (e.type == SketchEntity::Type::Line) {
+        out.push_back(e.p0);
+        out.push_back(e.p1);
+    } else if (e.type == SketchEntity::Type::Arc) {
+        out.push_back(e.center + e.radius * Vec2d(std::cos(e.start_angle), std::sin(e.start_angle)));
+        out.push_back(e.center + e.radius * Vec2d(std::cos(e.end_angle),   std::sin(e.end_angle)));
+    }
+}
+
+int DesignSketchTool::hit_test(const Vec2d& p, double tol) const
+{
+    double best = tol;
+    int bi = -1;
+    for (size_t i = 0; i < m_entities.size(); ++i) {
+        const double d = entity_pick_dist(p, m_entities[i]);
+        if (d < best) { best = d; bi = int(i); }
+    }
+    return bi;
+}
+
+std::vector<int> DesignSketchTool::connected_loop(int seed) const
+{
+    std::vector<int> out;
+    if (seed < 0 || seed >= int(m_entities.size())) return out;
+    const double eps2 = 1e-6;
+    std::vector<bool> vis(m_entities.size(), false);
+    std::vector<int> stack = { seed };
+    vis[seed] = true;
+    while (!stack.empty()) {
+        const int cur = stack.back();
+        stack.pop_back();
+        out.push_back(cur);
+        std::vector<Vec2d> ce;
+        entity_endpoints(m_entities[cur], ce);
+        if (ce.empty()) continue;                 // circle/point: not part of a chain
+        for (size_t j = 0; j < m_entities.size(); ++j) {
+            if (vis[j]) continue;
+            std::vector<Vec2d> je;
+            entity_endpoints(m_entities[j], je);
+            if (je.empty()) continue;
+            bool adj = false;
+            for (const Vec2d& a : ce)
+                for (const Vec2d& b : je)
+                    if ((a - b).squaredNorm() < eps2) { adj = true; break; }
+            if (adj) { vis[j] = true; stack.push_back(int(j)); }
+        }
+    }
+    return out;
+}
+
 bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
 {
     // Constrain mode: pick a segment on click; let move/drag fall through so the
@@ -760,6 +845,46 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             return true;
         }
         return false;
+    }
+
+    // Selection mode: click to pick an entity, Shift/Ctrl to extend, double-click
+    // to grab the whole connected loop. Drag falls through so the camera can orbit.
+    if (m_mode == Mode::Select) {
+        const bool extend = evt.ShiftDown() || evt.ControlDown();
+        if (evt.LeftDown() || evt.LeftDClick()) {
+            Vec2d p;
+            screen_to_plane(canvas, evt, p);
+            // Zoom-aware tolerance: project a point 8 px away and measure in plane units.
+            const Linef3 r2 = canvas.mouse_ray(Point(evt.GetX() + 8, evt.GetY()));
+            const Vec2d p2 = m_plane.project(r2.a, r2.vector());
+            const double tol = std::max(1e-3, (p2 - p).norm());
+            const int hit = hit_test(p, tol);
+
+            if (evt.LeftDClick() && hit >= 0) {
+                if (!extend) m_selection.clear();
+                for (int idx : connected_loop(hit))
+                    if (std::find(m_selection.begin(), m_selection.end(), idx) == m_selection.end())
+                        m_selection.push_back(idx);
+            } else if (hit >= 0) {
+                auto it = std::find(m_selection.begin(), m_selection.end(), hit);
+                if (extend) {
+                    if (it == m_selection.end()) m_selection.push_back(hit);
+                    else m_selection.erase(it);     // toggle off
+                } else {
+                    m_selection.clear();
+                    m_selection.push_back(hit);
+                }
+            } else if (!extend) {
+                m_selection.clear();                // clicked empty space
+            }
+            if (on_selection_changed) on_selection_changed(int(m_selection.size()));
+            return true;
+        }
+        if (evt.RightDown()) {
+            clear_selection();
+            return true;
+        }
+        return false;                               // let drag orbit the camera
     }
 
     if (evt.Moving()) {

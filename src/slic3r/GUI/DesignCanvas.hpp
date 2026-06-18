@@ -53,6 +53,11 @@ public:
     void apply_segment_length(double len);  // exact length, then commit & repaint
     void keep_segment_as_drawn();           // commit as-drawn & repaint
 
+    // Sketch selection (Mode::Select).
+    void set_on_sketch_selection_changed(std::function<void(int)> cb);
+    void delete_selected_sketch_entities();
+    void clear_sketch_selection();
+
     // Constrain mode: load a committed profile for picking + constraint editing.
     void begin_constrain(const SketchProfile& prof, const SketchPlane& plane);
     // Leave constrain mode and clear any picked-entity highlight from the overlay.

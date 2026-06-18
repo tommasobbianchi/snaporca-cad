@@ -191,6 +191,9 @@ DesignPanel::DesignPanel(wxWindow* parent)
             b->Bind(wxEVT_BUTTON, [select_tool, mode, hint](wxCommandEvent&) { select_tool(mode, hint); });
             sadd(b);
         };
+        skbtn("design_select",    DesignSketchTool::Mode::Select,           _L("Select"),
+              _L("Click to select; Shift to add; double-click for a whole loop"));
+        add_sep(m_tb_sketch);
         skbtn("design_line",      DesignSketchTool::Mode::Line,             _L("Line"),
               _L("Click start, then end — then set the exact length"));
         skbtn("design_polyline",  DesignSketchTool::Mode::Polyline,         _L("Polyline"),
@@ -228,6 +231,11 @@ DesignPanel::DesignPanel(wxWindow* parent)
             if (m_viewport && m_viewport->is_sketching())
                 m_viewport->set_sketch_construction(m_construction->GetValue()); });
         sadd(m_construction);
+        add_sep(m_tb_sketch);
+        auto* b_del = icon_btn("design_delete", _L("Delete selected"));
+        b_del->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            if (m_viewport) m_viewport->delete_selected_sketch_entities(); });
+        sadd(b_del);
         add_sep(m_tb_sketch);
         auto* b_finish = icon_btn("design_check", _L("Finish sketch"));
         b_finish->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
@@ -661,6 +669,15 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_status->SetForegroundColour(wxNullColour);
         m_status->SetLabel(wxString::Format(L"L %.2f mm   %.1f°%s",
                                             len, a, locked ? L"  (locked)" : L""));
+        m_status->Refresh();
+    });
+
+    // Selection (Select tool): reflect the count in the status line.
+    m_viewport->set_on_sketch_selection_changed([this](int count) {
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(count > 0
+            ? wxString::Format(_L("%d selected — Delete removes them"), count)
+            : _L("Click to select; Shift to add; double-click for a loop"));
         m_status->Refresh();
     });
 
