@@ -554,8 +554,11 @@ void DesignSketchTool::apply_segment_length(double len)
 
 void DesignSketchTool::keep_segment_as_drawn()
 {
-    if (m_points.size() == 2)
+    if (m_points.size() == 2) {
+        const int base = int(m_entities.size());
         push_line(m_points[0], m_points[1]);  // accrues into the session's entities
+        infer_auto_constraints(base);         // auto Coincident at snapped ends + H/V
+    }
     m_points.clear();
     m_has_cursor = false;
     m_awaiting_length = false;
@@ -658,6 +661,114 @@ Vec2d DesignSketchTool::snap_dir(const Vec2d& anchor, const Vec2d& raw, bool& lo
     locked = true;
     const double rad = best_cand * M_PI / 180.0;
     return anchor + r * Vec2d(std::cos(rad), std::sin(rad));
+}
+
+double DesignSketchTool::screen_tol(GLCanvas3D& canvas, const wxMouseEvent& evt,
+                                    const Vec2d& at, double px) const
+{
+    // Project a point `px` screen pixels away and measure the gap in plane units.
+    const Linef3 r2 = canvas.mouse_ray(Point(evt.GetX() + int(px), evt.GetY()));
+    const Vec2d  p2 = m_plane.project(r2.a, r2.vector());
+    return std::max(1e-3, (p2 - at).norm());
+}
+
+InferenceSnap DesignSketchTool::infer_at(GLCanvas3D& canvas, const wxMouseEvent& evt,
+                                         const Vec2d& raw) const
+{
+    if (evt.ShiftDown()) { InferenceSnap s; s.point = raw; return s; }   // Shift suppresses
+    const double tol = screen_tol(canvas, evt, raw);
+    return infer_point_snap(m_entities, raw, tol);
+}
+
+Vec2d DesignSketchTool::snap_vertex(GLCanvas3D& canvas, const wxMouseEvent& evt,
+                                    const Vec2d& raw, bool& snapped) const
+{
+    const InferenceSnap s = infer_at(canvas, evt, raw);
+    // Cache the target so render() can draw a snap hint; only endpoint/centre/origin
+    // count as a "vertex" snap for the callers that gate angle inference on it.
+    const_cast<DesignSketchTool*>(this)->m_cursor_snap = s;
+    snapped = s.snapped();   // any hard snap moves the cursor + suppresses angle lock
+    return s.point;
+}
+
+bool DesignSketchTool::has_coincident(int ea, SketchPointRole ra, int eb, SketchPointRole rb) const
+{
+    for (const auto& c : m_constraints) {
+        if (c.type != SketchConstraintType::Coincident) continue;
+        if ((c.ea == ea && c.ra == ra && c.eb == eb && c.rb == rb) ||
+            (c.ea == eb && c.ra == rb && c.eb == ea && c.rb == ra))
+            return true;
+    }
+    return false;
+}
+
+bool DesignSketchTool::try_add_constraints(const std::vector<SketchEntityConstraintDef>& cands)
+{
+    if (cands.empty()) return true;
+    const size_t mark = m_constraints.size();
+    for (const auto& c : cands) m_constraints.push_back(c);
+    if (solve_sketch_entities(m_entities, m_constraints))
+        return true;
+    m_constraints.resize(mark);                 // roll back the conflicting batch
+    solve_sketch_entities(m_entities, m_constraints);   // restore prior solved state
+    return false;
+}
+
+void DesignSketchTool::infer_auto_constraints(int base)
+{
+    const int n = int(m_entities.size());
+    if (base < 0 || base >= n) return;
+
+    // Endpoint roles an entity exposes for coincidence matching.
+    auto roles_of = [](const SketchEntity& e, SketchPointRole out[2]) -> int {
+        switch (e.type) {
+        case SketchEntity::Type::Line: out[0] = SketchPointRole::P0; out[1] = SketchPointRole::P1; return 2;
+        case SketchEntity::Type::Arc:  out[0] = SketchPointRole::P0; out[1] = SketchPointRole::P1; return 2;
+        case SketchEntity::Type::Point:out[0] = SketchPointRole::P0; return 1;
+        default: return 0;   // circle: centre coincidence handled by Concentric, not here
+        }
+    };
+
+    // 1) Coincident between a new endpoint and any (co-located) endpoint of another
+    //    entity. snap_vertex already drove the coordinates together; this records it
+    //    so a re-solve keeps the loop closed.
+    std::vector<SketchEntityConstraintDef> coincs;
+    for (int i = base; i < n; ++i) {
+        SketchPointRole ir[2]; const int ni = roles_of(m_entities[i], ir);
+        for (int a = 0; a < ni; ++a) {
+            Vec2d pa; if (!point_at(i, ir[a], pa)) continue;
+            for (int j = 0; j < n; ++j) {
+                if (j == i) continue;
+                SketchPointRole jr[2]; const int nj = roles_of(m_entities[j], jr);
+                for (int b = 0; b < nj; ++b) {
+                    if (j >= base && j < i) continue;          // avoid duplicate (i,j)/(j,i)
+                    Vec2d pb; if (!point_at(j, jr[b], pb)) continue;
+                    if ((pa - pb).squaredNorm() > 1e-6) continue;
+                    if (has_coincident(i, ir[a], j, jr[b])) continue;
+                    SketchEntityConstraintDef c;
+                    c.type = SketchConstraintType::Coincident;
+                    c.ea = i; c.ra = ir[a]; c.eb = j; c.rb = jr[b];
+                    coincs.push_back(c);
+                }
+            }
+        }
+    }
+    try_add_constraints(coincs);   // co-located points: consistent by construction
+
+    // 2) Horizontal / Vertical on axis-aligned new line segments (added one at a time
+    //    so a single conflict never drops the others).
+    for (int i = base; i < n; ++i) {
+        if (m_entities[i].type != SketchEntity::Type::Line) continue;
+        auto ax = infer_axis_constraint(m_entities[i].p0, m_entities[i].p1);
+        if (!ax) continue;
+        SketchEntityConstraintDef c;
+        c.type = *ax;
+        c.ea = i; c.ra = SketchPointRole::P0;
+        c.eb = i; c.rb = SketchPointRole::P1;
+        try_add_constraints({ c });
+    }
+
+    resolve_live();
 }
 
 static std::vector<Vec2d> circle_polygon(const Vec2d& c, double r, int n = 48)
@@ -1681,6 +1792,19 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         break;
     }
 
+    // Inference hint: highlight the snapped target under the cursor (C1.3). Colour
+    // encodes what the placed point will be Coincident/PointOnObject/Fixed onto.
+    if (m_has_cursor && m_mode != Mode::Constrain && m_cursor_snap.snapped()) {
+        ColorRGBA hint(1.0f, 0.55f, 0.1f, 1.0f);                 // endpoint/midpoint: orange
+        switch (m_cursor_snap.kind) {
+        case InferenceSnap::Kind::Center: hint = ColorRGBA(0.30f, 0.80f, 1.0f, 1.0f); break; // cyan
+        case InferenceSnap::Kind::Origin: hint = ColorRGBA(1.0f, 0.30f, 0.85f, 1.0f); break; // magenta
+        case InferenceSnap::Kind::OnEdge: hint = ColorRGBA(0.45f, 0.70f, 1.0f, 1.0f); break; // blue
+        default: break;
+        }
+        draw_vertices(m_highlight_model, { m_cursor_snap.point }, hint);
+    }
+
     shader->stop_using();
     glsafe(::glEnable(GL_CULL_FACE));
     glsafe(::glEnable(GL_DEPTH_TEST));
@@ -2005,8 +2129,10 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
         screen_to_plane(canvas, evt, m_cursor);
         m_has_cursor = true;
         m_cursor_locked = false;
+        bool vsnap = false;
+        m_cursor = snap_vertex(canvas, evt, m_cursor, vsnap);   // preview-snap to endpoints
         const bool line_like = (m_mode == Mode::Polyline || m_mode == Mode::Line);
-        if (line_like && !m_points.empty())
+        if (line_like && !m_points.empty() && !vsnap)
             m_cursor = snap_dir(m_points.back(), m_cursor, m_cursor_locked);
         if (on_cursor_metrics && line_like && !m_points.empty() && !m_awaiting_length) {
             const Vec2d d = m_cursor - m_points.back();
@@ -2022,12 +2148,16 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             Vec2d p;
             screen_to_plane(canvas, evt, p);
             m_snap_off = evt.ShiftDown();
-            if (near_first(p)) {              // closure tests the raw (un-snapped) point
+            bool vsnap = false;
+            p = snap_vertex(canvas, evt, p, vsnap);   // snap onto an existing endpoint
+            if (near_first(p)) {              // closing the current chain back to its start
+                const int base = int(m_entities.size());
                 push_closed_lines(m_points);  // close the loop
+                infer_auto_constraints(base); // loop self-closes via auto Coincident + H/V
                 m_points.clear();
                 return true;
             }
-            if (!m_points.empty()) {
+            if (!m_points.empty() && !vsnap) {
                 bool lk = false;
                 p = snap_dir(m_points.back(), p, lk);  // lock new segment to inference angle
             }
@@ -2036,16 +2166,20 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
         }
         if (evt.LeftDClick()) {
             if (m_points.size() >= 2) {
+                const int base = int(m_entities.size());
                 push_open_chain(m_points);     // end as an open chain
+                infer_auto_constraints(base);
                 m_points.clear();
             }
             return true;
         }
         if (evt.RightDown()) {
+            const int base = int(m_entities.size());
             if (m_points.size() >= 3)
                 push_closed_lines(m_points);
             else if (m_points.size() == 2)
                 push_open_chain(m_points);
+            infer_auto_constraints(base);
             m_points.clear();
             return true;
         }
@@ -2059,12 +2193,14 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             Vec2d p;
             screen_to_plane(canvas, evt, p);
             m_snap_off = evt.ShiftDown();
+            bool vsnap = false;
+            p = snap_vertex(canvas, evt, p, vsnap);   // snap onto an existing endpoint
             if (m_points.empty()) {     // first click = anchor
                 m_points.push_back(p);
                 return true;
             }
             bool lk = false;
-            p = snap_dir(m_points.back(), p, lk);
+            if (!vsnap) p = snap_dir(m_points.back(), p, lk);  // vertex snap wins over angle
             m_points.push_back(p);      // second click completes the segment
             m_awaiting_length = true;
             if (on_segment_drawn) {
@@ -2092,7 +2228,9 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             } else {
                 const Vec2d A = m_points[0];
                 const Vec2d B = p;
+                const int base = int(m_entities.size());
                 push_closed_lines({ A, Vec2d(B.x(), A.y()), B, Vec2d(A.x(), B.y()) });
+                infer_auto_constraints(base);   // corners Coincident + sides H/V
                 m_points.clear();
             }
             return true;
@@ -2111,9 +2249,11 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 const Vec2d C = m_points[0];
                 const double hx = std::abs(p.x() - C.x());
                 const double hy = std::abs(p.y() - C.y());
+                const int base = int(m_entities.size());
                 push_closed_lines({
                     Vec2d(C.x() - hx, C.y() - hy), Vec2d(C.x() + hx, C.y() - hy),
                     Vec2d(C.x() + hx, C.y() + hy), Vec2d(C.x() - hx, C.y() + hy) });
+                infer_auto_constraints(base);
                 m_points.clear();
             }
             return true;
@@ -2156,10 +2296,15 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     case Mode::ThreePointArc: {
         if (evt.LeftDown()) {
             Vec2d p; screen_to_plane(canvas, evt, p);
+            bool vsnap = false;
+            if (m_points.size() < 2)                 // snap the start/end onto endpoints
+                p = snap_vertex(canvas, evt, p, vsnap);  // (the 3rd click is the through-point)
             m_points.push_back(p);
             if (m_points.size() == 3) {
                 // clicks: start, end, point-on-arc
+                const int base = int(m_entities.size());
                 append_entities(make_three_point_arc(m_points[0], m_points[1], m_points[2]));
+                infer_auto_constraints(base);   // arc ends Coincident onto snapped vertices
                 m_points.clear();
             }
             return true;
@@ -2171,9 +2316,13 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     case Mode::TangentArc: {
         if (evt.LeftDown()) {
             Vec2d p; screen_to_plane(canvas, evt, p);
+            bool vsnap = false;
+            p = snap_vertex(canvas, evt, p, vsnap);   // snap both ends onto endpoints
             m_points.push_back(p);
             if (m_points.size() == 2) {
+                const int base = int(m_entities.size());
                 append_entities(make_tangent_arc(m_points[0], m_points[1]));
+                infer_auto_constraints(base);   // tangent-arc ends Coincident onto vertices
                 m_points.clear();
             }
             return true;
@@ -2194,7 +2343,9 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                     u.normalize();
                     const Vec2d n(-u.y(), u.x());
                     const double w = std::abs(n.dot(p - m_points[0]));
+                    const int base = int(m_entities.size());
                     append_entities(make_slot(m_points[0], m_points[1], w));
+                    infer_auto_constraints(base);
                 }
                 m_points.clear();
             }
@@ -2210,7 +2361,9 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             if (m_points.empty()) {
                 m_points.push_back(p);
             } else {
+                const int base = int(m_entities.size());
                 append_entities(make_polygon(m_points[0], p, m_polygon_sides));
+                infer_auto_constraints(base);
                 m_points.clear();
             }
             return true;

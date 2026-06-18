@@ -199,6 +199,14 @@ SketchSolveResult sketch_solve(std::vector<SketchEntity>& entities,
             else
                 b.C(SLVS_C_PT_LINE_DISTANCE, std::abs(c.value), ptOf(c.ea, c.ra), 0, primOf(c.eb), 0);
             break;
+        case CT::PointOnObject:
+            // Point (ea,ra) lies on entity edge eb: a circle rim -> PT_ON_CIRCLE,
+            // otherwise the segment line -> PT_ON_LINE.
+            if (valid(c.eb) && entities[c.eb].type == SketchEntity::Type::Circle)
+                b.C(SLVS_C_PT_ON_CIRCLE, 0, ptOf(c.ea, c.ra), 0, primOf(c.eb), 0);
+            else
+                b.C(SLVS_C_PT_ON_LINE, 0, ptOf(c.ea, c.ra), 0, primOf(c.eb), 0);
+            break;
         }
     }
 

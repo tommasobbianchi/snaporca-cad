@@ -388,6 +388,8 @@ set(lisbslic3r_sources
     SketchConstraints.hpp
     SketchSolver.cpp
     SketchSolver.hpp
+    SketchInference.cpp
+    SketchInference.hpp
     CadDocument.cpp
     CadDocument.hpp
     SLAPrint.cpp

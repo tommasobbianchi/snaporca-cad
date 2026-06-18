@@ -79,7 +79,8 @@ enum class SketchConstraintType {
     Concentric,
     Tangent, Midpoint, Symmetric, Angle,
     Radius, Diameter,
-    PointOnLine   // a point lies on a line (or at signed perpendicular distance `value`)
+    PointOnLine,  // a point lies on a line (or at signed perpendicular distance `value`)
+    PointOnObject // a point lies on an entity edge (line -> PT_ON_LINE, circle -> PT_ON_CIRCLE)
 };
 
 // Constraint on a SketchProfile, referencing profile point indices (a,b,c,d).

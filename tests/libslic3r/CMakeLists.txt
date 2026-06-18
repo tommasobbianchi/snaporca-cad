@@ -6,6 +6,7 @@ add_executable(${_TEST_NAME}_tests
 	test_aabbindirect.cpp
 	test_caddocument.cpp
 	test_slvs_constraints.cpp
+	test_sketchinference.cpp
 	test_sketchconstraints.cpp
 	test_sketchedit.cpp
 	test_clipper_offset.cpp

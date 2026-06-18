@@ -3,6 +3,7 @@
 
 #include "libslic3r/Point.hpp"
 #include "libslic3r/SketchEngine.hpp"
+#include "libslic3r/SketchInference.hpp"
 #include "GLModel.hpp"
 #include <functional>
 #include <vector>
@@ -129,6 +130,25 @@ private:
     // of {0,30,45,60,90} deg (replicated every 90 deg) when within tolerance, keeping
     // the same length. Sets `locked` when a snap was applied. Suppressed by m_snap_off.
     Vec2d snap_dir(const Vec2d& anchor, const Vec2d& raw, bool& locked) const;
+    // Snap a placed point onto the nearest existing entity endpoint within ~8 px so
+    // chains join across entities (a line + an arc can close into one loop). Shift
+    // disables it. `snapped` reports whether a vertex was hit.
+    Vec2d snap_vertex(GLCanvas3D& canvas, const wxMouseEvent& evt, const Vec2d& raw, bool& snapped) const;
+
+    // --- P1 inference / auto-constraint engine ---------------------------------
+    // Plane-units tolerance equivalent to ~`px` screen pixels at the cursor.
+    double screen_tol(GLCanvas3D& canvas, const wxMouseEvent& evt, const Vec2d& at, double px = 8.0) const;
+    // Run kernel inference at the cursor, cache the target for the hint renderer.
+    InferenceSnap infer_at(GLCanvas3D& canvas, const wxMouseEvent& evt, const Vec2d& raw) const;
+    // True if m_constraints already holds an equivalent Coincident between the two refs.
+    bool has_coincident(int ea, SketchPointRole ra, int eb, SketchPointRole rb) const;
+    // Append candidates, live-solve, and roll back the batch if it turns the system
+    // inconsistent. Returns true when the batch was kept.
+    bool try_add_constraints(const std::vector<SketchEntityConstraintDef>& cands);
+    // After entities [base, end) were committed, auto-emit the constraints that make
+    // the new geometry stick: Coincident between co-located endpoints (so loops close
+    // on their own) and Horizontal/Vertical on axis-aligned new segments.
+    void infer_auto_constraints(int base);
 
     // Selection helpers (Mode::Select).
     int hit_test(const Vec2d& p, double tol) const;       // nearest entity within tol, or -1
@@ -206,6 +226,7 @@ private:
     Vec2d               m_cursor{0,0};
     bool                m_has_cursor{false};
     bool                m_snap_off{false};      // Shift held -> suppress angle snapping
+    InferenceSnap       m_cursor_snap;          // last cursor inference target (for hint render)
     bool                m_cursor_locked{false}; // rubber-band segment is angle-locked
     bool                m_awaiting_length{false}; // Line tool: length dialog is open
     std::vector<int>    m_selection;              // selected entity indices (Mode::Select)
