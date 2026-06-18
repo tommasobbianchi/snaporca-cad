@@ -212,7 +212,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
                 case D::Diameter: label = _L("Diameter (mm)"); break;
                 case D::Radius:   label = _L("Radius (mm)");   break;
                 case D::Angle:    label = _L("Angle (degrees)"); mn = 0.0; mx = 180.0; break;
-                case D::Distance: label = _L("Distance (mm)"); break;
+                case D::Distance: label = _L("Distance (mm) — 0 = coincident"); mn = 0.0; break;
+                case D::DistanceToLine: label = _L("Distance to line (mm) — 0 = on the axis"); mn = 0.0; break;
                 default: break;
                 }
                 request_value(label, m_viewport->sketch_dimension_current(), mn, mx,

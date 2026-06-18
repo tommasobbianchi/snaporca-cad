@@ -76,9 +76,12 @@ public:
     std::function<void(int count)> on_selection_changed;
 
     // Dimension tool: infer a driving dimension from the current selection and set
-    // it exactly. 1 line=Length, 1 circle=Diameter, 1 arc=Radius, 2 lines=Angle,
-    // 2 points=Distance.
-    enum class DimType { None, Length, Diameter, Radius, Angle, Distance };
+    // it exactly. Sizing: 1 line=Length, 1 circle=Diameter, 1 arc=Radius,
+    // 2 lines=Angle. Positioning (a value of 0 makes them coincident):
+    // 2 point-likes (point/circle-centre/arc-centre)=Distance, moving the 2nd onto
+    // the 1st; a point-like + a line=DistanceToLine, moving the point-like's
+    // reference point onto/away-from the line (e.g. a circle centre onto an axis).
+    enum class DimType { None, Length, Diameter, Radius, Angle, Distance, DistanceToLine };
     DimType dimension_kind() const;     // what the selection supports (None if invalid)
     double  dimension_current() const;  // current value, to pre-fill the dialog
     void    apply_dimension(double v);  // set it exactly, then clear the selection

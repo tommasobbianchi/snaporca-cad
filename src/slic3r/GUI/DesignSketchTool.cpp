@@ -13,6 +13,10 @@
 namespace Slic3r {
 namespace GUI {
 
+// Positioning helpers (defined lower down, used by the dimension methods above them).
+static bool entity_ref_point(const SketchEntity& e, Vec2d& out);
+static void translate_entity(SketchEntity& e, const Vec2d& d);
+
 void DesignSketchTool::begin(const SketchPlane& plane, Mode mode)
 {
     m_plane = plane;
@@ -90,10 +94,17 @@ DesignSketchTool::DimType DesignSketchTool::dimension_kind() const
         }
     }
     if (m_selection.size() == 2) {
-        const auto ta = m_entities[m_selection[0]].type;
-        const auto tb = m_entities[m_selection[1]].type;
-        if (ta == SketchEntity::Type::Line  && tb == SketchEntity::Type::Line)  return DimType::Angle;
-        if (ta == SketchEntity::Type::Point && tb == SketchEntity::Type::Point) return DimType::Distance;
+        const SketchEntity& a = m_entities[m_selection[0]];
+        const SketchEntity& b = m_entities[m_selection[1]];
+        const bool aLine = (a.type == SketchEntity::Type::Line);
+        const bool bLine = (b.type == SketchEntity::Type::Line);
+        Vec2d tmp(0, 0);
+        if (aLine && bLine)                                   return DimType::Angle;
+        // one line + one point-like (point / circle-centre / arc-centre)
+        if (aLine && entity_ref_point(b, tmp))                return DimType::DistanceToLine;
+        if (bLine && entity_ref_point(a, tmp))                return DimType::DistanceToLine;
+        // two point-likes -> centre/point distance (0 = coincident/concentric)
+        if (entity_ref_point(a, tmp) && entity_ref_point(b, tmp)) return DimType::Distance;
     }
     return DimType::None;
 }
@@ -114,9 +125,23 @@ double DesignSketchTool::dimension_current() const
         return std::acos(c) * 180.0 / M_PI;
     }
     case DimType::Distance: {
-        const auto& a = m_entities[m_selection[0]];
-        const auto& b = m_entities[m_selection[1]];
-        return (b.p0 - a.p0).norm();
+        Vec2d ra(0, 0), rb(0, 0);
+        entity_ref_point(m_entities[m_selection[0]], ra);
+        entity_ref_point(m_entities[m_selection[1]], rb);
+        return (rb - ra).norm();
+    }
+    case DimType::DistanceToLine: {
+        const SketchEntity& a = m_entities[m_selection[0]];
+        const SketchEntity& b = m_entities[m_selection[1]];
+        const bool aLine = (a.type == SketchEntity::Type::Line);
+        const SketchEntity& L = aLine ? a : b;
+        const SketchEntity& P = aLine ? b : a;
+        Vec2d rp(0, 0); entity_ref_point(P, rp);
+        Vec2d dir = L.p1 - L.p0;
+        const double n = dir.norm();
+        if (n < 1e-9) return 0.0;
+        const Vec2d nrm(-dir.y() / n, dir.x() / n);   // unit normal to the line
+        return std::abs((rp - L.p0).dot(nrm));
     }
     default: return 0.0;
     }
@@ -177,11 +202,36 @@ void DesignSketchTool::apply_dimension(double v)
     case DimType::Radius:   if (v > 1e-9) m_entities[m_selection[0]].radius = v;       break;
     case DimType::Angle:    apply_angle_between(m_selection[0], m_selection[1], v);     break;
     case DimType::Distance: {
-        const SketchEntity& a = m_entities[m_selection[0]];
+        // Move the 2nd selection so its reference point sits at distance v from the
+        // 1st (v == 0 -> coincident / concentric). Translate the whole entity.
+        if (v < 0.0) break;
+        Vec2d ra(0, 0), rb(0, 0);
+        entity_ref_point(m_entities[m_selection[0]], ra);
         SketchEntity& b = m_entities[m_selection[1]];
-        const Vec2d d = b.p0 - a.p0;
+        entity_ref_point(b, rb);
+        const Vec2d d = rb - ra;
         const double r = d.norm();
-        if (r > 1e-9 && v > 1e-9) b.p0 = a.p0 + (v / r) * d;
+        Vec2d target = ra;
+        if (r > 1e-9) target = ra + (v / r) * d;
+        else          target = ra + Vec2d(v, 0.0);
+        translate_entity(b, target - rb);
+        break;
+    }
+    case DimType::DistanceToLine: {
+        // Move the point-like selection perpendicular to the line so its reference
+        // point is at distance v (v == 0 -> on the line / on the axis).
+        if (v < 0.0) break;
+        const bool aLine = (m_entities[m_selection[0]].type == SketchEntity::Type::Line);
+        const SketchEntity& L = m_entities[m_selection[aLine ? 0 : 1]];
+        SketchEntity& P = m_entities[m_selection[aLine ? 1 : 0]];
+        Vec2d rp(0, 0); entity_ref_point(P, rp);
+        Vec2d dir = L.p1 - L.p0;
+        const double n = dir.norm();
+        if (n < 1e-9) break;
+        const Vec2d nrm(-dir.y() / n, dir.x() / n);
+        const double d0 = (rp - L.p0).dot(nrm);          // current signed distance
+        const double sign = (d0 >= 0.0) ? 1.0 : -1.0;    // keep the point on its side
+        translate_entity(P, (sign * v - d0) * nrm);
         break;
     }
     default: break;
@@ -868,6 +918,26 @@ static void entity_endpoints(const SketchEntity& e, std::vector<Vec2d>& out)
         out.push_back(e.center + e.radius * Vec2d(std::cos(e.start_angle), std::sin(e.start_angle)));
         out.push_back(e.center + e.radius * Vec2d(std::cos(e.end_angle),   std::sin(e.end_angle)));
     }
+}
+
+// Reference point for positioning ops: a Point's position, or a Circle/Arc centre.
+// Lines have no single reference point (return false).
+static bool entity_ref_point(const SketchEntity& e, Vec2d& out)
+{
+    switch (e.type) {
+    case SketchEntity::Type::Point:  out = e.p0;     return true;
+    case SketchEntity::Type::Circle:
+    case SketchEntity::Type::Arc:    out = e.center; return true;
+    default:                         return false;   // Line
+    }
+}
+
+// Rigidly translate a whole entity (keeps size/shape).
+static void translate_entity(SketchEntity& e, const Vec2d& d)
+{
+    e.p0 += d;
+    e.p1 += d;
+    e.center += d;
 }
 
 int DesignSketchTool::hit_test(const Vec2d& p, double tol) const
