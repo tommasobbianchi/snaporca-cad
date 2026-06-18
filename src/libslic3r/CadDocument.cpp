@@ -108,23 +108,24 @@ int CadDocument::add_sketch_entities(const std::vector<SketchEntity>& entities,
     return int(features.size()) - 1;
 }
 
-namespace {
-// Solve Onshape-style constraints on a feature's SketchEntity list (Fase 4.3).
-// All entity types participate: Line (P0,P1), Arc (P0,P1,Center), Circle
-// (Center), Point (P0). Solved coordinates are written back, with arc angles
-// reflowed from the solved center+endpoints.
-bool solve_entity_constraints(CadFeature& f)
+// Solve Onshape-style constraints on a SketchEntity list (Fase 4.3). All entity
+// types participate: Line (P0,P1), Arc (P0,P1,Center), Circle (Center), Point (P0).
+// Solved coordinates are written back, with arc angles reflowed from the solved
+// center+endpoints. Free function (declared in SketchEngine.hpp) so the in-session
+// GUI sketch tool can live-solve the same way committed features do.
+bool solve_sketch_entities(std::vector<SketchEntity>& entities,
+                           const std::vector<SketchEntityConstraintDef>& constraints)
 {
-    if (f.entity_constraints.empty()) return true;
+    if (constraints.empty()) return true;
 
     SketchConstraints sc;
     // table[entity][role] -> solver point id, or -1 if that role is unregistered.
-    std::vector<std::array<int, 3>> table(f.entities.size(), {-1, -1, -1});
+    std::vector<std::array<int, 3>> table(entities.size(), {-1, -1, -1});
     auto reg = [&](int ei, SketchPointRole role, const Vec2d& p) {
         table[ei][int(role)] = sc.add_point(p.x(), p.y());
     };
-    for (size_t i = 0; i < f.entities.size(); ++i) {
-        const SketchEntity& e = f.entities[i];
+    for (size_t i = 0; i < entities.size(); ++i) {
+        const SketchEntity& e = entities[i];
         switch (e.type) {
         case SketchEntity::Type::Line:
             reg(int(i), SketchPointRole::P0, e.p0);
@@ -149,7 +150,7 @@ bool solve_entity_constraints(CadFeature& f)
         return table[ei][int(role)];
     };
 
-    for (const SketchEntityConstraintDef& c : f.entity_constraints) {
+    for (const SketchEntityConstraintDef& c : constraints) {
         switch (c.type) {
         // Point-form: refs A and B name individual entity points.
         case SketchConstraintType::Fix: {
@@ -230,11 +231,20 @@ bool solve_entity_constraints(CadFeature& f)
         case SketchConstraintType::Diameter:
             // dimensions: applied in the post-solve pass below, not via the solver.
             break;
+        case SketchConstraintType::PointOnLine: {
+            // Point `ea`/`ra` is held at signed perpendicular distance `value` from
+            // line `eb` (value 0 -> on the line). Drives e.g. a circle centre onto a
+            // construction axis and keeps it there through later edits.
+            int p  = pid(c.ea, c.ra);
+            int l0 = pid(c.eb, SketchPointRole::P0), l1 = pid(c.eb, SketchPointRole::P1);
+            if (p >= 0 && l0 >= 0 && l1 >= 0) sc.point_line_distance(p, l0, l1, c.value);
+            break;
+        }
         case SketchConstraintType::Tangent: {
-            auto in_range = [&](int e){ return e >= 0 && e < (int)f.entities.size(); };
+            auto in_range = [&](int e){ return e >= 0 && e < (int)entities.size(); };
             if (!in_range(c.ea) || !in_range(c.eb)) break;
-            const SketchEntity& ea_e = f.entities[c.ea];
-            const SketchEntity& eb_e = f.entities[c.eb];
+            const SketchEntity& ea_e = entities[c.ea];
+            const SketchEntity& eb_e = entities[c.eb];
             auto is_round = [](const SketchEntity& e){
                 return e.type == SketchEntity::Type::Circle || e.type == SketchEntity::Type::Arc; };
             if (is_round(ea_e) && eb_e.type == SketchEntity::Type::Line) {
@@ -256,8 +266,8 @@ bool solve_entity_constraints(CadFeature& f)
 
     const bool ok = sc.solve();
     // Write solved coordinates back into the participating entities.
-    for (size_t i = 0; i < f.entities.size(); ++i) {
-        SketchEntity& e = f.entities[i];
+    for (size_t i = 0; i < entities.size(); ++i) {
+        SketchEntity& e = entities[i];
         int ip0 = table[i][int(SketchPointRole::P0)];
         int ip1 = table[i][int(SketchPointRole::P1)];
         int ic  = table[i][int(SketchPointRole::Center)];
@@ -289,11 +299,11 @@ bool solve_entity_constraints(CadFeature& f)
         }
     }
     // Apply radius/diameter dimensions directly (radius is not a solver variable).
-    for (const auto& c : f.entity_constraints) {
+    for (const auto& c : constraints) {
         if (c.type != SketchConstraintType::Radius &&
             c.type != SketchConstraintType::Diameter) continue;
-        if (c.ea < 0 || c.ea >= (int)f.entities.size()) continue;
-        SketchEntity& e = f.entities[c.ea];
+        if (c.ea < 0 || c.ea >= (int)entities.size()) continue;
+        SketchEntity& e = entities[c.ea];
         if (e.type != SketchEntity::Type::Circle && e.type != SketchEntity::Type::Arc) continue;
         const double r = (c.type == SketchConstraintType::Diameter) ? 0.5 * c.value : c.value;
         if (r <= 0.0) continue;
@@ -312,7 +322,6 @@ bool solve_entity_constraints(CadFeature& f)
     }
     return ok;
 }
-} // namespace
 
 bool CadDocument::solve_sketch_feature(int index)
 {
@@ -322,7 +331,7 @@ bool CadDocument::solve_sketch_feature(int index)
 
     // Onshape-style entity sketches solve against entity endpoints (Fase 4.2).
     if (!f.entities.empty())
-        return solve_entity_constraints(f);
+        return solve_sketch_entities(f.entities, f.entity_constraints);
 
     if (f.constraints.empty()) return true;
 

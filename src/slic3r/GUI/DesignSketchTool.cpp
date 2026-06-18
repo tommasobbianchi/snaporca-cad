@@ -255,13 +255,14 @@ void DesignSketchTool::apply_dimension(double v)
     default: break;
     }
     record_dimension_constraint(v);          // store a driving constraint for this dimension
+    resolve_live();                          // live-solve so the viewport shows the solved sketch
     m_selection.clear();
     if (on_selection_changed) on_selection_changed(0);
 }
 
 // Append the SketchEntityConstraintDef that makes the just-applied dimension a
-// driving constraint (enforced by the kernel once the sketch is committed).
-// DistanceToLine has no kernel constraint type, so it stays geometry-only.
+// driving constraint (enforced by the kernel live and at commit). DistanceToLine
+// records a PointOnLine constraint so "centre onto axis" persists through re-solve.
 void DesignSketchTool::record_dimension_constraint(double v)
 {
     const DimType k = dimension_kind();
@@ -293,8 +294,28 @@ void DesignSketchTool::record_dimension_constraint(double v)
         c.ea = ia; c.ra = role(ia); c.eb = ib; c.rb = role(ib);
         m_constraints.push_back(c); break;
     }
-    default: break;   // DistanceToLine / None: no driving constraint recorded
+    case DimType::DistanceToLine: {
+        // Point-on-line driving constraint: hold the point-like entity at unsigned
+        // perpendicular distance v from the line (v == 0 -> on the axis).
+        const bool aLine = (m_entities[m_selection[0]].type == SketchEntity::Type::Line);
+        const int ip = m_selection[aLine ? 1 : 0];   // point-like (Point/Circle/Arc)
+        const int il = m_selection[aLine ? 0 : 1];   // line
+        c.type = SketchConstraintType::PointOnLine;
+        c.ea = ip; c.ra = role(ip); c.eb = il; c.value = v;
+        m_constraints.push_back(c); break;
     }
+    default: break;   // None: no driving constraint recorded
+    }
+}
+
+// Onshape-style live solve: enforce all accumulated driving constraints on the
+// in-session entities immediately, so the viewport reflects the solved sketch as
+// each dimension/constraint is added (not only at commit). The pre-edit geometry
+// is the solver's initial guess, keeping convergence local and side-preserving.
+void DesignSketchTool::resolve_live()
+{
+    if (!m_constraints.empty())
+        solve_sketch_entities(m_entities, m_constraints);
 }
 
 void DesignSketchTool::apply_segment_length(double len)
@@ -318,6 +339,7 @@ void DesignSketchTool::apply_segment_length(double len)
             m_constraints.push_back(c);
         }
     }
+    resolve_live();                          // live-solve the in-session sketch
 }
 
 void DesignSketchTool::keep_segment_as_drawn()

@@ -78,7 +78,8 @@ enum class SketchConstraintType {
     LockX, LockY, EqualLength, Parallel, Perpendicular,
     Concentric,
     Tangent, Midpoint, Symmetric, Angle,
-    Radius, Diameter
+    Radius, Diameter,
+    PointOnLine   // a point lies on a line (or at signed perpendicular distance `value`)
 };
 
 // Constraint on a SketchProfile, referencing profile point indices (a,b,c,d).
@@ -112,6 +113,13 @@ struct SketchEntityConstraintDef {
     SketchPointRole rc{SketchPointRole::P0};            // role within ec
     template<class Archive> void serialize(Archive& ar) { ar(type, ea, eb, ra, rb, value, ec, rc); }
 };
+
+// Solve a bare entity list in place against entity-form constraints. Shared by
+// CadDocument::solve_sketch_feature (committed features) and the in-session GUI
+// sketch tool (live solving as dimensions/constraints are added). Returns true on
+// convergence; an empty constraint list is a no-op that returns true.
+bool solve_sketch_entities(std::vector<SketchEntity>& entities,
+                           const std::vector<SketchEntityConstraintDef>& constraints);
 
 struct SketchParams {
     // Extrude/Revolve

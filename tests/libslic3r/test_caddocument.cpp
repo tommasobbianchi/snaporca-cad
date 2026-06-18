@@ -495,6 +495,46 @@ TEST_CASE("entity constraints: radius/diameter dimensions", "[CadDocument]")
     }
 }
 
+// PointOnLine (Fase: persistent positioning). A point-like entity is held on a
+// line (value 0) or at perpendicular distance `value`. Drives e.g. a circle centre
+// onto a construction axis and, being a real constraint, keeps it there on re-solve.
+TEST_CASE("entity constraints: point-on-line positions a centre onto an axis", "[CadDocument]")
+{
+    using R = SketchPointRole;
+    using T = SketchConstraintType;
+
+    SECTION("circle centre snaps onto a pinned axis (value 0) and persists") {
+        CadDocument doc;
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Line,   Vec2d(0,0), Vec2d(10,0)},                 // axis (X)
+            {SketchEntity::Type::Circle, Vec2d(5,7), Vec2d(5,7), Vec2d(5,7), 3.0}, // off-axis centre
+        };
+        std::vector<SketchEntityConstraintDef> cons;
+        cons.push_back({T::Fix,         0, -1, R::P0,     R::P0, 0.0});   // pin axis endpoints
+        cons.push_back({T::Fix,         0, -1, R::P1,     R::P1, 0.0});
+        cons.push_back({T::PointOnLine, 1,  0, R::Center, R::P0, 0.0});   // centre onto axis
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "S", cons);
+        REQUIRE(doc.solve_sketch_feature(sk));
+        REQUIRE(std::abs(doc.features[sk].entities[1].center.y()) < 1e-6);   // on the axis
+        // Re-solving keeps it on the axis (a driving constraint, not a one-shot move).
+        REQUIRE(doc.solve_sketch_feature(sk));
+        REQUIRE(std::abs(doc.features[sk].entities[1].center.y()) < 1e-6);
+    }
+
+    SECTION("non-zero perpendicular distance via the free solve_sketch_entities") {
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Line,  Vec2d(0,0), Vec2d(10,0)},
+            {SketchEntity::Type::Point, Vec2d(4,9)},                       // point above the axis
+        };
+        std::vector<SketchEntityConstraintDef> cons;
+        cons.push_back({T::Fix,         0, -1, R::P0, R::P0, 0.0});
+        cons.push_back({T::Fix,         0, -1, R::P1, R::P1, 0.0});
+        cons.push_back({T::PointOnLine, 1,  0, R::P0, R::P0, 2.0});        // hold at distance 2
+        REQUIRE(solve_sketch_entities(ents, cons));
+        REQUIRE(std::abs(std::abs(ents[1].p0.y()) - 2.0) < 1e-6);         // 2 mm off the axis
+    }
+}
+
 TEST_CASE("entity constraints: tangent/midpoint/symmetric/angle", "[CadDocument]")
 {
     using R = SketchPointRole;

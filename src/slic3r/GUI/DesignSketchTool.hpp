@@ -113,6 +113,7 @@ private:
     void apply_angle_between(int ia, int ib, double deg); // rotate line B to set the A^B angle
     bool selection_valid() const;                         // all selection indices in range
     void record_dimension_constraint(double v);           // append the driving def for the selection
+    void resolve_live();                                  // solve accumulated constraints on m_entities now
 
     // Entity builders: append to m_entities (honoring the construction flag).
     void push_line(const Vec2d& a, const Vec2d& b);
