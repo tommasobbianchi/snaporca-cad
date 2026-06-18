@@ -952,6 +952,20 @@ std::vector<SketchEntity> DesignSketchTool::make_tangent_arc(const Vec2d& start,
     return { make_arc_through(center, radius, start, end, through, m_construction) };
 }
 
+std::vector<SketchEntity> DesignSketchTool::make_center_arc(const Vec2d& center, const Vec2d& start, const Vec2d& end_dir) const
+{
+    const double radius = (start - center).norm();
+    if (radius < 1e-9)
+        return {};
+    const double a_start = std::atan2(start.y()   - center.y(), start.x()   - center.x());
+    const double a_end   = std::atan2(end_dir.y() - center.y(), end_dir.x() - center.x());
+    const double de      = wrap_2pi(a_end - a_start);    // CCW sweep start -> end (0,2π)
+    const Vec2d  end      = center + radius * Vec2d(std::cos(a_end),  std::sin(a_end));
+    const double a_mid    = a_start + de * 0.5;           // bisector brackets the sweep
+    const Vec2d  through   = center + radius * Vec2d(std::cos(a_mid), std::sin(a_mid));
+    return { make_arc_through(center, radius, start, end, through, m_construction) };
+}
+
 std::vector<SketchEntity> DesignSketchTool::make_slot(const Vec2d& c0, const Vec2d& c1, double half_width) const
 {
     std::vector<SketchEntity> out;
@@ -1764,6 +1778,19 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         break;
     }
 
+    case Mode::CenterArc: {
+        draw_vertices(m_vertex_model, m_points, yellow);
+        if (m_points.size() == 1 && m_has_cursor) {
+            // center placed: show the radius rubber-band as a faint guide circle
+            SketchEntity g; g.type = SketchEntity::Type::Circle; g.center = m_points[0];
+            g.p0 = m_points[0]; g.radius = (m_cursor - m_points[0]).norm(); g.construction = true;
+            draw_entities_preview({ g }, preview);
+        } else if (m_points.size() == 2 && m_has_cursor) {
+            draw_entities_preview(make_center_arc(m_points[0], m_points[1], m_cursor), preview);
+        }
+        break;
+    }
+
     case Mode::Slot: {
         draw_vertices(m_vertex_model, m_points, yellow);
         if (m_points.size() == 1 && m_has_cursor) {
@@ -2323,6 +2350,26 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 const int base = int(m_entities.size());
                 append_entities(make_tangent_arc(m_points[0], m_points[1]));
                 infer_auto_constraints(base);   // tangent-arc ends Coincident onto vertices
+                m_points.clear();
+            }
+            return true;
+        }
+        if (evt.RightDown()) { m_points.clear(); return true; }
+        break;
+    }
+
+    case Mode::CenterArc: {
+        if (evt.LeftDown()) {
+            Vec2d p; screen_to_plane(canvas, evt, p);
+            bool vsnap = false;
+            // The start (2nd click) snaps onto endpoints; center & end-dir are free.
+            if (m_points.size() == 1)
+                p = snap_vertex(canvas, evt, p, vsnap);
+            m_points.push_back(p);
+            if (m_points.size() == 3) {
+                const int base = int(m_entities.size());
+                append_entities(make_center_arc(m_points[0], m_points[1], m_points[2]));
+                infer_auto_constraints(base);   // arc start Coincident onto a snapped vertex
                 m_points.clear();
             }
             return true;

@@ -233,6 +233,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
               _L("Click start, end, then a point on the arc"));
         skbtn("design_tangentarc", DesignSketchTool::Mode::TangentArc,      _L("Tangent arc"),
               _L("Click start (on the last entity) then end"));
+        skbtn("design_arc_center", DesignSketchTool::Mode::CenterArc,       _L("Center-point arc"),
+              _L("Click center, then start, then a point for the end angle"));
         skbtn("design_slot",      DesignSketchTool::Mode::Slot,             _L("Slot"),
               _L("Click two centerline ends, then a point for width"));
 

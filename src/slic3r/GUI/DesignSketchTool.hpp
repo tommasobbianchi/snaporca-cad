@@ -25,7 +25,7 @@ class GLCanvas3D;
 class DesignSketchTool {
 public:
     enum class Mode { Select, Dimension, Polyline, Line, CornerRect, CenterRect, CenterCircle, Point,
-                      ThreePointCircle, ThreePointArc, TangentArc, Slot, Polygon,
+                      ThreePointCircle, ThreePointArc, TangentArc, CenterArc, Slot, Polygon,
                       Constrain };
 
     void begin(const SketchPlane& plane, Mode mode = Mode::Polyline);
@@ -197,6 +197,9 @@ private:
     std::vector<SketchEntity> make_three_point_circle(const Vec2d& a, const Vec2d& b, const Vec2d& c) const;
     std::vector<SketchEntity> make_three_point_arc(const Vec2d& start, const Vec2d& end, const Vec2d& on_arc) const;
     std::vector<SketchEntity> make_tangent_arc(const Vec2d& start, const Vec2d& end) const;
+    // Center-start-end arc: click center, then start (sets radius), then a third
+    // point whose direction from the center sets the CCW end angle.
+    std::vector<SketchEntity> make_center_arc(const Vec2d& center, const Vec2d& start, const Vec2d& end_dir) const;
     std::vector<SketchEntity> make_slot(const Vec2d& c0, const Vec2d& c1, double half_width) const;
     std::vector<SketchEntity> make_polygon(const Vec2d& center, const Vec2d& vertex, int sides) const;
     void append_entities(const std::vector<SketchEntity>& ents);
