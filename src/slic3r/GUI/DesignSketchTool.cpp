@@ -976,32 +976,101 @@ void DesignSketchTool::draw_strokes(GLModel& model, const std::vector<std::pair<
 }
 
 namespace {
-// Minimal 7-segment-style vector font for dimension labels. Strokes live in a
-// 0..0.6 (x) by 0..1 (y) cell, baseline at y=0; `advance` is the pen step after it.
+// Smooth single-stroke (Hershey-style) vector font for dimension labels. Glyphs
+// live in a 0..0.6 (x) by 0..1 (y) cell, baseline at y=0, cap height y=1; curved
+// digits are sampled as short segments so they read as rounded shapes, not blocks.
+// `advance` is the pen step after the glyph.
+constexpr double kPi = 3.14159265358979323846;
+inline double rad(double deg) { return deg * kPi / 180.0; }
+
+// Connect a list of points as a polyline.
+void poly(std::vector<std::pair<Vec2d, Vec2d>>& out, std::initializer_list<Vec2d> p)
+{
+    auto it = p.begin();
+    if (it == p.end()) return;
+    Vec2d prev = *it++;
+    for (; it != p.end(); ++it) { out.emplace_back(prev, *it); prev = *it; }
+}
+// Sample an elliptical arc (centre cx,cy; radii rx,ry) from angle a0..a1.
+void arc(std::vector<std::pair<Vec2d, Vec2d>>& out, double cx, double cy, double rx, double ry,
+         double a0, double a1, int n = 14)
+{
+    Vec2d prev(cx + rx * std::cos(a0), cy + ry * std::sin(a0));
+    for (int i = 1; i <= n; ++i) {
+        const double t = a0 + (a1 - a0) * (double)i / n;
+        const Vec2d cur(cx + rx * std::cos(t), cy + ry * std::sin(t));
+        out.emplace_back(prev, cur);
+        prev = cur;
+    }
+}
+
 void glyph_strokes(char c, std::vector<std::pair<Vec2d, Vec2d>>& out, double& advance)
 {
-    // NB: avoid names B0/B1 — termios defines them as baud-rate macros in GUI TUs.
-    const Vec2d TL(0, 1),  TR(0.6, 1);     // top corners
-    const Vec2d ML(0, 0.5), MR(0.6, 0.5);  // middle
-    const Vec2d BL(0, 0),  BR(0.6, 0);     // bottom corners
-    auto seg = [&](const Vec2d& a, const Vec2d& b) { out.emplace_back(a, b); };
-    advance = 0.85;
+    advance = 0.72;
     switch (c) {
-    case '0': seg(TL, TR); seg(TR, BR); seg(BR, BL); seg(BL, TL); break;
-    case '1': seg(Vec2d(0.3, 1), Vec2d(0.3, 0)); advance = 0.55; break;  // centred stem
-    case '2': seg(TL, TR); seg(TR, MR); seg(MR, ML); seg(ML, BL); seg(BL, BR); break;
-    case '3': seg(TL, TR); seg(TR, BR); seg(BR, BL); seg(MR, ML); break;
-    case '4': seg(TL, ML); seg(ML, MR); seg(TR, BR); break;
-    case '5': seg(TR, TL); seg(TL, ML); seg(ML, MR); seg(MR, BR); seg(BR, BL); break;
-    case '6': seg(TR, TL); seg(TL, BL); seg(BL, BR); seg(BR, MR); seg(MR, ML); break;
-    case '7': seg(TL, TR); seg(TR, BR); break;
-    case '8': seg(TL, TR); seg(TR, BR); seg(BR, BL); seg(BL, TL); seg(ML, MR); break;
-    case '9': seg(BR, TR); seg(TR, TL); seg(TL, ML); seg(ML, MR); break;
-    case '.': seg(Vec2d(0.2, 0), Vec2d(0.4, 0)); advance = 0.4; break;
-    case '-': seg(ML, MR); break;
-    case 'R': seg(BL, TL); seg(TL, TR); seg(TR, MR); seg(MR, ML); seg(ML, BR); break;
-    case ' ': advance = 0.5; break;
-    default:  advance = 0.5; break;
+    case '0':
+        arc(out, 0.30, 0.50, 0.25, 0.48, 0.0, 2.0 * kPi);
+        break;
+    case '1':
+        poly(out, {Vec2d(0.13, 0.76), Vec2d(0.33, 1.0), Vec2d(0.33, 0.0)});
+        poly(out, {Vec2d(0.13, 0.0), Vec2d(0.53, 0.0)});
+        advance = 0.52;
+        break;
+    case '2':
+        arc(out, 0.30, 0.72, 0.25, 0.25, rad(170), rad(-45));
+        poly(out, {Vec2d(0.477, 0.543), Vec2d(0.06, 0.0), Vec2d(0.56, 0.0)});
+        break;
+    case '3':
+        arc(out, 0.30, 0.74, 0.24, 0.24, rad(160), rad(-90));
+        arc(out, 0.30, 0.26, 0.26, 0.26, rad(90), rad(-160));
+        break;
+    case '4':
+        poly(out, {Vec2d(0.42, 1.0), Vec2d(0.04, 0.32), Vec2d(0.58, 0.32)});
+        poly(out, {Vec2d(0.42, 1.0), Vec2d(0.42, 0.0)});
+        break;
+    case '5':
+        poly(out, {Vec2d(0.54, 1.0), Vec2d(0.12, 1.0), Vec2d(0.11, 0.52)});
+        arc(out, 0.27, 0.30, 0.27, 0.27, rad(130), rad(-120));
+        break;
+    case '6':
+        arc(out, 0.30, 0.28, 0.26, 0.26, 0.0, 2.0 * kPi);
+        arc(out, 0.30, 0.55, 0.30, 0.45, rad(90), rad(190));
+        break;
+    case '7':
+        poly(out, {Vec2d(0.05, 1.0), Vec2d(0.57, 1.0), Vec2d(0.22, 0.0)});
+        break;
+    case '8':
+        arc(out, 0.30, 0.73, 0.22, 0.25, 0.0, 2.0 * kPi);
+        arc(out, 0.30, 0.26, 0.26, 0.26, 0.0, 2.0 * kPi);
+        break;
+    case '9':
+        arc(out, 0.30, 0.70, 0.26, 0.26, 0.0, 2.0 * kPi);
+        arc(out, 0.28, 0.55, 0.28, 0.55, rad(15), rad(-90));
+        break;
+    case '.':
+    case ',':  // locale (LC_NUMERIC) may format the decimal separator as a comma
+        // small solid dot: crossed short strokes so the quads fill a visible disk
+        poly(out, {Vec2d(0.10, 0.08), Vec2d(0.24, 0.08)});
+        poly(out, {Vec2d(0.17, 0.02), Vec2d(0.17, 0.15)});
+        advance = 0.30;
+        break;
+    case '-':
+        poly(out, {Vec2d(0.10, 0.5), Vec2d(0.50, 0.5)});
+        advance = 0.62;
+        break;
+    case 'R':
+        poly(out, {Vec2d(0.08, 0.0), Vec2d(0.08, 1.0), Vec2d(0.38, 1.0)});
+        arc(out, 0.38, 0.75, 0.17, 0.25, rad(90), rad(-90));
+        poly(out, {Vec2d(0.38, 0.50), Vec2d(0.08, 0.50)});
+        poly(out, {Vec2d(0.30, 0.50), Vec2d(0.58, 0.0)});
+        advance = 0.80;
+        break;
+    case ' ':
+        advance = 0.5;
+        break;
+    default:
+        advance = 0.5;
+        break;
     }
 }
 } // namespace
