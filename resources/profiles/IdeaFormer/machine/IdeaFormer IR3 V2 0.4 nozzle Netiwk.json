@@ -1,0 +1,17 @@
+{
+	"type": "machine",
+	"name": "IdeaFormer IR3 V2 0.4 nozzle Netiwk",
+	"inherits": "IdeaFormer IR3 V2 0.4 nozzle",
+	"from": "system",
+	"setting_id": "GMIF002",
+	"instantiation": "true",
+	"printer_settings_id": "IdeaFormer IR3 V2 0.4 nozzle Netiwk",
+	"printer_extruder_id": [
+		"1"
+	],
+	"printer_extruder_variant": [
+		"Direct Drive Standard"
+	],
+	"host_type": "moonraker",
+	"print_host": "http://100.89.102.68"
+}

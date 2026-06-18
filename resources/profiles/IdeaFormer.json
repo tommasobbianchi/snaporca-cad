@@ -1,6 +1,6 @@
 {
     "name": "IdeaFormer",
-    "version": "02.00.00.02",
+    "version": "02.00.00.03",
     "force_update": "0",
     "description": "IdeaFormer belt printer configurations",
     "machine_model_list": [
@@ -49,6 +49,10 @@
         {
             "name": "IdeaFormer IR3 V2 0.4 nozzle",
             "sub_path": "machine/IdeaFormer IR3 V2 0.4 nozzle.json"
+        },
+        {
+            "name": "IdeaFormer IR3 V2 0.4 nozzle Netiwk",
+            "sub_path": "machine/IdeaFormer IR3 V2 0.4 nozzle Netiwk.json"
         }
     ]
 }
