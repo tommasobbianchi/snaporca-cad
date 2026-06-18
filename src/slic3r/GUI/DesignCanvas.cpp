@@ -282,6 +282,11 @@ bool DesignCanvas::selected_constrain_entities(int& e0, int& e1) const
     return m_sketch_tool.selected_constrain_entities(e0, e1);
 }
 
+int DesignCanvas::selected_constrain_axis() const
+{
+    return m_sketch_tool.pick2();
+}
+
 bool DesignCanvas::pick0_point(Vec2d& out) const
 {
     return m_sketch_tool.pick0_point(out);

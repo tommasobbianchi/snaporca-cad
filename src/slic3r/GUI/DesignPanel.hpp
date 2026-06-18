@@ -72,6 +72,7 @@ private:
     void confirm_value();
     void cancel_value();
     void commit_entity_constraint(const SketchEntityConstraintDef& def); // shared solve/refresh tail
+    void commit_entity_constraints(const std::vector<SketchEntityConstraintDef>& defs); // multi-def (Symmetric)
     void after_edit_op();                                                // shared edit-op refresh tail
     void on_edit_feature();            // reopen the selected feature's dialog populated
     void after_tree_edit(bool ok);     // shared post-op refresh of tree/viewport/status

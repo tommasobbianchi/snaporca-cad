@@ -22,7 +22,7 @@ void DesignSketchTool::begin(const SketchPlane& plane, Mode mode)
     m_has_cursor = false;
     m_sel_a = m_sel_b = -1;
     m_constrain_entities = false;
-    m_pick0 = m_pick1 = -1;
+    m_pick0 = m_pick1 = m_pick2 = -1;
     m_active = true;
 }
 
@@ -43,7 +43,7 @@ void DesignSketchTool::cancel()
     m_has_cursor = false;
     m_sel_a = m_sel_b = -1;
     m_constrain_entities = false;
-    m_pick0 = m_pick1 = -1;
+    m_pick0 = m_pick1 = m_pick2 = -1;
 }
 
 void DesignSketchTool::finish()
@@ -68,7 +68,7 @@ void DesignSketchTool::begin_constrain(const SketchProfile& prof, const SketchPl
     m_has_cursor = false;
     m_sel_a = m_sel_b = -1;
     m_constrain_entities = false;
-    m_pick0 = m_pick1 = -1;
+    m_pick0 = m_pick1 = m_pick2 = -1;
     m_active = true;
 }
 
@@ -82,7 +82,7 @@ void DesignSketchTool::begin_constrain_entities(const std::vector<SketchEntity>&
     m_entities = ents;
     m_has_cursor = false;
     m_sel_a = m_sel_b = -1;
-    m_pick0 = m_pick1 = -1;
+    m_pick0 = m_pick1 = m_pick2 = -1;
     m_active = true;
 }
 
@@ -465,7 +465,7 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
             std::vector<Vec2d> markers;
             for (size_t i = 0; i < m_entities.size(); ++i) {
                 const SketchEntity& e = m_entities[i];
-                const bool sel = (int(i) == m_pick0 || int(i) == m_pick1);
+                const bool sel = (int(i) == m_pick0 || int(i) == m_pick1 || int(i) == m_pick2);
                 const ColorRGBA col = sel ? red : cyan;
                 if (e.type == SketchEntity::Type::Point) { markers.push_back(e.p0); continue; }
                 bool closed = false;
@@ -651,9 +651,13 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                     if (d < best) { best = d; bi = int(i); }
                 }
                 if (bi >= 0) {
-                    if (m_pick0 < 0)                      { m_pick0 = bi; m_pick0_pt = p; }
-                    else if (m_pick1 < 0 && bi != m_pick0) m_pick1 = bi;
-                    else                                  { m_pick0 = bi; m_pick1 = -1; m_pick0_pt = p; }
+                    // Rolling three-slot selection: slots 0/1 feed all 2-entity
+                    // constraints; slot 2 is the Symmetric axis (only filled once
+                    // 0 and 1 are set). A click past slot 2 restarts the cycle.
+                    if (m_pick0 < 0)                                         { m_pick0 = bi; m_pick0_pt = p; }
+                    else if (m_pick1 < 0 && bi != m_pick0)                    m_pick1 = bi;
+                    else if (m_pick1 >= 0 && m_pick2 < 0 && bi != m_pick0 && bi != m_pick1) m_pick2 = bi;
+                    else                                                     { m_pick0 = bi; m_pick1 = m_pick2 = -1; m_pick0_pt = p; }
                 }
                 return true;
             }

@@ -59,6 +59,7 @@ public:
     void begin_constrain_entities(const std::vector<SketchEntity>& ents, const SketchPlane& plane);
     bool is_constraining_entities() const;
     bool selected_constrain_entities(int& e0, int& e1) const;
+    int  selected_constrain_axis() const;  // third pick slot (Symmetric axis), -1 if unset
     bool pick0_point(Vec2d& out) const;   // plane-coords of the slot-0 pick (trim/extend)
     void update_constrain_entities(const std::vector<SketchEntity>& ents);
 

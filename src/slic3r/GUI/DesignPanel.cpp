@@ -253,6 +253,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         cbtn("design_c_concentric",    _L("Concentric"),    SketchConstraintType::Concentric);
         cbtn("design_c_tangent",       _L("Tangent"),       SketchConstraintType::Tangent);
         cbtn("design_c_midpoint",      _L("Midpoint"),      SketchConstraintType::Midpoint);
+        cbtn("design_c_symmetric",     _L("Symmetric"),     SketchConstraintType::Symmetric);
         cbtn("design_c_angle",         _L("Angle"),         SketchConstraintType::Angle);
         cbtn("design_c_radius",        _L("Radius"),        SketchConstraintType::Radius);
         cbtn("design_c_diameter",      _L("Diameter"),      SketchConstraintType::Diameter);
@@ -964,7 +965,8 @@ void DesignPanel::apply_entity_constraint(SketchConstraintType type)
     const bool needs_two = (type == T::Parallel || type == T::Perpendicular ||
                             type == T::EqualLength || type == T::Coincident ||
                             type == T::Concentric || type == T::Tangent ||
-                            type == T::Angle || type == T::Midpoint);
+                            type == T::Angle || type == T::Midpoint ||
+                            type == T::Symmetric);
     if (e0 < 0 || e0 >= int(feat.entities.size()) ||
         (needs_two && (e1 < 0 || e1 >= int(feat.entities.size())))) {
         fail(needs_two ? _L("Pick two entities first") : _L("Pick an entity first"));
@@ -1043,6 +1045,29 @@ void DesignPanel::apply_entity_constraint(SketchConstraintType type)
         def.ea = pt; def.ra = R::P0; def.eb = ln;
         break;
     }
+    case T::Symmetric: {
+        // Two entities made symmetric about a third (axis) line. Picks: slot0=A,
+        // slot1=B, slot2=axis. Two Points -> one pair; two Lines -> endpoint pairs.
+        using ET = SketchEntity::Type;
+        const int axis = m_viewport->selected_constrain_axis();
+        if (axis < 0 || axis >= int(feat.entities.size()) ||
+            feat.entities[axis].type != ET::Line) {
+            fail(_L("Symmetric: pick two entities, then an axis line")); return;
+        }
+        const ET ta = feat.entities[e0].type, tb = feat.entities[e1].type;
+        std::vector<SketchEntityConstraintDef> defs;
+        auto mk = [&](R ra, R rb) {
+            SketchEntityConstraintDef d;
+            d.type = T::Symmetric;
+            d.ea = e0; d.ra = ra; d.eb = e1; d.rb = rb; d.ec = axis;
+            defs.push_back(d);
+        };
+        if (ta == ET::Point && tb == ET::Point) { mk(R::P0, R::P0); }
+        else if (ta == ET::Line && tb == ET::Line) { mk(R::P0, R::P0); mk(R::P1, R::P1); }
+        else { fail(_L("Symmetric needs two points or two lines + an axis")); return; }
+        commit_entity_constraints(defs);
+        return;   // multi-def commit done here
+    }
     case T::Radius:
     case T::Diameter: {
         const SketchEntity& A = feat.entities[e0];
@@ -1067,15 +1092,23 @@ void DesignPanel::apply_entity_constraint(SketchConstraintType type)
 
 void DesignPanel::commit_entity_constraint(const SketchEntityConstraintDef& def)
 {
-    if (m_constrain_feat < 0 || m_constrain_feat >= int(m_doc.features.size()) || !m_viewport)
+    commit_entity_constraints({ def });
+}
+
+void DesignPanel::commit_entity_constraints(const std::vector<SketchEntityConstraintDef>& defs)
+{
+    if (m_constrain_feat < 0 || m_constrain_feat >= int(m_doc.features.size()) ||
+        !m_viewport || defs.empty())
         return;
     CadFeature& feat = m_doc.features[m_constrain_feat];
     // solve_sketch_feature rewrites entity coords even on failure, so snapshot
-    // to roll back a rejected (over-constrained) addition cleanly.
+    // to roll back a rejected (over-constrained) addition cleanly. Multiple defs
+    // (Symmetric on two lines) must solve together, so push all then resize back.
     const std::vector<SketchEntity> saved = feat.entities;
-    feat.entity_constraints.push_back(def);
+    const size_t before = feat.entity_constraints.size();
+    for (const auto& d : defs) feat.entity_constraints.push_back(d);
     if (!m_doc.solve_sketch_feature(m_constrain_feat)) {
-        feat.entity_constraints.pop_back();
+        feat.entity_constraints.resize(before);
         feat.entities = saved;
         m_status->SetForegroundColour(wxColour(235, 110, 110));
         m_status->SetLabel(_L("Constraint rejected (over-constrained)"));

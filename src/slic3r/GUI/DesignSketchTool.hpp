@@ -51,6 +51,8 @@ public:
     bool is_constraining_entities() const { return m_active && m_mode == Mode::Constrain && m_constrain_entities; }
     // Up to two picked line-entity indices; returns true if at least one is picked.
     bool selected_constrain_entities(int& e0, int& e1) const { e0 = m_pick0; e1 = m_pick1; return m_pick0 >= 0; }
+    // Third pick slot (Symmetric axis): only filled after slots 0 and 1 are set.
+    int  pick2() const { return m_pick2; }
     // Plane-coords of the click that filled slot 0 (for pick-point edit ops: trim/extend).
     bool pick0_point(Vec2d& out) const { out = m_pick0_pt; return m_pick0 >= 0; }
     // Refresh the displayed entities after the kernel re-solved them.
@@ -102,6 +104,7 @@ private:
     bool                m_constrain_entities{false}; // Constrain mode acts on entities
     int                 m_pick0{-1};   // picked line-entity indices (entity Constrain)
     int                 m_pick1{-1};
+    int                 m_pick2{-1};   // third slot (Symmetric axis)
     Vec2d               m_pick0_pt{0,0}; // plane-coords of the slot-0 pick (trim/extend)
     GLModel             m_line_model;
     GLModel             m_vertex_model;
