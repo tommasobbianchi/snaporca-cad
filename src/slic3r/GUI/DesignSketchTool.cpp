@@ -493,6 +493,10 @@ std::string DesignSketchTool::dim_text(const DimAnnot& a) const
     const char* prefix = (a.kind == DimType::Diameter) ? "\xC3\x98"   // 'Ø'
                        : (a.kind == DimType::Radius)   ? "R" : "";
     std::snprintf(buf, sizeof(buf), "%s%.1f", prefix, a.value);
+    // Force the international (en) decimal point: wx sets LC_NUMERIC to the user
+    // locale at startup, so snprintf("%.1f") can emit a comma. Normalise it.
+    for (char& ch : buf)
+        if (ch == ',') ch = '.';
     return std::string(buf);
 }
 
