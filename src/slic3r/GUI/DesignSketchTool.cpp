@@ -1012,16 +1012,19 @@ void DesignSketchTool::draw_text(GLModel& model, const std::string& s, const Vec
         }
         pen += advs[g];
     }
-    draw_strokes(model, world, std::max(height * 0.06, 0.25), color);
+    draw_strokes(model, world, std::max(height * 0.08, 0.02), color);
 }
 
 // Draw every placed dimension: extension lines, the offset dimension line, arrowheads
 // and the numeric label. Geometry is recomputed from the (solved) entities each frame
 // so the quote tracks the sketch.
-void DesignSketchTool::render_dimensions()
+void DesignSketchTool::render_dimensions(double unit_per_px)
 {
     if (m_dimensions.empty()) return;
     const ColorRGBA dimcol(0.30f, 0.88f, 0.66f, 1.0f);   // teal-green CAD quote
+    // Label text is a CONSTANT screen size (like real CAD), not scaled to geometry,
+    // so a long line doesn't get huge text. ~15 px tall in plane units at this zoom.
+    const double th = std::max(15.0 * unit_per_px, 1e-4);
     for (const DimAnnot& a : m_dimensions) {
         std::vector<std::pair<Vec2d, Vec2d>> segs;
         if (a.kind == DimType::Length || a.kind == DimType::Distance) {
@@ -1050,10 +1053,9 @@ void DesignSketchTool::render_dimensions()
                 segs.emplace_back(tip, back - nrm * (as * 0.5));
             };
             arrow(A2, u); arrow(B2, -u);
-            const double h = std::max(L * 0.05, 2.5);
-            const Vec2d label = (A2 + B2) * 0.5 + nrm * (a.side * h * 0.9);
+            const Vec2d label = (A2 + B2) * 0.5 + nrm * (a.side * (th * 0.7 + 1.5));
             draw_strokes(m_highlight_model, segs, 0.6, dimcol);
-            draw_text(m_line_model, dim_text(a), label, h, dimcol);
+            draw_text(m_line_model, dim_text(a), label, th, dimcol);
         } else if (a.kind == DimType::Diameter || a.kind == DimType::Radius) {
             if (a.ea < 0 || a.ea >= int(m_entities.size())) continue;
             const SketchEntity& e = m_entities[a.ea];
@@ -1062,7 +1064,6 @@ void DesignSketchTool::render_dimensions()
             const Vec2d u(1.0, 0.0);
             const double as = std::max(r * 0.12, 2.0);
             Vec2d label;
-            double h = std::max(r * 0.14, 2.5);
             if (a.kind == DimType::Diameter) {
                 const Vec2d p1 = c - u * r, p2 = c + u * r;
                 segs.emplace_back(p1, p2);
@@ -1070,16 +1071,16 @@ void DesignSketchTool::render_dimensions()
                 segs.emplace_back(p1, p1 + u * as - Vec2d(0, 1) * (as * 0.5));
                 segs.emplace_back(p2, p2 - u * as + Vec2d(0, 1) * (as * 0.5));
                 segs.emplace_back(p2, p2 - u * as - Vec2d(0, 1) * (as * 0.5));
-                label = c + Vec2d(0, 1) * (h * 0.8);
+                label = c + Vec2d(0, 1) * (th * 0.8);
             } else {
                 const Vec2d p2 = c + u * r;
                 segs.emplace_back(c, p2);
                 segs.emplace_back(p2, p2 - u * as + Vec2d(0, 1) * (as * 0.5));
                 segs.emplace_back(p2, p2 - u * as - Vec2d(0, 1) * (as * 0.5));
-                label = (c + p2) * 0.5 + Vec2d(0, 1) * (h * 0.8);
+                label = (c + p2) * 0.5 + Vec2d(0, 1) * (th * 0.8);
             }
             draw_strokes(m_highlight_model, segs, 0.6, dimcol);
-            draw_text(m_line_model, dim_text(a), label, h, dimcol);
+            draw_text(m_line_model, dim_text(a), label, th, dimcol);
         } else if (a.kind == DimType::DistanceToLine) {
             Vec2d pa;
             if (!point_at(a.ea, a.ra, pa) || a.eb < 0 || a.eb >= int(m_entities.size())) continue;
@@ -1091,10 +1092,9 @@ void DesignSketchTool::render_dimensions()
             const double t = (pa - Ln.p0).dot(u);
             const Vec2d foot = Ln.p0 + u * t;       // perpendicular foot on the line
             segs.emplace_back(pa, foot);
-            const double h = std::max((pa - foot).norm() * 0.09, 2.5);
-            const Vec2d label = (pa + foot) * 0.5 + u * (h * 0.9);
+            const Vec2d label = (pa + foot) * 0.5 + u * (th * 0.7 + 1.5);
             draw_strokes(m_highlight_model, segs, 0.6, dimcol);
-            draw_text(m_line_model, dim_text(a), label, h, dimcol);
+            draw_text(m_line_model, dim_text(a), label, th, dimcol);
         }
     }
 }
@@ -1189,7 +1189,8 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         draw_vertices(m_highlight_model, sel_point_markers, white);
 
     // Placed dimension quotes (drawn in every mode so they persist while sketching).
-    render_dimensions();
+    // Pass plane-units-per-pixel so labels keep a constant on-screen size.
+    render_dimensions(1.0 / std::max(camera.get_zoom(), 1e-6));
 
     // In-progress entity preview for the active tool.
     const ColorRGBA preview = m_construction ? grey : orange;

@@ -145,7 +145,7 @@ private:
     SketchEntityConstraintDef constraint_for(const DimAnnot& a) const;      // driving def
     int  place_dimension(DimAnnot a);                                       // create+drive+notify
     std::string dim_text(const DimAnnot& a) const;                          // rendered label string
-    void render_dimensions();                                              // quote lines + labels
+    void render_dimensions(double unit_per_px);                            // quote lines + labels
     void draw_strokes(GLModel& model, const std::vector<std::pair<Vec2d, Vec2d>>& segs,
                       double hw, const ColorRGBA& color);
     void draw_text(GLModel& model, const std::string& s, const Vec2d& center,
