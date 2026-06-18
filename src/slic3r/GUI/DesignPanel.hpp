@@ -158,7 +158,9 @@ private:
     // Onshape-style docked value-entry card (Angle/Radius/Diameter/Offset/Fillet).
     wxSizer*          m_box_value{nullptr};
     wxStaticText*     m_value_label{nullptr};
-    wxSpinCtrlDouble* m_value_input{nullptr};
+    wxTextCtrl*       m_value_input{nullptr};   // plain text field: forces en ('.') decimals
+    double            m_value_min{0.0};         // range for confirm-time clamping
+    double            m_value_max{0.0};
     std::function<void(double)> m_value_cont;   // deferred apply, run on Confirm
     std::function<void()>       m_value_cancel; // optional action when the card is cancelled
 

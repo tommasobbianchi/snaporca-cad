@@ -141,6 +141,7 @@ private:
         Vec2d           label_pos{0, 0};  // cached label centre (plane coords), for picking
     };
     bool point_at(int ei, SketchPointRole role, Vec2d& out) const;          // current coords
+    void set_point(int ei, SketchPointRole role, const Vec2d& v);           // move an entity point
     bool hit_test_point(const Vec2d& p, double tol, int& ei, SketchPointRole& role) const;
     int  hit_test_dimension(const Vec2d& p, double tol) const;              // nearest dim label
     void edit_dimension(int di);                                            // reopen value card for di
@@ -190,6 +191,9 @@ private:
     bool                m_awaiting_length{false}; // Line tool: length dialog is open
     std::vector<int>    m_selection;              // selected entity indices (Mode::Select)
     std::vector<std::pair<int, SketchPointRole>> m_point_sel;  // selected individual points
+    bool                m_dragging_point{false};  // a point grab is in progress (Mode::Select)
+    int                 m_drag_ei{-1};            // entity whose point is being dragged
+    SketchPointRole     m_drag_role{SketchPointRole::P0};
     std::vector<SketchEntityConstraintDef> m_constraints; // driving dims, committed on finish
     std::vector<DimAnnot> m_dimensions;           // placed dimension quotes (Mode::Dimension)
     int                 m_dim_e0{-1};             // first picked point's entity (Dimension)

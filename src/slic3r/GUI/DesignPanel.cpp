@@ -16,6 +16,8 @@
 
 #include <string>
 #include <cmath>
+#include <cstdio>
+#include <algorithm>
 
 #include "slic3r/GUI/wxExtensions.hpp"   // ScalableButton, create_scaled_bitmap
 #include "libslic3r/Model.hpp"
@@ -25,6 +27,26 @@
 #include "slic3r/GUI/GUI_ObjectList.hpp"
 
 namespace Slic3r { namespace GUI {
+
+// Format a value with the international ('.') decimal separator regardless of the
+// app's LC_NUMERIC locale (wx sets it to the user locale at startup). snprintf may
+// emit a comma, so normalise it.
+static wxString en_format(double v, int digits = 2)
+{
+    char fmt[16];
+    std::snprintf(fmt, sizeof(fmt), "%%.%df", digits);
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), fmt, v);
+    for (char* c = buf; *c; ++c) if (*c == ',') *c = '.';
+    return wxString::FromUTF8(buf);
+}
+// Parse a user-typed value accepting either '.' or ',' as the decimal separator.
+static bool en_parse(const wxString& text, double& out)
+{
+    wxString t(text);
+    t.Replace(wxT(","), wxT("."));
+    return t.ToCDouble(&out);
+}
 
 static wxSpinCtrlDouble* make_spin(wxWindow* parent, double val,
                                    double mn = 0.1, double mx = 1000.0)
@@ -551,10 +573,11 @@ DesignPanel::DesignPanel(wxWindow* parent)
         auto* vrow = new wxBoxSizer(wxHORIZONTAL);
         // wxTE_PROCESS_ENTER so the user can just type a value and press Enter to
         // apply it (the natural CAD-dimension gesture), not only click Confirm.
-        m_value_input = new wxSpinCtrlDouble(m_form, wxID_ANY, "", wxDefaultPosition,
-                                             wxSize(90, -1), wxSP_ARROW_KEYS | wxTE_PROCESS_ENTER);
-        m_value_input->SetRange(-100000.0, 100000.0);
-        m_value_input->SetDigits(2);
+        // Plain text field (not a spin control): on wxGTK the native GtkSpinButton
+        // formats per the user locale (comma) with no clean override, so we own the
+        // formatting here to guarantee international '.' decimals.
+        m_value_input = new wxTextCtrl(m_form, wxID_ANY, "", wxDefaultPosition,
+                                       wxSize(90, -1), wxTE_PROCESS_ENTER);
         m_value_input->Bind(wxEVT_TEXT_ENTER, [this](wxCommandEvent&) { confirm_value(); });
         vrow->Add(new wxStaticText(m_form, wxID_ANY, _L("Value")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
         vrow->Add(m_value_input, 0, wxALIGN_CENTER_VERTICAL);
@@ -1344,9 +1367,10 @@ void DesignPanel::request_value(const wxString& label, double def, double mn, do
 {
     m_value_cont = std::move(cont);
     m_value_cancel = std::move(on_cancel);
+    m_value_min = mn;
+    m_value_max = mx;
     m_value_label->SetLabel(label);
-    m_value_input->SetRange(mn, mx);
-    m_value_input->SetValue(def);
+    m_value_input->ChangeValue(en_format(def));   // '.' decimals, no EVT_TEXT feedback
     m_form->GetSizer()->Show(m_box_value, true, true);
     m_form->Layout();
     m_form->FitInside();
@@ -1360,7 +1384,9 @@ void DesignPanel::request_value(const wxString& label, double def, double mn, do
 void DesignPanel::confirm_value()
 {
     if (!m_value_cont) { cancel_value(); return; }
-    const double v = m_value_input->GetValue();
+    double v = 0.0;
+    if (!en_parse(m_value_input->GetValue(), v)) { m_value_input->SetFocus(); return; }
+    v = std::min(std::max(v, m_value_min), m_value_max);   // clamp to range
     auto cont = m_value_cont;            // copy, then clear before running so a
     m_value_cont = nullptr;              // re-entrant request_value can re-arm cleanly
     m_value_cancel = nullptr;            // confirmed: drop the cancel action

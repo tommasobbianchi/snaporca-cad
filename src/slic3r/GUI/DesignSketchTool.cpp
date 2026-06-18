@@ -348,6 +348,33 @@ bool DesignSketchTool::point_at(int ei, SketchPointRole role, Vec2d& out) const
     return false;
 }
 
+// Move an entity point to v. Lines/Points set the coordinate directly; a circle/
+// arc centre translates the whole entity (arc endpoints ride along). Dragging an
+// arc's endpoint is intentionally a no-op (it would redefine radius + angles).
+void DesignSketchTool::set_point(int ei, SketchPointRole role, const Vec2d& v)
+{
+    if (ei < 0 || ei >= int(m_entities.size())) return;
+    SketchEntity& e = m_entities[ei];
+    switch (e.type) {
+    case SketchEntity::Type::Line:
+        if (role == SketchPointRole::P0)      e.p0 = v;
+        else if (role == SketchPointRole::P1) e.p1 = v;
+        break;
+    case SketchEntity::Type::Point:
+        e.p0 = v;
+        break;
+    case SketchEntity::Type::Circle:
+        if (role == SketchPointRole::Center)  e.center = v;
+        break;
+    case SketchEntity::Type::Arc:
+        if (role == SketchPointRole::Center) {
+            const Vec2d d = v - e.center;     // rigid translate, keep radius/angles
+            e.center = v; e.p0 += d; e.p1 += d;
+        }
+        break;
+    }
+}
+
 // Nearest entity *point* (endpoint / centre) within tol, with its role.
 bool DesignSketchTool::hit_test_point(const Vec2d& p, double tol, int& ei, SketchPointRole& role) const
 {
@@ -1609,7 +1636,32 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     // to grab the whole connected loop. Drag falls through so the camera can orbit.
     if (m_mode == Mode::Select) {
         const bool extend = evt.ShiftDown() || evt.ControlDown();
+
+        // Live point drag: once an endpoint/centre was grabbed on LeftDown, dragging
+        // moves it (re-solving constraints live) until the button is released. When
+        // nothing is grabbed, drag falls through so the camera can still orbit.
+        if (m_dragging_point && evt.Dragging() && evt.LeftIsDown()) {
+            Vec2d p;
+            screen_to_plane(canvas, evt, p);
+            set_point(m_drag_ei, m_drag_role, p);
+            resolve_live();
+            return true;
+        }
+        if (evt.LeftUp()) {
+            if (m_dragging_point) {
+                Vec2d p;
+                screen_to_plane(canvas, evt, p);
+                set_point(m_drag_ei, m_drag_role, p);
+                resolve_live();
+                m_dragging_point = false;
+                m_drag_ei = -1;
+                return true;
+            }
+            return false;
+        }
+
         if (evt.LeftDown() || evt.LeftDClick()) {
+            m_dragging_point = false;           // a fresh press disarms any stale grab
             Vec2d p;
             screen_to_plane(canvas, evt, p);
             if (evt.LeftDClick()) {                // double-click a quote label -> edit it
@@ -1638,6 +1690,10 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                         m_point_sel.clear();
                         m_point_sel.push_back(key);
                     }
+                    // Arm the drag so the grabbed point follows the cursor.
+                    m_dragging_point = true;
+                    m_drag_ei = pe;
+                    m_drag_role = pr;
                     if (on_selection_changed)
                         on_selection_changed(int(m_selection.size() + m_point_sel.size()));
                     return true;
