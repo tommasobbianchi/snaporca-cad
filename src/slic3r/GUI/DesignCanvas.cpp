@@ -37,10 +37,10 @@ DesignCanvas::DesignCanvas(wxWindow* parent)
     m_canvas->set_process(wxGetApp().plater()->get_background_process());
     m_canvas->set_type(GLCanvas3D::ECanvasType::CanvasView3D);
 
-    m_canvas->enable_picking(true);    // allow clicking a solid to select/highlight it
+    m_canvas->enable_picking(false);   // viewport face/edge picking is custom (TODO)
     m_canvas->enable_moving(false);
     m_canvas->enable_gizmos(false);
-    m_canvas->enable_selection(true);  // standard volume selection (no move gizmos)
+    m_canvas->enable_selection(false); // stock volume selection unused; solid highlight is tree-driven
     m_canvas->enable_main_toolbar(false);
     m_canvas->enable_select_plate_toolbar(false);
     m_canvas->enable_assemble_view_toolbar(false);
@@ -96,13 +96,14 @@ void DesignCanvas::reload(bool keep_view)
         m_canvas->load_object(m_model, i);
 
     const ColorRGBA gold(0.86f, 0.66f, 0.20f, 1.0f);
+    const ColorRGBA sel_gold(0.40f, 0.82f, 1.0f, 1.0f);   // cyan tint = solid selected
     const ColorRGBA ghost(0.26f, 0.66f, 1.0f, 0.45f);
 
     const auto& volumes = m_canvas->get_volumes().volumes;
     for (auto* v : volumes) {
         int obj_idx = v->object_idx();
         if (obj_idx == 0)
-            v->set_color(gold);
+            v->set_color(m_body_selected ? sel_gold : gold);
         else if (obj_idx == 1)
             v->set_color(ghost);
     }
@@ -277,6 +278,13 @@ void DesignCanvas::set_display_sketches(std::vector<DesignSketchTool::DisplaySke
     m_sketch_tool.set_display_sketches(std::move(ds));
     if (m_canvas) m_canvas->set_as_dirty();
     if (m_canvas_widget) m_canvas_widget->Refresh();
+}
+
+void DesignCanvas::set_body_highlight(bool on)
+{
+    if (m_body_selected == on) return;
+    m_body_selected = on;
+    reload(true);   // recolours the body volume (selected = cyan tint)
 }
 
 void DesignCanvas::delete_selected_sketch_entities()

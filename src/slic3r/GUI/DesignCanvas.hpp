@@ -60,6 +60,7 @@ public:
     void set_on_sketch_face_selected(std::function<void()> cb);  // closed loop clicked
     // Persistently draw committed sketches (un-consumed ones stay visible).
     void set_display_sketches(std::vector<DesignSketchTool::DisplaySketch> ds);
+    void set_body_highlight(bool on);   // tint the solid when its feature is tree-selected
     void delete_selected_sketch_entities();
     void clear_sketch_selection();
 
@@ -99,6 +100,7 @@ private:
     Bed3D       m_bed;
     Model       m_model;
     bool        m_first_frame{true};
+    bool        m_body_selected{false};   // tree selected a body feature → tint the solid
 
     DesignSketchTool m_sketch_tool;
     std::function<void(const SketchProfile&, const SketchPlane&)> m_on_sketch_commit;

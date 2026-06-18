@@ -629,6 +629,18 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_tree->AssignImageList(m_tree_images);
     root->Add(m_tree, 0, wxEXPAND | wxALL, 12);
 
+    // Selecting a body-producing feature (Extrude/Fillet/Chamfer/Hole/Thread) in the
+    // tree highlights the solid in the viewport; a Sketch row clears the highlight
+    // (its face is already shown via the persistent sketch overlay).
+    m_tree->Bind(wxEVT_TREE_SEL_CHANGED, [this](wxTreeEvent&) {
+        if (!m_viewport) return;
+        const int sel = tree_selection();
+        const bool body = (sel >= 0 && sel < int(m_doc.features.size()) &&
+                           m_doc.features[sel].type != CadFeatureType::Sketch &&
+                           !m_doc.body.IsNull());
+        m_viewport->set_body_highlight(body);
+    });
+
     // Feature-tree edit row: act on the selected feature (delete / reorder).
     {
         auto* trow = new wxBoxSizer(wxHORIZONTAL);
