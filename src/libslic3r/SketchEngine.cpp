@@ -1,5 +1,6 @@
 #include "SketchEngine.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -613,9 +614,173 @@ static std::vector<double> line_entity_hits(const Vec2d& a0, const Vec2d& adir,
     return hits;
 }
 
+// Angles (atan2, radians) where `other` crosses the circle of radius R about C.
+// For Arc/Circle cutters the crossing point must lie within the cutter's own
+// sweep (a full circle always qualifies). Powers arc/circle-subject trim/extend,
+// where the subject is parametrized by angle rather than by a line ray param.
+static std::vector<double> circle_cross_angles(const Vec2d& C, double R,
+                                               const SketchEntity& other)
+{
+    std::vector<double> out;
+    if (R < 1e-12) return out;
+
+    auto on_other = [&](const Vec2d& P) -> bool {
+        switch (other.type) {
+        case SketchEntity::Type::Line: {
+            Vec2d d = other.p1 - other.p0;
+            double L2 = d.dot(d);
+            if (L2 < 1e-18) return false;
+            double u = (P - other.p0).dot(d) / L2;
+            return u > -1e-9 && u < 1.0 + 1e-9;
+        }
+        case SketchEntity::Type::Circle:
+            return true;
+        case SketchEntity::Type::Arc: {
+            double phi   = std::atan2(P.y() - other.center.y(), P.x() - other.center.x());
+            double sweep = other.end_angle - other.start_angle;
+            double delta = phi - other.start_angle;
+            if (sweep >= 0.0) {
+                while (delta < -1e-9) delta += 2.0 * M_PI;
+                while (delta > 2.0 * M_PI) delta -= 2.0 * M_PI;
+                return delta <= sweep + 1e-9;
+            } else {
+                while (delta > 1e-9) delta -= 2.0 * M_PI;
+                while (delta < -2.0 * M_PI) delta += 2.0 * M_PI;
+                return delta >= sweep - 1e-9;
+            }
+        }
+        default:
+            return false;
+        }
+    };
+    auto add = [&](const Vec2d& P) {
+        out.push_back(std::atan2(P.y() - C.y(), P.x() - C.x()));
+    };
+
+    switch (other.type) {
+    case SketchEntity::Type::Line: {
+        Vec2d a0 = other.p0, adir = other.p1 - other.p0;
+        double A = adir.dot(adir);
+        if (A < 1e-18) break;
+        Vec2d f = a0 - C;
+        double B  = 2.0 * adir.dot(f);
+        double Cc = f.dot(f) - R * R;
+        double disc = B * B - 4.0 * A * Cc;
+        if (disc < 0.0) break;
+        double sq = std::sqrt(disc);
+        Vec2d P1 = a0 + ((-B - sq) / (2.0 * A)) * adir;
+        if (on_other(P1)) add(P1);
+        if (disc > 1e-12) {
+            Vec2d P2 = a0 + ((-B + sq) / (2.0 * A)) * adir;
+            if (on_other(P2)) add(P2);
+        }
+        break;
+    }
+    case SketchEntity::Type::Circle:
+    case SketchEntity::Type::Arc: {
+        Vec2d  C2 = other.center;
+        double R2 = other.radius;
+        Vec2d  d  = C2 - C;
+        double dd = d.norm();
+        if (dd < 1e-12) break;                          // concentric
+        if (dd > R + R2 + 1e-9) break;                  // too far apart
+        if (dd < std::abs(R - R2) - 1e-9) break;        // one circle inside the other
+        double a  = (R * R - R2 * R2 + dd * dd) / (2.0 * dd);
+        double h2 = R * R - a * a;
+        if (h2 < 0.0) h2 = 0.0;
+        double h   = std::sqrt(h2);
+        Vec2d  mid = C + (a / dd) * d;
+        Vec2d  perp(-d.y() / dd, d.x() / dd);
+        Vec2d  P1 = mid + h * perp;
+        if (on_other(P1)) add(P1);
+        if (h > 1e-12) {
+            Vec2d P2 = mid - h * perp;
+            if (on_other(P2)) add(P2);
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    return out;
+}
+
+// Wrap x into [0, 2pi).
+static double wrap_2pi(double x)
+{
+    while (x < 0.0)         x += 2.0 * M_PI;
+    while (x >= 2.0 * M_PI) x -= 2.0 * M_PI;
+    return x;
+}
+
 bool SketchEngine::trim_entity(SketchEntity& e, const std::vector<SketchEntity>& others,
                                const Vec2d& pick)
 {
+    // Arc subject: parametrize by sweep fraction u in [0,1]; cut on the picked side.
+    if (e.type == SketchEntity::Type::Arc) {
+        double sweep = e.end_angle - e.start_angle;
+        if (std::abs(sweep) < 1e-12) return false;
+        double phi_pick = std::atan2(pick.y() - e.center.y(), pick.x() - e.center.x());
+        double u_pick = (phi_pick - e.start_angle) / sweep;
+        // Bring the pick onto the arc's [0,1] domain.
+        while (u_pick < -1e-9) u_pick += (2.0 * M_PI) / std::abs(sweep);
+        u_pick = std::max(0.0, std::min(1.0, u_pick));
+
+        std::vector<double> cuts;
+        for (const auto& other : others) {
+            for (double phi : circle_cross_angles(e.center, e.radius, other)) {
+                double u = (phi - e.start_angle) / sweep;
+                while (u < -1e-9) u += (2.0 * M_PI) / std::abs(sweep);
+                if (u > 1e-9 && u < 1.0 - 1e-9) cuts.push_back(u);
+            }
+        }
+        if (cuts.empty()) return false;
+
+        if (u_pick <= 0.5) {
+            double uc = std::numeric_limits<double>::max();
+            for (double u : cuts) if (u > u_pick + 1e-9 && u < uc) uc = u;
+            if (uc == std::numeric_limits<double>::max()) return false;
+            e.start_angle = e.start_angle + uc * sweep;   // drop [0, uc)
+        } else {
+            double uc = -std::numeric_limits<double>::max();
+            for (double u : cuts) if (u < u_pick - 1e-9 && u > uc) uc = u;
+            if (uc == -std::numeric_limits<double>::max()) return false;
+            e.end_angle = e.start_angle + uc * sweep;      // drop (uc, 1]
+        }
+        return true;
+    }
+
+    // Circle subject: trimming opens it into an Arc that excludes the picked gap.
+    if (e.type == SketchEntity::Type::Circle) {
+        std::vector<double> ang;
+        for (const auto& other : others)
+            for (double phi : circle_cross_angles(e.center, e.radius, other))
+                ang.push_back(wrap_2pi(phi));
+        std::sort(ang.begin(), ang.end());
+        ang.erase(std::unique(ang.begin(), ang.end(),
+                              [](double a, double b){ return std::abs(a - b) < 1e-7; }),
+                  ang.end());
+        if (ang.size() < 2) return false;
+
+        double pk = wrap_2pi(std::atan2(pick.y() - e.center.y(), pick.x() - e.center.x()));
+        const int n = int(ang.size());
+        int idx = -1;
+        for (int i = 0; i < n; ++i) {
+            double lo = ang[i];
+            double hi = (i + 1 < n) ? ang[i + 1] : ang[0] + 2.0 * M_PI;
+            double p  = (pk < lo - 1e-12) ? pk + 2.0 * M_PI : pk;
+            if (p >= lo - 1e-12 && p < hi + 1e-12) { idx = i; break; }
+        }
+        if (idx < 0) return false;
+        double lo = ang[idx];
+        double hi = (idx + 1 < n) ? ang[idx + 1] : ang[0] + 2.0 * M_PI;
+        // Keep the complement of the (lo,hi) gap: sweep ccw from hi back round to lo.
+        e.type        = SketchEntity::Type::Arc;
+        e.start_angle = hi;
+        e.end_angle   = lo + 2.0 * M_PI;
+        return true;
+    }
+
     if (e.type != SketchEntity::Type::Line) return false;
 
     Vec2d adir = e.p1 - e.p0;
@@ -659,6 +824,35 @@ bool SketchEngine::trim_entity(SketchEntity& e, const std::vector<SketchEntity>&
 bool SketchEngine::extend_entity(SketchEntity& e, const std::vector<SketchEntity>& others,
                                  const Vec2d& pick)
 {
+    // Arc subject: grow the sweep toward the picked end up to the nearest crossing,
+    // capped at a full turn so the arc never self-overlaps. (A Circle is already
+    // closed — nothing to extend.)
+    if (e.type == SketchEntity::Type::Arc) {
+        double sweep = e.end_angle - e.start_angle;
+        double mag   = std::abs(sweep);
+        if (mag < 1e-12) return false;
+        double sgn   = (sweep >= 0.0) ? 1.0 : -1.0;
+        double room  = 2.0 * M_PI - mag;                 // max extra sweep before a full turn
+        if (room <= 1e-9) return false;
+
+        double phi_pick = std::atan2(pick.y() - e.center.y(), pick.x() - e.center.x());
+        double up = wrap_2pi(sgn * (phi_pick - e.start_angle)) / mag;  // pick fraction on arc
+        const bool extend_end = (up > 0.5);
+
+        double best = std::numeric_limits<double>::max();
+        for (const auto& other : others) {
+            for (double phi : circle_cross_angles(e.center, e.radius, other)) {
+                double adv = extend_end ? wrap_2pi(sgn * (phi - e.end_angle))
+                                        : wrap_2pi(sgn * (e.start_angle - phi));
+                if (adv > 1e-9 && adv <= room + 1e-9 && adv < best) best = adv;
+            }
+        }
+        if (best == std::numeric_limits<double>::max()) return false;
+        if (extend_end) e.end_angle   += sgn * best;
+        else            e.start_angle -= sgn * best;
+        return true;
+    }
+
     if (e.type != SketchEntity::Type::Line) return false;
 
     Vec2d adir = e.p1 - e.p0;

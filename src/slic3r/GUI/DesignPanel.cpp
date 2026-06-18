@@ -1196,9 +1196,19 @@ void DesignPanel::apply_edit_op(EditOp op)
     }
     case EditOp::Trim:
     case EditOp::Extend: {
-        if (feat.entities[e0].type != Type::Line) { fail(_L("Trim/Extend works on lines")); return; }
+        // Trim accepts Line/Arc/Circle subjects; Extend accepts Line/Arc (a Circle
+        // is already closed, so there is nothing to extend).
+        const Type st = feat.entities[e0].type;
+        const bool subject_ok = (op == EditOp::Trim)
+            ? (st == Type::Line || st == Type::Arc || st == Type::Circle)
+            : (st == Type::Line || st == Type::Arc);
+        if (!subject_ok) {
+            fail(op == EditOp::Trim ? _L("Trim works on lines, arcs and circles")
+                                    : _L("Extend works on lines and arcs"));
+            return;
+        }
         Vec2d pick;
-        if (!m_viewport->pick0_point(pick)) { fail(_L("Pick the line to trim/extend")); return; }
+        if (!m_viewport->pick0_point(pick)) { fail(_L("Pick the edge to trim/extend")); return; }
         std::vector<SketchEntity> others;
         others.reserve(n > 0 ? n - 1 : 0);
         for (int i = 0; i < n; ++i)

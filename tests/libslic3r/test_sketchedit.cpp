@@ -334,3 +334,155 @@ TEST_CASE("Extend no target", "[SketchEdit]")
 
     REQUIRE_FALSE(SketchEngine::extend_entity(e, {other}, Vec2d(2, 0)));
 }
+
+// --- Arc/Circle subject trim & extend (Fase 4.5 kernel) -------------------
+
+TEST_CASE("Trim arc drops the picked (start) side", "[SketchEdit]")
+{
+    // Upper semicircle r=5, ccw from (5,0) to (-5,0); cutter = vertical axis.
+    SketchEntity e;
+    e.type        = SketchEntity::Type::Arc;
+    e.center      = Vec2d(0, 0);
+    e.radius      = 5;
+    e.start_angle = 0.0;
+    e.end_angle   = M_PI;
+
+    SketchEntity cut;
+    cut.type = SketchEntity::Type::Line;
+    cut.p0   = Vec2d(0, -10);
+    cut.p1   = Vec2d(0, 10);
+
+    // Pick the right quarter (phi=pi/4) -> it is removed, left quarter kept.
+    bool ok = SketchEngine::trim_entity(e, {cut}, Vec2d(5 * std::cos(M_PI/4), 5 * std::sin(M_PI/4)));
+    REQUIRE(ok);
+    REQUIRE(e.type == SketchEntity::Type::Arc);
+    REQUIRE_THAT(e.radius, WithinAbs(5.0, 1e-9));
+    REQUIRE_THAT(e.start_angle, WithinAbs(M_PI / 2.0, 1e-9));
+    REQUIRE_THAT(e.end_angle,   WithinAbs(M_PI, 1e-9));
+}
+
+TEST_CASE("Trim arc drops the picked (end) side", "[SketchEdit]")
+{
+    SketchEntity e;
+    e.type        = SketchEntity::Type::Arc;
+    e.center      = Vec2d(0, 0);
+    e.radius      = 5;
+    e.start_angle = 0.0;
+    e.end_angle   = M_PI;
+
+    SketchEntity cut;
+    cut.type = SketchEntity::Type::Line;
+    cut.p0   = Vec2d(0, -10);
+    cut.p1   = Vec2d(0, 10);
+
+    // Pick the left quarter (phi=3pi/4) -> removed, right quarter kept.
+    bool ok = SketchEngine::trim_entity(e, {cut}, Vec2d(5 * std::cos(3*M_PI/4), 5 * std::sin(3*M_PI/4)));
+    REQUIRE(ok);
+    REQUIRE(e.type == SketchEntity::Type::Arc);
+    REQUIRE_THAT(e.start_angle, WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.end_angle,   WithinAbs(M_PI / 2.0, 1e-9));
+}
+
+TEST_CASE("Trim circle opens into an arc excluding the pick", "[SketchEdit]")
+{
+    // Full circle r=5; vertical axis cuts it at (0,+-5). Pick the right side
+    // (5,0): the kept arc is the left half, sweeping pi and centred on (-5,0).
+    SketchEntity e;
+    e.type   = SketchEntity::Type::Circle;
+    e.center = Vec2d(0, 0);
+    e.p0     = Vec2d(5, 0);
+    e.radius = 5;
+
+    SketchEntity cut;
+    cut.type = SketchEntity::Type::Line;
+    cut.p0   = Vec2d(0, -10);
+    cut.p1   = Vec2d(0, 10);
+
+    bool ok = SketchEngine::trim_entity(e, {cut}, Vec2d(5, 0));
+    REQUIRE(ok);
+    REQUIRE(e.type == SketchEntity::Type::Arc);
+    REQUIRE_THAT(e.radius, WithinAbs(5.0, 1e-9));
+    REQUIRE_THAT(e.end_angle - e.start_angle, WithinAbs(M_PI, 1e-9));
+    // Midpoint of the kept arc must point left (away from the pick).
+    double mid = 0.5 * (e.start_angle + e.end_angle);
+    REQUIRE_THAT(5 * std::cos(mid), WithinAbs(-5.0, 1e-9));
+    REQUIRE_THAT(5 * std::sin(mid), WithinAbs(0.0, 1e-9));
+}
+
+TEST_CASE("Extend arc forward (end) to a crossing", "[SketchEdit]")
+{
+    // Quarter arc (5,0)->(0,5); cutter crosses the circle at (-5,0). Picking
+    // near the end grows the sweep ccw to pi.
+    SketchEntity e;
+    e.type        = SketchEntity::Type::Arc;
+    e.center      = Vec2d(0, 0);
+    e.radius      = 5;
+    e.start_angle = 0.0;
+    e.end_angle   = M_PI / 2.0;
+
+    SketchEntity cut;
+    cut.type = SketchEntity::Type::Line;
+    cut.p0   = Vec2d(-10, 0);
+    cut.p1   = Vec2d(0, 0);
+
+    bool ok = SketchEngine::extend_entity(e, {cut}, Vec2d(0, 5));
+    REQUIRE(ok);
+    REQUIRE(e.type == SketchEntity::Type::Arc);
+    REQUIRE_THAT(e.start_angle, WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.end_angle,   WithinAbs(M_PI, 1e-9));
+}
+
+TEST_CASE("Extend arc backward (start) to a crossing", "[SketchEdit]")
+{
+    // Quarter arc (0,5)->(-5,0); cutter crosses at (5,0). Picking near the
+    // start grows the sweep cw to start_angle 0.
+    SketchEntity e;
+    e.type        = SketchEntity::Type::Arc;
+    e.center      = Vec2d(0, 0);
+    e.radius      = 5;
+    e.start_angle = M_PI / 2.0;
+    e.end_angle   = M_PI;
+
+    SketchEntity cut;
+    cut.type = SketchEntity::Type::Line;
+    cut.p0   = Vec2d(10, 0);
+    cut.p1   = Vec2d(0, 0);
+
+    bool ok = SketchEngine::extend_entity(e, {cut}, Vec2d(0, 5));
+    REQUIRE(ok);
+    REQUIRE_THAT(e.start_angle, WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.end_angle,   WithinAbs(M_PI, 1e-9));
+}
+
+TEST_CASE("Extend circle returns false (closed)", "[SketchEdit]")
+{
+    SketchEntity e;
+    e.type   = SketchEntity::Type::Circle;
+    e.center = Vec2d(0, 0);
+    e.p0     = Vec2d(5, 0);
+    e.radius = 5;
+
+    SketchEntity cut;
+    cut.type = SketchEntity::Type::Line;
+    cut.p0   = Vec2d(0, -10);
+    cut.p1   = Vec2d(0, 10);
+
+    REQUIRE_FALSE(SketchEngine::extend_entity(e, {cut}, Vec2d(5, 0)));
+}
+
+TEST_CASE("Trim arc with no crossing returns false", "[SketchEdit]")
+{
+    SketchEntity e;
+    e.type        = SketchEntity::Type::Arc;
+    e.center      = Vec2d(0, 0);
+    e.radius      = 5;
+    e.start_angle = 0.0;
+    e.end_angle   = M_PI / 2.0;
+
+    SketchEntity cut;          // far away, never reaches the r=5 circle
+    cut.type = SketchEntity::Type::Line;
+    cut.p0   = Vec2d(20, -5);
+    cut.p1   = Vec2d(20, 5);
+
+    REQUIRE_FALSE(SketchEngine::trim_entity(e, {cut}, Vec2d(5 * std::cos(M_PI/4), 5 * std::sin(M_PI/4))));
+}
