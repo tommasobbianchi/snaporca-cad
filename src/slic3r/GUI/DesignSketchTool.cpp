@@ -1747,12 +1747,37 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         break;
     }
 
+    case Mode::ObliqueRect: {
+        draw_vertices(m_vertex_model, m_points, yellow);
+        if (m_points.size() == 2 && m_has_cursor) {
+            const Vec2d A = m_points[0], B = m_points[1];
+            Vec2d u = B - A;
+            if (u.squaredNorm() > 1e-12) {
+                u.normalize();
+                const Vec2d n(-u.y(), u.x());
+                const double w = n.dot(m_cursor - A);
+                draw_quad_strip(m_highlight_model, { A, B, B + n * w, A + n * w }, true, preview);
+            }
+        }
+        break;
+    }
+
     case Mode::CenterCircle: {
         if (m_points.size() == 1 && m_has_cursor) {
             const Vec2d C = m_points[0];
             const double r = (m_cursor - C).norm();
             draw_quad_strip(m_highlight_model, circle_polygon(C, r), true, preview);
             draw_vertices(m_vertex_model, { C }, yellow);
+        }
+        break;
+    }
+
+    case Mode::TwoPointCircle: {
+        draw_vertices(m_vertex_model, m_points, yellow);
+        if (m_points.size() == 1 && m_has_cursor) {
+            const Vec2d C = (m_points[0] + m_cursor) * 0.5;
+            const double r = (m_cursor - m_points[0]).norm() * 0.5;
+            draw_quad_strip(m_highlight_model, circle_polygon(C, r), true, preview);
         }
         break;
     }
@@ -2289,6 +2314,32 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
         break;
     }
 
+    case Mode::ObliqueRect: {
+        if (evt.LeftDown()) {
+            Vec2d p; screen_to_plane(canvas, evt, p);
+            bool vsnap = false;
+            if (m_points.size() < 2)                 // corners snap; 3rd click is the width
+                p = snap_vertex(canvas, evt, p, vsnap);
+            m_points.push_back(p);
+            if (m_points.size() == 3) {
+                const Vec2d A = m_points[0], B = m_points[1];
+                Vec2d u = B - A;
+                if (u.squaredNorm() > 1e-12) {
+                    u.normalize();
+                    const Vec2d n(-u.y(), u.x());
+                    const double w = n.dot(m_points[2] - A);   // signed perpendicular width
+                    const int base = int(m_entities.size());
+                    push_closed_lines({ A, B, B + n * w, A + n * w });
+                    infer_auto_constraints(base);   // corners Coincident + the AB pair parallel
+                }
+                m_points.clear();
+            }
+            return true;
+        }
+        if (evt.RightDown()) { m_points.clear(); return true; }
+        break;
+    }
+
     case Mode::CenterCircle: {
         if (evt.LeftDown()) {
             Vec2d p;
@@ -2298,6 +2349,23 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             } else {
                 const Vec2d C = m_points[0];
                 push_circle(C, (p - C).norm());
+                m_points.clear();
+            }
+            return true;
+        }
+        if (evt.RightDown()) { m_points.clear(); return true; }
+        break;
+    }
+
+    case Mode::TwoPointCircle: {
+        if (evt.LeftDown()) {
+            Vec2d p; screen_to_plane(canvas, evt, p);
+            bool vsnap = false;
+            p = snap_vertex(canvas, evt, p, vsnap);   // diameter ends snap onto geometry
+            m_points.push_back(p);
+            if (m_points.size() == 2) {
+                const Vec2d C = (m_points[0] + m_points[1]) * 0.5;
+                push_circle(C, (m_points[1] - m_points[0]).norm() * 0.5);
                 m_points.clear();
             }
             return true;

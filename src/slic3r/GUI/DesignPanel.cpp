@@ -223,8 +223,12 @@ DesignPanel::DesignPanel(wxWindow* parent)
               _L("Click two opposite corners"));
         skbtn("design_crect",     DesignSketchTool::Mode::CenterRect,       _L("Center rectangle"),
               _L("Click center, then a corner"));
+        skbtn("design_rect_oblique", DesignSketchTool::Mode::ObliqueRect,   _L("Oblique rectangle"),
+              _L("Click two corners of one edge, then a point for the width"));
         skbtn("design_circle",    DesignSketchTool::Mode::CenterCircle,     _L("Center circle"),
               _L("Click center, then radius"));
+        skbtn("design_circle2pt", DesignSketchTool::Mode::TwoPointCircle,   _L("2-point circle"),
+              _L("Click two ends of the diameter"));
         skbtn("design_point",     DesignSketchTool::Mode::Point,            _L("Point"),
               _L("Click to place a point"));
         skbtn("design_circle3pt", DesignSketchTool::Mode::ThreePointCircle, _L("3-point circle"),

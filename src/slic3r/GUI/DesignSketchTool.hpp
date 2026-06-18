@@ -24,7 +24,8 @@ class GLCanvas3D;
 // committed profile's points (entity constraints land in a later chunk).
 class DesignSketchTool {
 public:
-    enum class Mode { Select, Dimension, Polyline, Line, CornerRect, CenterRect, CenterCircle, Point,
+    enum class Mode { Select, Dimension, Polyline, Line, CornerRect, CenterRect, ObliqueRect,
+                      CenterCircle, TwoPointCircle, Point,
                       ThreePointCircle, ThreePointArc, TangentArc, CenterArc, Slot, Polygon,
                       Constrain };
 
