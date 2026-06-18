@@ -1050,8 +1050,8 @@ void DesignSketchTool::render_dimensions()
                 segs.emplace_back(tip, back - nrm * (as * 0.5));
             };
             arrow(A2, u); arrow(B2, -u);
-            const double h = std::max(L * 0.11, 5.0);
-            const Vec2d label = (A2 + B2) * 0.5 + nrm * (a.side * h * 0.8);
+            const double h = std::max(L * 0.05, 2.5);
+            const Vec2d label = (A2 + B2) * 0.5 + nrm * (a.side * h * 0.9);
             draw_strokes(m_highlight_model, segs, 0.6, dimcol);
             draw_text(m_line_model, dim_text(a), label, h, dimcol);
         } else if (a.kind == DimType::Diameter || a.kind == DimType::Radius) {
@@ -1062,7 +1062,7 @@ void DesignSketchTool::render_dimensions()
             const Vec2d u(1.0, 0.0);
             const double as = std::max(r * 0.12, 2.0);
             Vec2d label;
-            double h = std::max(r * 0.30, 4.0);
+            double h = std::max(r * 0.14, 2.5);
             if (a.kind == DimType::Diameter) {
                 const Vec2d p1 = c - u * r, p2 = c + u * r;
                 segs.emplace_back(p1, p2);
@@ -1091,8 +1091,8 @@ void DesignSketchTool::render_dimensions()
             const double t = (pa - Ln.p0).dot(u);
             const Vec2d foot = Ln.p0 + u * t;       // perpendicular foot on the line
             segs.emplace_back(pa, foot);
-            const double h = std::max((pa - foot).norm() * 0.2, 5.0);
-            const Vec2d label = (pa + foot) * 0.5 + u * (h * 0.8);
+            const double h = std::max((pa - foot).norm() * 0.09, 2.5);
+            const Vec2d label = (pa + foot) * 0.5 + u * (h * 0.9);
             draw_strokes(m_highlight_model, segs, 0.6, dimcol);
             draw_text(m_line_model, dim_text(a), label, h, dimcol);
         }
