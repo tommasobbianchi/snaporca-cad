@@ -175,8 +175,14 @@ private:
     // Sample an entity into a 2D polyline for the overlay renderer.
     std::vector<Vec2d> entity_polyline(const SketchEntity& e, bool& closed) const;
 
+    // Closed regions formed by the current (non-construction) entities: each a CCW-
+    // ordered boundary polygon on the plane. A circle is its own region; line/arc
+    // chains are walked endpoint-to-endpoint into loops. Used to fill faces.
+    std::vector<std::vector<Vec2d>> closed_regions() const;
+
     void draw_quad_strip(GLModel& model, const std::vector<Vec2d>& pts, bool closed, const ColorRGBA& color);
     void draw_vertices(GLModel& model, const std::vector<Vec2d>& pts, const ColorRGBA& color);
+    void draw_fill(GLModel& model, const std::vector<Vec2d>& poly, const ColorRGBA& color);
 
     bool                m_active{false};
     SketchPlane         m_plane;
@@ -211,6 +217,7 @@ private:
     GLModel             m_line_model;
     GLModel             m_vertex_model;
     GLModel             m_highlight_model;
+    GLModel             m_fill_model;       // translucent face fill for closed regions
 };
 
 }} // namespace Slic3r::GUI

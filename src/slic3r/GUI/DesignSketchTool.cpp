@@ -8,6 +8,7 @@
 
 #include <GL/glew.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 
@@ -911,6 +912,62 @@ std::vector<Vec2d> DesignSketchTool::entity_polyline(const SketchEntity& e, bool
     return {};
 }
 
+std::vector<std::vector<Vec2d>> DesignSketchTool::closed_regions() const
+{
+    std::vector<std::vector<Vec2d>> regions;
+    const double eps2 = 1e-3 * 1e-3;
+    auto near = [&](const Vec2d& a, const Vec2d& b) { return (a - b).squaredNorm() < eps2; };
+
+    // Circles are self-closed regions; lines/arcs are open segments to be chained.
+    struct Seg { std::vector<Vec2d> pts; bool used{false}; };
+    std::vector<Seg> segs;
+    for (const SketchEntity& e : m_entities) {
+        if (e.construction) continue;
+        bool closed = false;
+        if (e.type == SketchEntity::Type::Circle) {
+            regions.push_back(entity_polyline(e, closed));
+        } else if (e.type == SketchEntity::Type::Line || e.type == SketchEntity::Type::Arc) {
+            std::vector<Vec2d> p = entity_polyline(e, closed);
+            if (p.size() >= 2) segs.push_back({ std::move(p), false });
+        }
+    }
+
+    // Walk each unused segment endpoint-to-endpoint until the chain returns to its
+    // start (a closed loop) or stalls (an open chain, discarded).
+    for (size_t s = 0; s < segs.size(); ++s) {
+        if (segs[s].used) continue;
+        segs[s].used = true;
+        std::vector<Vec2d> loop = segs[s].pts;
+        const Vec2d start = loop.front();
+        Vec2d cur = loop.back();
+        bool extended = true;
+        while (extended && !near(cur, start)) {
+            extended = false;
+            for (size_t t = 0; t < segs.size(); ++t) {
+                if (segs[t].used) continue;
+                const std::vector<Vec2d>& q = segs[t].pts;
+                if (near(q.front(), cur)) {
+                    for (size_t k = 1; k < q.size(); ++k) loop.push_back(q[k]);
+                    cur = q.back();
+                } else if (near(q.back(), cur)) {
+                    for (int k = int(q.size()) - 2; k >= 0; --k) loop.push_back(q[k]);
+                    cur = q.front();
+                } else {
+                    continue;
+                }
+                segs[t].used = true;
+                extended = true;
+                break;
+            }
+        }
+        if (near(cur, start) && loop.size() >= 4) {
+            loop.pop_back();          // drop the duplicate closing vertex
+            regions.push_back(std::move(loop));
+        }
+    }
+    return regions;
+}
+
 // ---- rendering --------------------------------------------------------------
 
 void DesignSketchTool::draw_quad_strip(GLModel& model, const std::vector<Vec2d>& pts, bool closed, const ColorRGBA& color)
@@ -948,6 +1005,84 @@ void DesignSketchTool::draw_quad_strip(GLModel& model, const std::vector<Vec2d>&
         model.set_color(color);
         model.render();
     }
+}
+
+namespace {
+double poly_signed_area(const std::vector<Vec2d>& p)
+{
+    double a = 0.0;
+    for (size_t i = 0, n = p.size(); i < n; ++i) {
+        const Vec2d& u = p[i];
+        const Vec2d& v = p[(i + 1) % n];
+        a += u.x() * v.y() - v.x() * u.y();
+    }
+    return 0.5 * a;
+}
+bool pt_in_tri(const Vec2d& p, const Vec2d& a, const Vec2d& b, const Vec2d& c)
+{
+    auto cross = [](const Vec2d& u, const Vec2d& v, const Vec2d& w) {
+        return (v.x() - u.x()) * (w.y() - u.y()) - (v.y() - u.y()) * (w.x() - u.x());
+    };
+    const double d1 = cross(a, b, p), d2 = cross(b, c, p), d3 = cross(c, a, p);
+    const bool neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+    const bool pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+    return !(neg && pos);   // inside iff all cross products share a sign
+}
+// Ear-clipping triangulation of a simple polygon; returns index triples into `poly`.
+std::vector<std::array<unsigned, 3>> ear_clip(const std::vector<Vec2d>& poly)
+{
+    std::vector<std::array<unsigned, 3>> tris;
+    const size_t n = poly.size();
+    if (n < 3) return tris;
+    std::vector<unsigned> idx(n);
+    for (unsigned i = 0; i < n; ++i) idx[i] = i;
+    if (poly_signed_area(poly) < 0.0) std::reverse(idx.begin(), idx.end());   // work CCW
+    int guard = 0;
+    while (idx.size() > 3 && guard++ < int(10 * n)) {
+        bool clipped = false;
+        const int m = int(idx.size());
+        for (int i = 0; i < m; ++i) {
+            const unsigned i0 = idx[(i + m - 1) % m];
+            const unsigned i1 = idx[i];
+            const unsigned i2 = idx[(i + 1) % m];
+            const Vec2d& a = poly[i0]; const Vec2d& b = poly[i1]; const Vec2d& c = poly[i2];
+            const double cr = (b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x());
+            if (cr <= 0.0) continue;   // reflex vertex, not an ear tip
+            bool ear = true;
+            for (int j = 0; j < m; ++j) {
+                const unsigned ij = idx[j];
+                if (ij == i0 || ij == i1 || ij == i2) continue;
+                if (pt_in_tri(poly[ij], a, b, c)) { ear = false; break; }
+            }
+            if (!ear) continue;
+            tris.push_back({ i0, i1, i2 });
+            idx.erase(idx.begin() + i);
+            clipped = true;
+            break;
+        }
+        if (!clipped) break;   // degenerate input: bail rather than spin
+    }
+    if (idx.size() == 3) tris.push_back({ idx[0], idx[1], idx[2] });
+    return tris;
+}
+} // namespace
+
+// Triangulate a closed boundary polygon and render it as a (blended) filled face.
+void DesignSketchTool::draw_fill(GLModel& model, const std::vector<Vec2d>& poly, const ColorRGBA& color)
+{
+    if (poly.size() < 3) return;
+    const auto tris = ear_clip(poly);
+    if (tris.empty()) return;
+    GLModel::Geometry g;
+    g.format = { GLModel::Geometry::EPrimitiveType::Triangles, GLModel::Geometry::EVertexLayout::P3 };
+    for (const Vec2d& p : poly)
+        g.add_vertex((Vec3f)m_plane.to_world(p).cast<float>());
+    for (const auto& t : tris)
+        g.add_triangle(t[0], t[1], t[2]);
+    model.reset();
+    model.init_from(std::move(g));
+    model.set_color(color);
+    model.render();
 }
 
 void DesignSketchTool::draw_vertices(GLModel& model, const std::vector<Vec2d>& pts, const ColorRGBA& color)
@@ -1294,6 +1429,20 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         glsafe(::glEnable(GL_CULL_FACE));
         glsafe(::glEnable(GL_DEPTH_TEST));
         return;
+    }
+
+    // Closed loops fill as translucent faces (the "closed loop = selectable face"
+    // affordance). Drawn first so the entity outlines paint over the fill.
+    {
+        const std::vector<std::vector<Vec2d>> regions = closed_regions();
+        if (!regions.empty()) {
+            glsafe(::glEnable(GL_BLEND));
+            glsafe(::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+            const ColorRGBA face(0.30f, 0.60f, 1.0f, 0.22f);
+            for (const std::vector<Vec2d>& r : regions)
+                draw_fill(m_fill_model, r, face);
+            glsafe(::glDisable(GL_BLEND));
+        }
     }
 
     // Committed entities of this session (selected ones drawn white).
