@@ -65,6 +65,13 @@ public:
     double sketch_dimension_current() const;
     void   apply_sketch_dimension(double v);
 
+    // Dimension tool (Mode::Dimension): click-to-place quotes. The pick-complete
+    // callback lets the panel pop the value card; set/cancel apply or keep the value.
+    void set_on_dimension_pick_complete(std::function<void(double)> cb);
+    DesignSketchTool::DimType pending_dimension_type() const;
+    void set_sketch_dimension_value(double v);
+    void cancel_sketch_dimension();
+
     // Constrain mode: load a committed profile for picking + constraint editing.
     void begin_constrain(const SketchProfile& prof, const SketchPlane& plane);
     // Leave constrain mode and clear any picked-entity highlight from the overlay.

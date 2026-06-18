@@ -295,6 +295,28 @@ void DesignCanvas::apply_sketch_dimension(double v)
     if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
 }
 
+void DesignCanvas::set_on_dimension_pick_complete(std::function<void(double)> cb)
+{
+    m_sketch_tool.on_dimension_pick_complete = std::move(cb);
+}
+
+DesignSketchTool::DimType DesignCanvas::pending_dimension_type() const
+{
+    return m_sketch_tool.pending_dimension_type();
+}
+
+void DesignCanvas::set_sketch_dimension_value(double v)
+{
+    m_sketch_tool.set_dimension_value(v);
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
+void DesignCanvas::cancel_sketch_dimension()
+{
+    m_sketch_tool.cancel_dimension_value();
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
 void DesignCanvas::begin_constrain(const SketchProfile& prof, const SketchPlane& plane)
 {
     m_sketch_tool.begin_constrain(prof, plane);

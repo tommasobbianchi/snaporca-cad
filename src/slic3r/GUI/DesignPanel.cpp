@@ -190,34 +190,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
         };
         skbtn("design_select",    DesignSketchTool::Mode::Select,           _L("Select"),
               _L("Click to select; Shift to add; double-click for a whole loop"));
-        {
-            auto* b_dim = icon_btn("design_dimension", _L("Dimension"));
-            b_dim->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-                if (!m_viewport) return;
-                using D = DesignSketchTool::DimType;
-                const D k = m_viewport->sketch_dimension_kind();
-                if (k == D::None) {
-                    m_status->SetForegroundColour(wxColour(235, 110, 110));
-                    m_status->SetLabel(_L("Select 1 line/circle/arc, or 2 lines / 2 points, then Dimension"));
-                    m_status->Refresh();
-                    return;
-                }
-                wxString label = _L("Value");
-                double mn = 0.001, mx = 1000000.0;
-                switch (k) {
-                case D::Length:   label = _L("Length (mm)");   break;
-                case D::Diameter: label = _L("Diameter (mm)"); break;
-                case D::Radius:   label = _L("Radius (mm)");   break;
-                case D::Angle:    label = _L("Angle (degrees)"); mn = 0.0; mx = 180.0; break;
-                case D::Distance: label = _L("Distance (mm) — 0 = coincident"); mn = 0.0; break;
-                case D::DistanceToLine: label = _L("Distance to line (mm) — 0 = on the axis"); mn = 0.0; break;
-                default: break;
-                }
-                request_value(label, m_viewport->sketch_dimension_current(), mn, mx,
-                              [this](double v) { if (m_viewport) m_viewport->apply_sketch_dimension(v); });
-            });
-            sadd(b_dim);
-        }
+        skbtn("design_dimension", DesignSketchTool::Mode::Dimension, _L("Dimension"),
+              _L("Click 2 points or a line / circle / arc to place a dimension"));
         add_sep(m_tb_sketch);
         skbtn("design_line",      DesignSketchTool::Mode::Line,             _L("Line"),
               _L("Click start, then end — then set the exact length"));
@@ -741,6 +715,27 @@ DesignPanel::DesignPanel(wxWindow* parent)
         request_value(_L("Length (mm)"), len, 0.001, 1000000.0,
                       [this](double v) { if (m_viewport) m_viewport->apply_segment_length(v); },
                       [this]()         { if (m_viewport) m_viewport->keep_segment_as_drawn(); });
+    });
+
+    // Dimension tool: a click placed a quote at its measured value; pop the value card
+    // pre-filled so the user can type an exact value (which drives the geometry).
+    m_viewport->set_on_dimension_pick_complete([this](double current) {
+        if (!m_viewport) return;
+        using D = DesignSketchTool::DimType;
+        const D k = m_viewport->pending_dimension_type();
+        wxString label = _L("Value");
+        double mn = 0.001, mx = 1000000.0;
+        switch (k) {
+        case D::Length:         label = _L("Length (mm)");   break;
+        case D::Diameter:       label = _L("Diameter (mm)"); break;
+        case D::Radius:         label = _L("Radius (mm)");   break;
+        case D::Distance:       label = _L("Distance (mm) — 0 = coincident"); mn = 0.0; break;
+        case D::DistanceToLine: label = _L("Distance to line (mm) — 0 = on the axis"); mn = 0.0; break;
+        default: break;
+        }
+        request_value(label, current, mn, mx,
+                      [this](double v) { if (m_viewport) m_viewport->set_sketch_dimension_value(v); },
+                      [this]()         { if (m_viewport) m_viewport->cancel_sketch_dimension(); });
     });
 
     auto* vcol = new wxBoxSizer(wxVERTICAL);

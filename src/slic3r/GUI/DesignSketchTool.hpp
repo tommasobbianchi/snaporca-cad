@@ -6,6 +6,8 @@
 #include "GLModel.hpp"
 #include <functional>
 #include <vector>
+#include <string>
+#include <utility>
 
 class wxMouseEvent;
 
@@ -21,7 +23,7 @@ class GLCanvas3D;
 // committed profile's points (entity constraints land in a later chunk).
 class DesignSketchTool {
 public:
-    enum class Mode { Select, Polyline, Line, CornerRect, CenterRect, CenterCircle, Point,
+    enum class Mode { Select, Dimension, Polyline, Line, CornerRect, CenterRect, CenterCircle, Point,
                       ThreePointCircle, ThreePointArc, TangentArc, Slot, Polygon,
                       Constrain };
 
@@ -86,6 +88,17 @@ public:
     double  dimension_current() const;  // current value, to pre-fill the dialog
     void    apply_dimension(double v);  // set it exactly, then clear the selection
 
+    // Onshape-style Dimension tool (Mode::Dimension): with the tool active you click
+    // directly in the viewport — 2 points -> Distance, a line -> Length, a circle ->
+    // Diameter, an arc -> Radius, a point then a line -> DistanceToLine. A quote line
+    // with extension lines, arrowheads and a numeric label is PLACED in the sketch and
+    // drives the geometry (auto-offset; label editable). on_dimension_pick_complete
+    // fires when a pick resolves so the panel can pop the value card pre-filled.
+    std::function<void(double current)> on_dimension_pick_complete;
+    DimType pending_dimension_type() const;  // type of the dim awaiting a value, or None
+    void    set_dimension_value(double v);   // apply the typed value to the placed dim
+    void    cancel_dimension_value();        // keep the placed dim at its measured value
+
     // Driving dimension constraints accumulated during the session (the Dimension
     // tool records a SketchEntityConstraintDef per applied dimension); committed
     // alongside the entities on finish() so the kernel keeps enforcing them.
@@ -114,6 +127,29 @@ private:
     bool selection_valid() const;                         // all selection indices in range
     void record_dimension_constraint(double v);           // append the driving def for the selection
     void resolve_live();                                  // solve accumulated constraints on m_entities now
+
+    // Placed dimension annotation. References entity points/entities (not cached
+    // coords) so the quote follows the geometry as the kernel solves it. `value`
+    // drives the constraint stored at index `con` in m_constraints.
+    struct DimAnnot {
+        DimType         kind{DimType::None};
+        int             ea{-1}; SketchPointRole ra{SketchPointRole::P0};
+        int             eb{-1}; SketchPointRole rb{SketchPointRole::P0};
+        double          value{0.0};
+        double          side{1.0};   // perpendicular offset sign of the quote line
+        int             con{-1};     // slot in m_constraints driving this dimension
+    };
+    bool point_at(int ei, SketchPointRole role, Vec2d& out) const;          // current coords
+    bool hit_test_point(const Vec2d& p, double tol, int& ei, SketchPointRole& role) const;
+    double measure_dim(const DimAnnot& a) const;                            // value from geometry
+    SketchEntityConstraintDef constraint_for(const DimAnnot& a) const;      // driving def
+    int  place_dimension(DimAnnot a);                                       // create+drive+notify
+    std::string dim_text(const DimAnnot& a) const;                          // rendered label string
+    void render_dimensions();                                              // quote lines + labels
+    void draw_strokes(GLModel& model, const std::vector<std::pair<Vec2d, Vec2d>>& segs,
+                      double hw, const ColorRGBA& color);
+    void draw_text(GLModel& model, const std::string& s, const Vec2d& center,
+                   double height, const ColorRGBA& color);                  // GL stroke font
 
     // Entity builders: append to m_entities (honoring the construction flag).
     void push_line(const Vec2d& a, const Vec2d& b);
@@ -151,6 +187,11 @@ private:
     bool                m_awaiting_length{false}; // Line tool: length dialog is open
     std::vector<int>    m_selection;              // selected entity indices (Mode::Select)
     std::vector<SketchEntityConstraintDef> m_constraints; // driving dims, committed on finish
+    std::vector<DimAnnot> m_dimensions;           // placed dimension quotes (Mode::Dimension)
+    int                 m_dim_e0{-1};             // first picked point's entity (Dimension)
+    SketchPointRole     m_dim_r0{SketchPointRole::P0};
+    bool                m_dim_has0{false};        // a first point is pending
+    int                 m_pending_dim{-1};        // dim awaiting a value-card entry
     Mode                m_mode{Mode::Polyline};
     int                 m_sel_a{-1};   // picked segment endpoints (legacy Constrain mode)
     int                 m_sel_b{-1};

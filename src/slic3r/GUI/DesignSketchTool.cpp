@@ -9,6 +9,7 @@
 #include <GL/glew.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace Slic3r {
 namespace GUI {
@@ -31,6 +32,9 @@ void DesignSketchTool::begin(const SketchPlane& plane, Mode mode)
     m_awaiting_length = false;
     m_selection.clear();
     m_constraints.clear();
+    m_dimensions.clear();
+    m_dim_has0 = false;
+    m_pending_dim = -1;
     m_active = true;
 }
 
@@ -56,6 +60,9 @@ void DesignSketchTool::cancel()
     m_awaiting_length = false;
     m_selection.clear();
     m_constraints.clear();
+    m_dimensions.clear();
+    m_dim_has0 = false;
+    m_pending_dim = -1;
 }
 
 void DesignSketchTool::clear_selection()
@@ -90,6 +97,11 @@ void DesignSketchTool::delete_selected()
     }
     m_constraints.swap(kept);
     m_selection.clear();
+    // v1: placed quotes reference entity indices that have shifted; drop them rather
+    // than risk a dangling reference (the driving constraints survive, reindexed).
+    m_dimensions.clear();
+    m_dim_has0 = false;
+    m_pending_dim = -1;
     if (on_selection_changed) on_selection_changed(0);
 }
 
@@ -318,6 +330,148 @@ void DesignSketchTool::resolve_live()
         solve_sketch_entities(m_entities, m_constraints);
 }
 
+// ---- Dimension tool (Mode::Dimension): click-to-place driving quotes ----------
+
+bool DesignSketchTool::point_at(int ei, SketchPointRole role, Vec2d& out) const
+{
+    if (ei < 0 || ei >= int(m_entities.size())) return false;
+    const SketchEntity& e = m_entities[ei];
+    switch (role) {
+    case SketchPointRole::P0:     out = e.p0;     return true;
+    case SketchPointRole::P1:     out = e.p1;     return true;
+    case SketchPointRole::Center: out = e.center; return true;
+    }
+    return false;
+}
+
+// Nearest entity *point* (endpoint / centre) within tol, with its role.
+bool DesignSketchTool::hit_test_point(const Vec2d& p, double tol, int& ei, SketchPointRole& role) const
+{
+    double best = tol;
+    bool found = false;
+    auto consider = [&](int i, SketchPointRole r, const Vec2d& q) {
+        const double d = (q - p).norm();
+        if (d < best) { best = d; ei = i; role = r; found = true; }
+    };
+    for (size_t i = 0; i < m_entities.size(); ++i) {
+        const SketchEntity& e = m_entities[i];
+        switch (e.type) {
+        case SketchEntity::Type::Line:
+            consider(int(i), SketchPointRole::P0, e.p0);
+            consider(int(i), SketchPointRole::P1, e.p1);
+            break;
+        case SketchEntity::Type::Arc:
+            consider(int(i), SketchPointRole::P0, e.p0);
+            consider(int(i), SketchPointRole::P1, e.p1);
+            consider(int(i), SketchPointRole::Center, e.center);
+            break;
+        case SketchEntity::Type::Circle:
+            consider(int(i), SketchPointRole::Center, e.center);
+            break;
+        case SketchEntity::Type::Point:
+            consider(int(i), SketchPointRole::P0, e.p0);
+            break;
+        }
+    }
+    return found;
+}
+
+double DesignSketchTool::measure_dim(const DimAnnot& a) const
+{
+    Vec2d pa, pb;
+    switch (a.kind) {
+    case DimType::Length:
+        return (a.ea >= 0 && a.ea < int(m_entities.size()))
+                   ? (m_entities[a.ea].p1 - m_entities[a.ea].p0).norm() : 0.0;
+    case DimType::Diameter:
+        return (a.ea >= 0 && a.ea < int(m_entities.size())) ? 2.0 * m_entities[a.ea].radius : 0.0;
+    case DimType::Radius:
+        return (a.ea >= 0 && a.ea < int(m_entities.size())) ? m_entities[a.ea].radius : 0.0;
+    case DimType::Distance:
+        return (point_at(a.ea, a.ra, pa) && point_at(a.eb, a.rb, pb)) ? (pb - pa).norm() : 0.0;
+    case DimType::DistanceToLine: {
+        if (!point_at(a.ea, a.ra, pa) || a.eb < 0 || a.eb >= int(m_entities.size())) return 0.0;
+        const SketchEntity& L = m_entities[a.eb];
+        const Vec2d d = L.p1 - L.p0;
+        const double n = d.norm();
+        if (n < 1e-9) return 0.0;
+        const Vec2d nrm(-d.y() / n, d.x() / n);
+        return std::abs((pa - L.p0).dot(nrm));
+    }
+    default: return 0.0;
+    }
+}
+
+SketchEntityConstraintDef DesignSketchTool::constraint_for(const DimAnnot& a) const
+{
+    SketchEntityConstraintDef c;
+    switch (a.kind) {
+    case DimType::Length:
+        c.type = SketchConstraintType::Distance;
+        c.ea = a.ea; c.ra = SketchPointRole::P0;
+        c.eb = a.ea; c.rb = SketchPointRole::P1; c.value = a.value;
+        break;
+    case DimType::Diameter: c.type = SketchConstraintType::Diameter; c.ea = a.ea; c.value = a.value; break;
+    case DimType::Radius:   c.type = SketchConstraintType::Radius;   c.ea = a.ea; c.value = a.value; break;
+    case DimType::Distance:
+        if (a.value < 1e-9) c.type = SketchConstraintType::Coincident;
+        else              { c.type = SketchConstraintType::Distance; c.value = a.value; }
+        c.ea = a.ea; c.ra = a.ra; c.eb = a.eb; c.rb = a.rb;
+        break;
+    case DimType::DistanceToLine:
+        c.type = SketchConstraintType::PointOnLine;
+        c.ea = a.ea; c.ra = a.ra; c.eb = a.eb; c.value = a.value;
+        break;
+    default: break;
+    }
+    return c;
+}
+
+// Measure the just-picked dimension, append its driving constraint, live-solve, and
+// fire the value-card callback so the user can override the value.
+int DesignSketchTool::place_dimension(DimAnnot a)
+{
+    a.value = measure_dim(a);
+    a.con   = int(m_constraints.size());
+    m_constraints.push_back(constraint_for(a));
+    m_dimensions.push_back(a);
+    resolve_live();
+    m_pending_dim = int(m_dimensions.size()) - 1;
+    if (on_dimension_pick_complete) on_dimension_pick_complete(a.value);
+    return m_pending_dim;
+}
+
+DesignSketchTool::DimType DesignSketchTool::pending_dimension_type() const
+{
+    return (m_pending_dim >= 0 && m_pending_dim < int(m_dimensions.size()))
+               ? m_dimensions[m_pending_dim].kind : DimType::None;
+}
+
+void DesignSketchTool::set_dimension_value(double v)
+{
+    if (m_pending_dim < 0 || m_pending_dim >= int(m_dimensions.size())) return;
+    DimAnnot& a = m_dimensions[m_pending_dim];
+    a.value = v;
+    if (a.con >= 0 && a.con < int(m_constraints.size()))
+        m_constraints[a.con] = constraint_for(a);
+    resolve_live();
+    m_pending_dim = -1;
+}
+
+void DesignSketchTool::cancel_dimension_value()
+{
+    m_pending_dim = -1;   // keep the placed dimension at its measured value
+}
+
+std::string DesignSketchTool::dim_text(const DimAnnot& a) const
+{
+    char buf[32];
+    const char* prefix = (a.kind == DimType::Diameter) ? "\xC3\x98"   // 'Ø'
+                       : (a.kind == DimType::Radius)   ? "R" : "";
+    std::snprintf(buf, sizeof(buf), "%s%.1f", prefix, a.value);
+    return std::string(buf);
+}
+
 void DesignSketchTool::apply_segment_length(double len)
 {
     if (m_points.size() == 2 && len > 1e-9) {
@@ -361,6 +515,9 @@ void DesignSketchTool::finish()
     m_points.clear();
     m_entities.clear();
     m_constraints.clear();
+    m_dimensions.clear();
+    m_dim_has0 = false;
+    m_pending_dim = -1;
     m_has_cursor = false;
     if (cb)
         cb(ents, cons, pl);
@@ -762,6 +919,186 @@ void DesignSketchTool::draw_vertices(GLModel& model, const std::vector<Vec2d>& p
     model.render();
 }
 
+// Independent thick-line segments batched into one immediate-mode draw (quote lines,
+// extension lines, arrowheads, glyph strokes). Mirrors draw_quad_strip's lift-to-world.
+void DesignSketchTool::draw_strokes(GLModel& model, const std::vector<std::pair<Vec2d, Vec2d>>& segs,
+                                    double hw, const ColorRGBA& color)
+{
+    GLModel::Geometry g;
+    g.format = { GLModel::Geometry::EPrimitiveType::Triangles, GLModel::Geometry::EVertexLayout::P3 };
+    unsigned int base = 0;
+    for (const auto& s : segs) {
+        const Vec2d a = s.first, b = s.second;
+        const Vec2d d = b - a;
+        const double len = d.norm();
+        if (len < 1e-6) continue;
+        const Vec2d n(-d.y() / len, d.x() / len);
+        const Vec2d o = n * hw;
+        g.add_vertex((Vec3f)m_plane.to_world(a + o).cast<float>());
+        g.add_vertex((Vec3f)m_plane.to_world(b + o).cast<float>());
+        g.add_vertex((Vec3f)m_plane.to_world(b - o).cast<float>());
+        g.add_vertex((Vec3f)m_plane.to_world(a - o).cast<float>());
+        g.add_triangle(base, base + 1, base + 2);
+        g.add_triangle(base, base + 2, base + 3);
+        base += 4;
+    }
+    if (base > 0) {
+        model.reset();
+        model.init_from(std::move(g));
+        model.set_color(color);
+        model.render();
+    }
+}
+
+namespace {
+// Minimal 7-segment-style vector font for dimension labels. Strokes live in a
+// 0..0.6 (x) by 0..1 (y) cell, baseline at y=0; `advance` is the pen step after it.
+void glyph_strokes(char c, std::vector<std::pair<Vec2d, Vec2d>>& out, double& advance)
+{
+    // NB: avoid names B0/B1 — termios defines them as baud-rate macros in GUI TUs.
+    const Vec2d TL(0, 1),  TR(0.6, 1);     // top corners
+    const Vec2d ML(0, 0.5), MR(0.6, 0.5);  // middle
+    const Vec2d BL(0, 0),  BR(0.6, 0);     // bottom corners
+    auto seg = [&](const Vec2d& a, const Vec2d& b) { out.emplace_back(a, b); };
+    advance = 0.85;
+    switch (c) {
+    case '0': seg(TL, TR); seg(TR, BR); seg(BR, BL); seg(BL, TL); break;
+    case '1': seg(TR, BR); advance = 0.45; break;
+    case '2': seg(TL, TR); seg(TR, MR); seg(MR, ML); seg(ML, BL); seg(BL, BR); break;
+    case '3': seg(TL, TR); seg(TR, BR); seg(BR, BL); seg(MR, ML); break;
+    case '4': seg(TL, ML); seg(ML, MR); seg(TR, BR); break;
+    case '5': seg(TR, TL); seg(TL, ML); seg(ML, MR); seg(MR, BR); seg(BR, BL); break;
+    case '6': seg(TR, TL); seg(TL, BL); seg(BL, BR); seg(BR, MR); seg(MR, ML); break;
+    case '7': seg(TL, TR); seg(TR, BR); break;
+    case '8': seg(TL, TR); seg(TR, BR); seg(BR, BL); seg(BL, TL); seg(ML, MR); break;
+    case '9': seg(BR, TR); seg(TR, TL); seg(TL, ML); seg(ML, MR); break;
+    case '.': seg(Vec2d(0.2, 0), Vec2d(0.4, 0)); advance = 0.4; break;
+    case '-': seg(ML, MR); break;
+    case 'R': seg(BL, TL); seg(TL, TR); seg(TR, MR); seg(MR, ML); seg(ML, BR); break;
+    case ' ': advance = 0.5; break;
+    default:  advance = 0.5; break;
+    }
+}
+} // namespace
+
+void DesignSketchTool::draw_text(GLModel& model, const std::string& s, const Vec2d& center,
+                                 double height, const ColorRGBA& color)
+{
+    std::vector<std::vector<std::pair<Vec2d, Vec2d>>> glyphs;
+    std::vector<double> advs;
+    double total = 0.0;
+    for (size_t i = 0; i < s.size(); ++i) {
+        std::vector<std::pair<Vec2d, Vec2d>> gs;
+        double adv = 0.5;
+        if ((unsigned char)s[i] == 0xC3 && i + 1 < s.size() && (unsigned char)s[i + 1] == 0x98) {
+            glyph_strokes('0', gs, adv);                          // 'Ø' = '0' + slash
+            gs.emplace_back(Vec2d(0.0, 0.0), Vec2d(0.6, 1.0));
+            ++i;
+        } else {
+            glyph_strokes(s[i], gs, adv);
+        }
+        glyphs.push_back(std::move(gs));
+        advs.push_back(adv);
+        total += adv;
+    }
+    const Vec2d origin = center - Vec2d(total * height * 0.5, height * 0.5);
+    std::vector<std::pair<Vec2d, Vec2d>> world;
+    double pen = 0.0;
+    for (size_t g = 0; g < glyphs.size(); ++g) {
+        for (const auto& seg : glyphs[g]) {
+            const Vec2d a = origin + Vec2d((seg.first.x()  + pen) * height, seg.first.y()  * height);
+            const Vec2d b = origin + Vec2d((seg.second.x() + pen) * height, seg.second.y() * height);
+            world.emplace_back(a, b);
+        }
+        pen += advs[g];
+    }
+    draw_strokes(model, world, std::max(height * 0.06, 0.25), color);
+}
+
+// Draw every placed dimension: extension lines, the offset dimension line, arrowheads
+// and the numeric label. Geometry is recomputed from the (solved) entities each frame
+// so the quote tracks the sketch.
+void DesignSketchTool::render_dimensions()
+{
+    if (m_dimensions.empty()) return;
+    const ColorRGBA dimcol(0.30f, 0.88f, 0.66f, 1.0f);   // teal-green CAD quote
+    for (const DimAnnot& a : m_dimensions) {
+        std::vector<std::pair<Vec2d, Vec2d>> segs;
+        if (a.kind == DimType::Length || a.kind == DimType::Distance) {
+            Vec2d pa, pb;
+            if (a.kind == DimType::Length) {
+                if (a.ea < 0 || a.ea >= int(m_entities.size())) continue;
+                pa = m_entities[a.ea].p0; pb = m_entities[a.ea].p1;
+            } else if (!point_at(a.ea, a.ra, pa) || !point_at(a.eb, a.rb, pb)) {
+                continue;
+            }
+            const Vec2d d = pb - pa;
+            const double L = d.norm();
+            if (L < 1e-6) continue;
+            const Vec2d u = d / L;
+            const Vec2d nrm(-u.y(), u.x());
+            const double off = a.side * std::max(L * 0.18, 8.0);
+            const Vec2d A2 = pa + nrm * off, B2 = pb + nrm * off;
+            const Vec2d ext = nrm * (off + a.side * 2.0);
+            segs.emplace_back(pa, pa + ext);      // extension lines
+            segs.emplace_back(pb, pb + ext);
+            segs.emplace_back(A2, B2);            // dimension line
+            const double as = std::max(L * 0.04, 2.0);
+            auto arrow = [&](const Vec2d& tip, const Vec2d& dir) {
+                const Vec2d back = tip + dir * as;
+                segs.emplace_back(tip, back + nrm * (as * 0.5));
+                segs.emplace_back(tip, back - nrm * (as * 0.5));
+            };
+            arrow(A2, u); arrow(B2, -u);
+            const double h = std::max(L * 0.11, 5.0);
+            const Vec2d label = (A2 + B2) * 0.5 + nrm * (a.side * h * 0.8);
+            draw_strokes(m_highlight_model, segs, 0.6, dimcol);
+            draw_text(m_line_model, dim_text(a), label, h, dimcol);
+        } else if (a.kind == DimType::Diameter || a.kind == DimType::Radius) {
+            if (a.ea < 0 || a.ea >= int(m_entities.size())) continue;
+            const SketchEntity& e = m_entities[a.ea];
+            const Vec2d c = e.center;
+            const double r = e.radius;
+            const Vec2d u(1.0, 0.0);
+            const double as = std::max(r * 0.12, 2.0);
+            Vec2d label;
+            double h = std::max(r * 0.30, 4.0);
+            if (a.kind == DimType::Diameter) {
+                const Vec2d p1 = c - u * r, p2 = c + u * r;
+                segs.emplace_back(p1, p2);
+                segs.emplace_back(p1, p1 + u * as + Vec2d(0, 1) * (as * 0.5));
+                segs.emplace_back(p1, p1 + u * as - Vec2d(0, 1) * (as * 0.5));
+                segs.emplace_back(p2, p2 - u * as + Vec2d(0, 1) * (as * 0.5));
+                segs.emplace_back(p2, p2 - u * as - Vec2d(0, 1) * (as * 0.5));
+                label = c + Vec2d(0, 1) * (h * 0.8);
+            } else {
+                const Vec2d p2 = c + u * r;
+                segs.emplace_back(c, p2);
+                segs.emplace_back(p2, p2 - u * as + Vec2d(0, 1) * (as * 0.5));
+                segs.emplace_back(p2, p2 - u * as - Vec2d(0, 1) * (as * 0.5));
+                label = (c + p2) * 0.5 + Vec2d(0, 1) * (h * 0.8);
+            }
+            draw_strokes(m_highlight_model, segs, 0.6, dimcol);
+            draw_text(m_line_model, dim_text(a), label, h, dimcol);
+        } else if (a.kind == DimType::DistanceToLine) {
+            Vec2d pa;
+            if (!point_at(a.ea, a.ra, pa) || a.eb < 0 || a.eb >= int(m_entities.size())) continue;
+            const SketchEntity& Ln = m_entities[a.eb];
+            const Vec2d ld = Ln.p1 - Ln.p0;
+            const double n = ld.norm();
+            if (n < 1e-9) continue;
+            const Vec2d u = ld / n;
+            const double t = (pa - Ln.p0).dot(u);
+            const Vec2d foot = Ln.p0 + u * t;       // perpendicular foot on the line
+            segs.emplace_back(pa, foot);
+            const double h = std::max((pa - foot).norm() * 0.2, 5.0);
+            const Vec2d label = (pa + foot) * 0.5 + u * (h * 0.8);
+            draw_strokes(m_highlight_model, segs, 0.6, dimcol);
+            draw_text(m_line_model, dim_text(a), label, h, dimcol);
+        }
+    }
+}
+
 void DesignSketchTool::draw_entities_preview(const std::vector<SketchEntity>& ents, const ColorRGBA& color)
 {
     for (const SketchEntity& e : ents) {
@@ -851,12 +1188,16 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     if (!sel_point_markers.empty())
         draw_vertices(m_highlight_model, sel_point_markers, white);
 
+    // Placed dimension quotes (drawn in every mode so they persist while sketching).
+    render_dimensions();
+
     // In-progress entity preview for the active tool.
     const ColorRGBA preview = m_construction ? grey : orange;
     switch (m_mode) {
 
     case Mode::Select:
-        break;   // selection highlight is drawn above; no rubber-band preview
+    case Mode::Dimension:
+        break;   // selection highlight / placed quotes are drawn above; no rubber-band
 
     case Mode::Polyline: {
         std::vector<Vec2d> pts = m_points;
@@ -1167,6 +1508,47 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             return true;
         }
         return false;                               // let drag orbit the camera
+    }
+
+    // Dimension mode: click entities directly. 2 points -> Distance, a line -> Length,
+    // a circle -> Diameter, an arc -> Radius, a point then a line -> DistanceToLine.
+    // Each resolved pick places a driving quote and pops the value card.
+    if (m_mode == Mode::Dimension) {
+        if (evt.LeftDown()) {
+            Vec2d p;
+            screen_to_plane(canvas, evt, p);
+            const Linef3 r2 = canvas.mouse_ray(Point(evt.GetX() + 8, evt.GetY()));
+            const Vec2d p2 = m_plane.project(r2.a, r2.vector());
+            const double tol = std::max(1e-3, (p2 - p).norm());
+            int pe; SketchPointRole pr;
+            const bool got_pt = hit_test_point(p, tol, pe, pr);
+            const int he = hit_test(p, tol);
+            if (!m_dim_has0) {
+                if (got_pt) {                          // first point picked: await a second
+                    m_dim_e0 = pe; m_dim_r0 = pr; m_dim_has0 = true;
+                } else if (he >= 0) {                  // whole-entity dimension
+                    DimAnnot a; a.ea = he;
+                    const SketchEntity::Type t = m_entities[he].type;
+                    if (t == SketchEntity::Type::Line)        { a.kind = DimType::Length;   place_dimension(a); }
+                    else if (t == SketchEntity::Type::Circle) { a.kind = DimType::Diameter; place_dimension(a); }
+                    else if (t == SketchEntity::Type::Arc)    { a.kind = DimType::Radius;   place_dimension(a); }
+                }
+            } else {
+                if (got_pt && !(pe == m_dim_e0 && pr == m_dim_r0)) {
+                    DimAnnot a; a.kind = DimType::Distance;
+                    a.ea = m_dim_e0; a.ra = m_dim_r0; a.eb = pe; a.rb = pr;
+                    place_dimension(a);
+                } else if (he >= 0 && m_entities[he].type == SketchEntity::Type::Line) {
+                    DimAnnot a; a.kind = DimType::DistanceToLine;
+                    a.ea = m_dim_e0; a.ra = m_dim_r0; a.eb = he;
+                    place_dimension(a);
+                }
+                m_dim_has0 = false;                    // reset after the second pick
+            }
+            return true;
+        }
+        if (evt.RightDown()) { m_dim_has0 = false; return true; }
+        return false;                                  // let drag orbit the camera
     }
 
     if (evt.Moving()) {
