@@ -267,6 +267,11 @@ void DesignCanvas::set_on_sketch_selection_changed(std::function<void(int)> cb)
     m_sketch_tool.on_selection_changed = std::move(cb);
 }
 
+void DesignCanvas::set_on_sketch_face_selected(std::function<void()> cb)
+{
+    m_sketch_tool.on_face_selected = std::move(cb);
+}
+
 void DesignCanvas::delete_selected_sketch_entities()
 {
     m_sketch_tool.delete_selected();

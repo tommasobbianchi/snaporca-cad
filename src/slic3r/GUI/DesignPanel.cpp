@@ -734,7 +734,26 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_status->SetForegroundColour(wxNullColour);
         m_status->SetLabel(count > 0
             ? wxString::Format(_L("%d selected — Delete removes them"), count)
-            : _L("Click to select; Shift to add; double-click for a loop"));
+            : _L("Click to select; click a filled face to extrude; Shift to add"));
+        m_status->Refresh();
+    });
+
+    // Onshape flow: clicking inside a closed-loop face commits the sketch and opens
+    // the Extrude dialog (with a ghost preview) targeting that sketch.
+    m_viewport->set_on_sketch_face_selected([this]() {
+        if (!m_viewport) return;
+        m_viewport->finish_sketch();                 // commit live sketch (synchronous)
+        m_extrude_sketch_ref = resolve_extrude_sketch();
+        if (m_extrude_sketch_ref < 0) {
+            m_status->SetForegroundColour(wxColour(235, 110, 110));
+            m_status->SetLabel(_L("Could not resolve the sketch to extrude"));
+            m_status->Refresh();
+            return;
+        }
+        set_ui_mode(UiMode::Feature);
+        open_tool(Tool::Extrude);
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(_L("Face selected — set the depth and Confirm"));
         m_status->Refresh();
     });
 

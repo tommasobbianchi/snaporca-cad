@@ -968,6 +968,25 @@ std::vector<std::vector<Vec2d>> DesignSketchTool::closed_regions() const
     return regions;
 }
 
+int DesignSketchTool::region_at(const Vec2d& p) const
+{
+    const std::vector<std::vector<Vec2d>> regions = closed_regions();
+    auto inside = [](const Vec2d& q, const std::vector<Vec2d>& poly) {
+        bool in = false;
+        for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++) {
+            const Vec2d& a = poly[i];
+            const Vec2d& b = poly[j];
+            if (((a.y() > q.y()) != (b.y() > q.y())) &&
+                (q.x() < (b.x() - a.x()) * (q.y() - a.y()) / (b.y() - a.y()) + a.x()))
+                in = !in;
+        }
+        return in;
+    };
+    for (size_t i = 0; i < regions.size(); ++i)
+        if (inside(p, regions[i])) return int(i);
+    return -1;
+}
+
 // ---- rendering --------------------------------------------------------------
 
 void DesignSketchTool::draw_quad_strip(GLModel& model, const std::vector<Vec2d>& pts, bool closed, const ColorRGBA& color)
@@ -1867,6 +1886,14 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                     m_selection.push_back(hit);
                 }
             } else if (!extend) {
+                // Inside a closed loop (not on an edge/point) → select it as a face
+                // and hand off to the panel, which commits the sketch and extrudes.
+                if (evt.LeftDown() && on_face_selected && region_at(p) >= 0) {
+                    m_selection.clear();
+                    m_point_sel.clear();
+                    on_face_selected();
+                    return true;
+                }
                 m_selection.clear();                // clicked empty space
                 m_point_sel.clear();
             }

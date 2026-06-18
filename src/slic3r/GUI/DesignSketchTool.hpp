@@ -110,6 +110,9 @@ public:
                        const SketchPlane&)> on_commit_entities;
     // Legacy single-profile commit (kept for compatibility; unused by entity tools).
     std::function<void(const SketchProfile&, const SketchPlane&)> on_commit;
+    // Emitted when a closed-loop face is clicked in Select mode (Onshape: a region
+    // becomes a selectable face → extrude). The panel commits the sketch + extrudes.
+    std::function<void()> on_face_selected;
 
 private:
     bool screen_to_plane(GLCanvas3D& canvas, const wxMouseEvent& evt, Vec2d& out) const;
@@ -179,6 +182,8 @@ private:
     // ordered boundary polygon on the plane. A circle is its own region; line/arc
     // chains are walked endpoint-to-endpoint into loops. Used to fill faces.
     std::vector<std::vector<Vec2d>> closed_regions() const;
+    // Index of the closed region containing plane-point p (point-in-polygon), or -1.
+    int region_at(const Vec2d& p) const;
 
     void draw_quad_strip(GLModel& model, const std::vector<Vec2d>& pts, bool closed, const ColorRGBA& color);
     void draw_vertices(GLModel& model, const std::vector<Vec2d>& pts, const ColorRGBA& color);
