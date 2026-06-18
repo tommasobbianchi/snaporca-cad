@@ -236,6 +236,28 @@ void DesignCanvas::set_on_sketch_entities_commit(
     m_on_sketch_entities_commit = std::move(cb);
 }
 
+void DesignCanvas::set_on_segment_drawn(std::function<void(double, double)> cb)
+{
+    m_sketch_tool.on_segment_drawn = std::move(cb);
+}
+
+void DesignCanvas::set_on_cursor_metrics(std::function<void(double, double, bool)> cb)
+{
+    m_sketch_tool.on_cursor_metrics = std::move(cb);
+}
+
+void DesignCanvas::apply_segment_length(double len)
+{
+    m_sketch_tool.apply_segment_length(len);
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
+void DesignCanvas::keep_segment_as_drawn()
+{
+    m_sketch_tool.keep_segment_as_drawn();
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
 void DesignCanvas::begin_constrain(const SketchProfile& prof, const SketchPlane& plane)
 {
     m_sketch_tool.begin_constrain(prof, plane);

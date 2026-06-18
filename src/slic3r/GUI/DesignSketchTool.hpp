@@ -21,7 +21,7 @@ class GLCanvas3D;
 // committed profile's points (entity constraints land in a later chunk).
 class DesignSketchTool {
 public:
-    enum class Mode { Polyline, CornerRect, CenterRect, CenterCircle, Point,
+    enum class Mode { Polyline, Line, CornerRect, CenterRect, CenterCircle, Point,
                       ThreePointCircle, ThreePointArc, TangentArc, Slot, Polygon,
                       Constrain };
 
@@ -57,6 +57,16 @@ public:
     bool pick0_point(Vec2d& out) const { out = m_pick0_pt; return m_pick0 >= 0; }
     // Refresh the displayed entities after the kernel re-solved them.
     void set_constrain_entities(const std::vector<SketchEntity>& ents) { m_entities = ents; }
+
+    // Line tool: after a single segment is placed, the panel pops a length dialog
+    // (length, angle_deg are the as-drawn values); it then resolves via
+    // apply_segment_length() (exact length) or keep_segment_as_drawn() (cancel).
+    std::function<void(double length, double angle_deg)> on_segment_drawn;
+    void apply_segment_length(double len);  // rescale the pending segment, then commit it
+    void keep_segment_as_drawn();           // commit the pending segment unchanged
+
+    // Live readout while drawing a Line/Polyline segment (anchor->cursor metrics).
+    std::function<void(double length, double angle_deg, bool locked)> on_cursor_metrics;
 
     // Emitted by finish() with the accumulated entities (Onshape multi-entity path).
     std::function<void(const std::vector<SketchEntity>&, const SketchPlane&)> on_commit_entities;
@@ -105,6 +115,7 @@ private:
     bool                m_has_cursor{false};
     bool                m_snap_off{false};      // Shift held -> suppress angle snapping
     bool                m_cursor_locked{false}; // rubber-band segment is angle-locked
+    bool                m_awaiting_length{false}; // Line tool: length dialog is open
     Mode                m_mode{Mode::Polyline};
     int                 m_sel_a{-1};   // picked segment endpoints (legacy Constrain mode)
     int                 m_sel_b{-1};

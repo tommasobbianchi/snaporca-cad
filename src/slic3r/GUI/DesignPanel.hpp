@@ -68,7 +68,8 @@ private:
     // Angle/Radius/Diameter constraints + Offset/Fillet edit ops). request_value
     // shows the card and stows a continuation run by confirm_value().
     void request_value(const wxString& label, double def, double mn, double mx,
-                       std::function<void(double)> cont);
+                       std::function<void(double)> cont,
+                       std::function<void()> on_cancel = nullptr);
     void confirm_value();
     void cancel_value();
     void commit_entity_constraint(const SketchEntityConstraintDef& def); // shared solve/refresh tail
@@ -155,6 +156,7 @@ private:
     wxStaticText*     m_value_label{nullptr};
     wxSpinCtrlDouble* m_value_input{nullptr};
     std::function<void(double)> m_value_cont;   // deferred apply, run on Confirm
+    std::function<void()>       m_value_cancel; // optional action when the card is cancelled
 
     // Feature tree: a wxTreeCtrl with per-feature-type icons. Callers keep using
     // integer row indices via tree_selection()/set_tree_selection(); m_tree_items

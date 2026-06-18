@@ -47,6 +47,12 @@ public:
     void set_on_sketch_entities_commit(
         std::function<void(const std::vector<SketchEntity>&, const SketchPlane&)> cb);
 
+    // Line tool: pending-segment length entry + live readout (Phase 2).
+    void set_on_segment_drawn(std::function<void(double, double)> cb);
+    void set_on_cursor_metrics(std::function<void(double, double, bool)> cb);
+    void apply_segment_length(double len);  // exact length, then commit & repaint
+    void keep_segment_as_drawn();           // commit as-drawn & repaint
+
     // Constrain mode: load a committed profile for picking + constraint editing.
     void begin_constrain(const SketchProfile& prof, const SketchPlane& plane);
     // Leave constrain mode and clear any picked-entity highlight from the overlay.

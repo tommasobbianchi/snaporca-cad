@@ -23,6 +23,7 @@ void DesignSketchTool::begin(const SketchPlane& plane, Mode mode)
     m_sel_a = m_sel_b = -1;
     m_constrain_entities = false;
     m_pick0 = m_pick1 = m_pick2 = -1;
+    m_awaiting_length = false;
     m_active = true;
 }
 
@@ -32,6 +33,7 @@ void DesignSketchTool::set_tool(Mode mode)
     m_mode = mode;
     m_points.clear();
     m_has_cursor = false;
+    m_awaiting_length = false;
 }
 
 void DesignSketchTool::cancel()
@@ -44,6 +46,27 @@ void DesignSketchTool::cancel()
     m_sel_a = m_sel_b = -1;
     m_constrain_entities = false;
     m_pick0 = m_pick1 = m_pick2 = -1;
+    m_awaiting_length = false;
+}
+
+void DesignSketchTool::apply_segment_length(double len)
+{
+    if (m_points.size() == 2 && len > 1e-9) {
+        const Vec2d d = m_points[1] - m_points[0];
+        const double r = d.norm();
+        if (r > 1e-9)
+            m_points[1] = m_points[0] + (len / r) * d;
+    }
+    keep_segment_as_drawn();
+}
+
+void DesignSketchTool::keep_segment_as_drawn()
+{
+    if (m_points.size() == 2)
+        push_line(m_points[0], m_points[1]);  // accrues into the session's entities
+    m_points.clear();
+    m_has_cursor = false;
+    m_awaiting_length = false;
 }
 
 void DesignSketchTool::finish()
@@ -557,6 +580,19 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         break;
     }
 
+    case Mode::Line: {
+        std::vector<Vec2d> pts = m_points;
+        if (m_has_cursor && m_points.size() == 1)
+            pts.push_back(m_cursor);
+        if (pts.size() >= 2) {
+            const ColorRGBA col = (m_cursor_locked && m_points.size() == 1)
+                                      ? ColorRGBA(0.10f, 0.85f, 0.80f, 1.0f) : preview;
+            draw_quad_strip(m_highlight_model, pts, false, col);
+        }
+        draw_vertices(m_vertex_model, m_points, yellow);
+        break;
+    }
+
     case Mode::CornerRect: {
         if (m_points.size() == 1 && m_has_cursor) {
             const Vec2d A = m_points[0];
@@ -731,8 +767,13 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
         screen_to_plane(canvas, evt, m_cursor);
         m_has_cursor = true;
         m_cursor_locked = false;
-        if (m_mode == Mode::Polyline && !m_points.empty())
+        const bool line_like = (m_mode == Mode::Polyline || m_mode == Mode::Line);
+        if (line_like && !m_points.empty())
             m_cursor = snap_dir(m_points.back(), m_cursor, m_cursor_locked);
+        if (on_cursor_metrics && line_like && !m_points.empty() && !m_awaiting_length) {
+            const Vec2d d = m_cursor - m_points.back();
+            on_cursor_metrics(d.norm(), std::atan2(d.y(), d.x()) * 180.0 / M_PI, m_cursor_locked);
+        }
         return true;
     }
 
@@ -768,6 +809,37 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             else if (m_points.size() == 2)
                 push_open_chain(m_points);
             m_points.clear();
+            return true;
+        }
+        break;
+    }
+
+    case Mode::Line: {
+        if (m_awaiting_length)         // length dialog is open: ignore canvas input
+            return true;
+        if (evt.LeftDown()) {
+            Vec2d p;
+            screen_to_plane(canvas, evt, p);
+            m_snap_off = evt.ShiftDown();
+            if (m_points.empty()) {     // first click = anchor
+                m_points.push_back(p);
+                return true;
+            }
+            bool lk = false;
+            p = snap_dir(m_points.back(), p, lk);
+            m_points.push_back(p);      // second click completes the segment
+            m_awaiting_length = true;
+            if (on_segment_drawn) {
+                const Vec2d d = m_points[1] - m_points[0];
+                on_segment_drawn(d.norm(), std::atan2(d.y(), d.x()) * 180.0 / M_PI);
+            } else {
+                keep_segment_as_drawn();  // no handler: commit as drawn
+            }
+            return true;
+        }
+        if (evt.RightDown()) {          // abandon the in-progress anchor
+            m_points.clear();
+            m_has_cursor = false;
             return true;
         }
         break;

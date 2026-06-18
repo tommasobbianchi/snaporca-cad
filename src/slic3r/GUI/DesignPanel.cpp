@@ -191,7 +191,9 @@ DesignPanel::DesignPanel(wxWindow* parent)
             b->Bind(wxEVT_BUTTON, [select_tool, mode, hint](wxCommandEvent&) { select_tool(mode, hint); });
             sadd(b);
         };
-        skbtn("design_line",      DesignSketchTool::Mode::Polyline,         _L("Line"),
+        skbtn("design_line",      DesignSketchTool::Mode::Line,             _L("Line"),
+              _L("Click start, then end — then set the exact length"));
+        skbtn("design_polyline",  DesignSketchTool::Mode::Polyline,         _L("Polyline"),
               _L("Click points; click first / right-click to close the loop"));
         skbtn("design_rect",      DesignSketchTool::Mode::CornerRect,       _L("Corner rectangle"),
               _L("Click two opposite corners"));
@@ -652,6 +654,23 @@ DesignPanel::DesignPanel(wxWindow* parent)
             m_status->SetLabel(_L("Sketch created — select it and Extrude"));
             refresh_tree();
         });
+
+    // Live length/angle readout while drawing a Line/Polyline segment.
+    m_viewport->set_on_cursor_metrics([this](double len, double ang_deg, bool locked) {
+        double a = ang_deg; if (a < 0.0) a += 360.0;   // show bearing 0..360
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(wxString::Format(L"L %.2f mm   %.1f°%s",
+                                            len, a, locked ? L"  (locked)" : L""));
+        m_status->Refresh();
+    });
+
+    // Line tool: after the segment is placed, ask for the exact length (Confirm
+    // rescales it; Cancel keeps it as drawn).
+    m_viewport->set_on_segment_drawn([this](double len, double /*ang_deg*/) {
+        request_value(_L("Length (mm)"), len, 0.001, 1000000.0,
+                      [this](double v) { if (m_viewport) m_viewport->apply_segment_length(v); },
+                      [this]()         { if (m_viewport) m_viewport->keep_segment_as_drawn(); });
+    });
 
     auto* vcol = new wxBoxSizer(wxVERTICAL);
     auto* vbar = new wxBoxSizer(wxHORIZONTAL);
@@ -1239,9 +1258,11 @@ void DesignPanel::after_edit_op()
 }
 
 void DesignPanel::request_value(const wxString& label, double def, double mn, double mx,
-                                std::function<void(double)> cont)
+                                std::function<void(double)> cont,
+                                std::function<void()> on_cancel)
 {
     m_value_cont = std::move(cont);
+    m_value_cancel = std::move(on_cancel);
     m_value_label->SetLabel(label);
     m_value_input->SetRange(mn, mx);
     m_value_input->SetValue(def);
@@ -1260,6 +1281,7 @@ void DesignPanel::confirm_value()
     const double v = m_value_input->GetValue();
     auto cont = m_value_cont;            // copy, then clear before running so a
     m_value_cont = nullptr;              // re-entrant request_value can re-arm cleanly
+    m_value_cancel = nullptr;            // confirmed: drop the cancel action
     m_form->GetSizer()->Show(m_box_value, false, true);
     m_form->Layout();
     m_form->FitInside();
@@ -1270,6 +1292,8 @@ void DesignPanel::cancel_value()
 {
     const bool was_open = (m_value_cont != nullptr);
     m_value_cont = nullptr;
+    auto on_cancel = m_value_cancel;     // copy, clear, then run (re-entrancy safe)
+    m_value_cancel = nullptr;
     if (m_box_value)
         m_form->GetSizer()->Show(m_box_value, false, true);
     m_form->Layout();
@@ -1279,6 +1303,8 @@ void DesignPanel::cancel_value()
         m_status->SetLabel(wxString());
         m_status->Refresh();
     }
+    if (on_cancel)
+        on_cancel();                     // e.g. keep a pending line segment as drawn
 }
 
 void DesignPanel::apply_constraint(SketchConstraintType type)
