@@ -31,6 +31,7 @@ void DesignSketchTool::begin(const SketchPlane& plane, Mode mode)
     m_pick0 = m_pick1 = m_pick2 = -1;
     m_awaiting_length = false;
     m_selection.clear();
+    m_point_sel.clear();
     m_constraints.clear();
     m_dimensions.clear();
     m_dim_has0 = false;
@@ -59,6 +60,7 @@ void DesignSketchTool::cancel()
     m_pick0 = m_pick1 = m_pick2 = -1;
     m_awaiting_length = false;
     m_selection.clear();
+    m_point_sel.clear();
     m_constraints.clear();
     m_dimensions.clear();
     m_dim_has0 = false;
@@ -67,8 +69,9 @@ void DesignSketchTool::cancel()
 
 void DesignSketchTool::clear_selection()
 {
-    if (m_selection.empty()) return;
+    if (m_selection.empty() && m_point_sel.empty()) return;
     m_selection.clear();
+    m_point_sel.clear();
     if (on_selection_changed) on_selection_changed(0);
 }
 
@@ -97,6 +100,7 @@ void DesignSketchTool::delete_selected()
     }
     m_constraints.swap(kept);
     m_selection.clear();
+    m_point_sel.clear();
     // v1: placed quotes reference entity indices that have shifted; drop them rather
     // than risk a dangling reference (the driving constraints survive, reindexed).
     m_dimensions.clear();
@@ -536,6 +540,7 @@ void DesignSketchTool::finish()
     m_entities.clear();
     m_constraints.clear();
     m_dimensions.clear();
+    m_point_sel.clear();
     m_dim_has0 = false;
     m_pending_dim = -1;
     m_has_cursor = false;
@@ -1212,6 +1217,38 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     if (!sel_point_markers.empty())
         draw_vertices(m_highlight_model, sel_point_markers, white);
 
+    // Endpoint / centre handles so individual points are visible and pickable in the
+    // Select and Dimension tools (a line = a segment + 2 points). Selected ones white.
+    if (m_mode == Mode::Select || m_mode == Mode::Dimension) {
+        std::vector<Vec2d> handles, sel_handles;
+        auto add_h = [&](int ei, SketchPointRole r, const Vec2d& q) {
+            const bool s = std::find(m_point_sel.begin(), m_point_sel.end(),
+                                     std::make_pair(ei, r)) != m_point_sel.end();
+            (s ? sel_handles : handles).push_back(q);
+        };
+        for (size_t i = 0; i < m_entities.size(); ++i) {
+            const SketchEntity& e = m_entities[i];
+            switch (e.type) {
+            case SketchEntity::Type::Line:
+                add_h(int(i), SketchPointRole::P0, e.p0);
+                add_h(int(i), SketchPointRole::P1, e.p1);
+                break;
+            case SketchEntity::Type::Arc:
+                add_h(int(i), SketchPointRole::P0, e.p0);
+                add_h(int(i), SketchPointRole::P1, e.p1);
+                add_h(int(i), SketchPointRole::Center, e.center);
+                break;
+            case SketchEntity::Type::Circle:
+                add_h(int(i), SketchPointRole::Center, e.center);
+                break;
+            case SketchEntity::Type::Point:
+                break;   // its own marker is drawn above
+            }
+        }
+        if (!handles.empty())     draw_vertices(m_vertex_model, handles, ColorRGBA(0.65f, 0.65f, 0.30f, 1.0f));
+        if (!sel_handles.empty()) draw_vertices(m_highlight_model, sel_handles, white);
+    }
+
     // Placed dimension quotes (drawn in every mode so they persist while sketching).
     // Pass plane-units-per-pixel so labels keep a constant on-screen size.
     render_dimensions(1.0 / std::max(camera.get_zoom(), 1e-6));
@@ -1512,6 +1549,28 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             const Linef3 r2 = canvas.mouse_ray(Point(evt.GetX() + 8, evt.GetY()));
             const Vec2d p2 = m_plane.project(r2.a, r2.vector());
             const double tol = std::max(1e-3, (p2 - p).norm());
+
+            // A nearby endpoint/centre selects that POINT (a line = a segment + 2
+            // points); a click on the bare segment selects the whole entity.
+            if (evt.LeftDown()) {
+                int pe; SketchPointRole pr;
+                if (hit_test_point(p, tol, pe, pr)) {
+                    const auto key = std::make_pair(pe, pr);
+                    auto it = std::find(m_point_sel.begin(), m_point_sel.end(), key);
+                    if (extend) {
+                        if (it == m_point_sel.end()) m_point_sel.push_back(key);
+                        else m_point_sel.erase(it);
+                    } else {
+                        m_selection.clear();
+                        m_point_sel.clear();
+                        m_point_sel.push_back(key);
+                    }
+                    if (on_selection_changed)
+                        on_selection_changed(int(m_selection.size() + m_point_sel.size()));
+                    return true;
+                }
+            }
+
             const int hit = hit_test(p, tol);
 
             if (evt.LeftDClick() && hit >= 0) {
@@ -1526,12 +1585,15 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                     else m_selection.erase(it);     // toggle off
                 } else {
                     m_selection.clear();
+                    m_point_sel.clear();
                     m_selection.push_back(hit);
                 }
             } else if (!extend) {
                 m_selection.clear();                // clicked empty space
+                m_point_sel.clear();
             }
-            if (on_selection_changed) on_selection_changed(int(m_selection.size()));
+            if (on_selection_changed)
+                on_selection_changed(int(m_selection.size() + m_point_sel.size()));
             return true;
         }
         if (evt.RightDown()) {

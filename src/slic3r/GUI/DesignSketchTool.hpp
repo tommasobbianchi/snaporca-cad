@@ -189,6 +189,7 @@ private:
     bool                m_cursor_locked{false}; // rubber-band segment is angle-locked
     bool                m_awaiting_length{false}; // Line tool: length dialog is open
     std::vector<int>    m_selection;              // selected entity indices (Mode::Select)
+    std::vector<std::pair<int, SketchPointRole>> m_point_sel;  // selected individual points
     std::vector<SketchEntityConstraintDef> m_constraints; // driving dims, committed on finish
     std::vector<DimAnnot> m_dimensions;           // placed dimension quotes (Mode::Dimension)
     int                 m_dim_e0{-1};             // first picked point's entity (Dimension)
