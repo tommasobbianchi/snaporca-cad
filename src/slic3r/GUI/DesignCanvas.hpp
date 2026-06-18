@@ -45,7 +45,9 @@ public:
     void cancel_sketch();
     void set_on_sketch_commit(std::function<void(const SketchProfile&, const SketchPlane&)> cb);
     void set_on_sketch_entities_commit(
-        std::function<void(const std::vector<SketchEntity>&, const SketchPlane&)> cb);
+        std::function<void(const std::vector<SketchEntity>&,
+                           const std::vector<SketchEntityConstraintDef>&,
+                           const SketchPlane&)> cb);
 
     // Line tool: pending-segment length entry + live readout (Phase 2).
     void set_on_segment_drawn(std::function<void(double, double)> cb);
@@ -90,7 +92,9 @@ private:
 
     DesignSketchTool m_sketch_tool;
     std::function<void(const SketchProfile&, const SketchPlane&)> m_on_sketch_commit;
-    std::function<void(const std::vector<SketchEntity>&, const SketchPlane&)> m_on_sketch_entities_commit;
+    std::function<void(const std::vector<SketchEntity>&,
+                       const std::vector<SketchEntityConstraintDef>&,
+                       const SketchPlane&)> m_on_sketch_entities_commit;
 };
 
 }} // namespace Slic3r::GUI

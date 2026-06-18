@@ -55,8 +55,10 @@ DesignCanvas::DesignCanvas(wxWindow* parent)
         if (m_canvas) m_canvas->set_as_dirty();
         if (m_canvas_widget) m_canvas_widget->Refresh();
     };
-    m_sketch_tool.on_commit_entities = [this](const std::vector<SketchEntity>& ents, const SketchPlane& pl) {
-        if (m_on_sketch_entities_commit) m_on_sketch_entities_commit(ents, pl);
+    m_sketch_tool.on_commit_entities = [this](const std::vector<SketchEntity>& ents,
+                                              const std::vector<SketchEntityConstraintDef>& cons,
+                                              const SketchPlane& pl) {
+        if (m_on_sketch_entities_commit) m_on_sketch_entities_commit(ents, cons, pl);
         if (m_canvas) m_canvas->set_as_dirty();
         if (m_canvas_widget) m_canvas_widget->Refresh();
     };
@@ -231,7 +233,9 @@ void DesignCanvas::set_on_sketch_commit(std::function<void(const SketchProfile&,
 }
 
 void DesignCanvas::set_on_sketch_entities_commit(
-    std::function<void(const std::vector<SketchEntity>&, const SketchPlane&)> cb)
+    std::function<void(const std::vector<SketchEntity>&,
+                       const std::vector<SketchEntityConstraintDef>&,
+                       const SketchPlane&)> cb)
 {
     m_on_sketch_entities_commit = std::move(cb);
 }

@@ -95,13 +95,15 @@ int CadDocument::add_sketch_profile(const SketchProfile& profile, const SketchPl
 }
 
 int CadDocument::add_sketch_entities(const std::vector<SketchEntity>& entities,
-                                     const SketchPlane& plane, const std::string& name)
+                                     const SketchPlane& plane, const std::string& name,
+                                     const std::vector<SketchEntityConstraintDef>& constraints)
 {
     CadFeature f;
-    f.type     = CadFeatureType::Sketch;
-    f.name     = name;
-    f.plane    = plane;
-    f.entities = entities;
+    f.type               = CadFeatureType::Sketch;
+    f.name               = name;
+    f.plane              = plane;
+    f.entities           = entities;
+    f.entity_constraints = constraints;   // driving dimensions, solved by solve_sketch_feature
     features.push_back(f);
     return int(features.size()) - 1;
 }

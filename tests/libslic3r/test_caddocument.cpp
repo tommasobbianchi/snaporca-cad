@@ -331,6 +331,24 @@ TEST_CASE("entity constraints: solve on SketchEntity endpoints", "[CadDocument]"
         REQUIRE(std::abs(d) < 1e-6);
     }
 
+    // Driving length: the Dimension tool records a Distance between a line's own
+    // P0/P1 (committed via add_sketch_entities' constraints arg). Solving drives
+    // the line to that exact length.
+    SECTION("driving length: Distance(P0,P1) sets a line's length") {
+        CadDocument doc;
+        std::vector<SketchEntity> ents = {
+            {SketchEntity::Type::Line, Vec2d(0,0), Vec2d(10,0)},   // length 10
+        };
+        std::vector<SketchEntityConstraintDef> cons;
+        cons.push_back({T::Fix,      0, -1, R::P0, R::P0, 0.0});   // pin the start
+        cons.push_back({T::Distance, 0,  0, R::P0, R::P1, 25.0});  // length -> 25
+        int sk = doc.add_sketch_entities(ents, SketchPlane::XY(), "S", cons);
+        REQUIRE(doc.features[sk].entity_constraints.size() == 2);  // constraints stored
+        REQUIRE(doc.solve_sketch_feature(sk));
+        const auto& e = doc.features[sk].entities;
+        REQUIRE(std::abs((e[0].p1 - e[0].p0).norm() - 25.0) < 1e-6);
+    }
+
     SECTION("parallel flattens line1 onto a pinned horizontal line0") {
         CadDocument doc;
         std::vector<SketchEntity> ents = {

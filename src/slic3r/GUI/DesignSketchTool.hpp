@@ -86,8 +86,15 @@ public:
     double  dimension_current() const;  // current value, to pre-fill the dialog
     void    apply_dimension(double v);  // set it exactly, then clear the selection
 
-    // Emitted by finish() with the accumulated entities (Onshape multi-entity path).
-    std::function<void(const std::vector<SketchEntity>&, const SketchPlane&)> on_commit_entities;
+    // Driving dimension constraints accumulated during the session (the Dimension
+    // tool records a SketchEntityConstraintDef per applied dimension); committed
+    // alongside the entities on finish() so the kernel keeps enforcing them.
+    const std::vector<SketchEntityConstraintDef>& constraints() const { return m_constraints; }
+
+    // Emitted by finish() with the accumulated entities + driving constraints.
+    std::function<void(const std::vector<SketchEntity>&,
+                       const std::vector<SketchEntityConstraintDef>&,
+                       const SketchPlane&)> on_commit_entities;
     // Legacy single-profile commit (kept for compatibility; unused by entity tools).
     std::function<void(const SketchProfile&, const SketchPlane&)> on_commit;
 
@@ -105,6 +112,7 @@ private:
     std::vector<int> connected_loop(int seed) const;      // entities joined by shared endpoints
     void apply_angle_between(int ia, int ib, double deg); // rotate line B to set the A^B angle
     bool selection_valid() const;                         // all selection indices in range
+    void record_dimension_constraint(double v);           // append the driving def for the selection
 
     // Entity builders: append to m_entities (honoring the construction flag).
     void push_line(const Vec2d& a, const Vec2d& b);
@@ -141,6 +149,7 @@ private:
     bool                m_cursor_locked{false}; // rubber-band segment is angle-locked
     bool                m_awaiting_length{false}; // Line tool: length dialog is open
     std::vector<int>    m_selection;              // selected entity indices (Mode::Select)
+    std::vector<SketchEntityConstraintDef> m_constraints; // driving dims, committed on finish
     Mode                m_mode{Mode::Polyline};
     int                 m_sel_a{-1};   // picked segment endpoints (legacy Constrain mode)
     int                 m_sel_b{-1};

@@ -91,7 +91,8 @@ public:
     // Onshape-style multi-entity sketch: stores the entity list verbatim. When
     // non-empty it takes precedence over profile/enum in build_sketch_wire.
     int  add_sketch_entities(const std::vector<SketchEntity>& entities,
-                             const SketchPlane& plane, const std::string& name);
+                             const SketchPlane& plane, const std::string& name,
+                             const std::vector<SketchEntityConstraintDef>& constraints = {});
     // Solve features[index]'s sketch constraints, writing solved coordinates back
     // into its profile.points. No-op (returns true) if the feature has no
     // constraints. Returns false if index is invalid / not a Sketch / solve fails.

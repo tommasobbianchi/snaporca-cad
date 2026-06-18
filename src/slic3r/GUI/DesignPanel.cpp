@@ -676,7 +676,9 @@ DesignPanel::DesignPanel(wxWindow* parent)
     });
 
     m_viewport->set_on_sketch_entities_commit(
-        [this](const std::vector<SketchEntity>& ents, const SketchPlane& plane) {
+        [this](const std::vector<SketchEntity>& ents,
+               const std::vector<SketchEntityConstraintDef>& cons,
+               const SketchPlane& plane) {
             if (ents.empty()) {
                 m_status->SetForegroundColour(wxColour(235, 110, 110));
                 m_status->SetLabel(_L("Sketch empty — nothing committed"));
@@ -684,10 +686,15 @@ DesignPanel::DesignPanel(wxWindow* parent)
                 return;
             }
             m_feature_counter++;
-            m_doc.add_sketch_entities(ents, plane, "Sketch" + std::to_string(m_feature_counter));
+            const int sk = m_doc.add_sketch_entities(ents, plane,
+                               "Sketch" + std::to_string(m_feature_counter), cons);
+            if (!cons.empty()) m_doc.solve_sketch_feature(sk);   // enforce driving dimensions
             m_doc.recompute();
             m_status->SetForegroundColour(wxNullColour);
-            m_status->SetLabel(_L("Sketch created — select it and Extrude"));
+            m_status->SetLabel(cons.empty()
+                ? _L("Sketch created — select it and Extrude")
+                : wxString::Format(_L("Sketch created (%zu driving dims) — select it and Extrude"),
+                                   cons.size()));
             refresh_tree();
         });
 

@@ -30,6 +30,7 @@ void DesignSketchTool::begin(const SketchPlane& plane, Mode mode)
     m_pick0 = m_pick1 = m_pick2 = -1;
     m_awaiting_length = false;
     m_selection.clear();
+    m_constraints.clear();
     m_active = true;
 }
 
@@ -54,6 +55,7 @@ void DesignSketchTool::cancel()
     m_pick0 = m_pick1 = m_pick2 = -1;
     m_awaiting_length = false;
     m_selection.clear();
+    m_constraints.clear();
 }
 
 void DesignSketchTool::clear_selection()
@@ -66,11 +68,27 @@ void DesignSketchTool::clear_selection()
 void DesignSketchTool::delete_selected()
 {
     if (m_selection.empty()) return;
-    std::vector<int> idx = m_selection;
-    std::sort(idx.begin(), idx.end(), std::greater<int>());
-    for (int i : idx)
-        if (i >= 0 && i < int(m_entities.size()))
-            m_entities.erase(m_entities.begin() + i);
+    const int n = int(m_entities.size());
+    std::vector<bool> del(n, false);
+    for (int i : m_selection)
+        if (i >= 0 && i < n) del[i] = true;
+    // old index -> new index (or -1 if deleted), to fix up constraint references.
+    std::vector<int> remap(n, -1);
+    int next = 0;
+    for (int i = 0; i < n; ++i)
+        if (!del[i]) remap[i] = next++;
+    for (int i = n - 1; i >= 0; --i)
+        if (del[i]) m_entities.erase(m_entities.begin() + i);
+    // Drop constraints touching a deleted entity; remap the survivors.
+    std::vector<SketchEntityConstraintDef> kept;
+    auto live = [&](int e) { return e < 0 || (e < n && remap[e] >= 0); };
+    auto map  = [&](int e) { return e < 0 ? -1 : remap[e]; };
+    for (SketchEntityConstraintDef c : m_constraints) {
+        if (!live(c.ea) || !live(c.eb) || !live(c.ec)) continue;
+        c.ea = map(c.ea); c.eb = map(c.eb); c.ec = map(c.ec);
+        kept.push_back(c);
+    }
+    m_constraints.swap(kept);
     m_selection.clear();
     if (on_selection_changed) on_selection_changed(0);
 }
@@ -236,8 +254,47 @@ void DesignSketchTool::apply_dimension(double v)
     }
     default: break;
     }
+    record_dimension_constraint(v);          // store a driving constraint for this dimension
     m_selection.clear();
     if (on_selection_changed) on_selection_changed(0);
+}
+
+// Append the SketchEntityConstraintDef that makes the just-applied dimension a
+// driving constraint (enforced by the kernel once the sketch is committed).
+// DistanceToLine has no kernel constraint type, so it stays geometry-only.
+void DesignSketchTool::record_dimension_constraint(double v)
+{
+    const DimType k = dimension_kind();
+    auto role = [&](int i) {
+        return (m_entities[i].type == SketchEntity::Type::Point) ? SketchPointRole::P0
+                                                                 : SketchPointRole::Center;
+    };
+    SketchEntityConstraintDef c;
+    switch (k) {
+    case DimType::Length:
+        c.type = SketchConstraintType::Distance;
+        c.ea = m_selection[0]; c.ra = SketchPointRole::P0;
+        c.eb = m_selection[0]; c.rb = SketchPointRole::P1;
+        c.value = v; m_constraints.push_back(c); break;
+    case DimType::Diameter:
+        c.type = SketchConstraintType::Diameter; c.ea = m_selection[0]; c.value = v;
+        m_constraints.push_back(c); break;
+    case DimType::Radius:
+        c.type = SketchConstraintType::Radius; c.ea = m_selection[0]; c.value = v;
+        m_constraints.push_back(c); break;
+    case DimType::Angle:
+        c.type = SketchConstraintType::Angle;
+        c.ea = m_selection[0]; c.eb = m_selection[1]; c.value = v;
+        m_constraints.push_back(c); break;
+    case DimType::Distance: {
+        const int ia = m_selection[0], ib = m_selection[1];
+        if (v < 1e-9) c.type = SketchConstraintType::Coincident;
+        else        { c.type = SketchConstraintType::Distance; c.value = v; }
+        c.ea = ia; c.ra = role(ia); c.eb = ib; c.rb = role(ib);
+        m_constraints.push_back(c); break;
+    }
+    default: break;   // DistanceToLine / None: no driving constraint recorded
+    }
 }
 
 void DesignSketchTool::apply_segment_length(double len)
@@ -249,6 +306,18 @@ void DesignSketchTool::apply_segment_length(double len)
             m_points[1] = m_points[0] + (len / r) * d;
     }
     keep_segment_as_drawn();
+    // Driving length constraint on the just-committed Line entity.
+    if (len > 1e-9 && !m_entities.empty()) {
+        const int i = int(m_entities.size()) - 1;
+        if (m_entities[i].type == SketchEntity::Type::Line) {
+            SketchEntityConstraintDef c;
+            c.type = SketchConstraintType::Distance;
+            c.ea = i; c.ra = SketchPointRole::P0;
+            c.eb = i; c.rb = SketchPointRole::P1;
+            c.value = len;
+            m_constraints.push_back(c);
+        }
+    }
 }
 
 void DesignSketchTool::keep_segment_as_drawn()
@@ -264,13 +333,15 @@ void DesignSketchTool::finish()
 {
     auto cb = on_commit_entities;
     std::vector<SketchEntity> ents = m_entities;
+    std::vector<SketchEntityConstraintDef> cons = m_constraints;
     SketchPlane pl = m_plane;
     m_active = false;
     m_points.clear();
     m_entities.clear();
+    m_constraints.clear();
     m_has_cursor = false;
     if (cb)
-        cb(ents, pl);
+        cb(ents, cons, pl);
 }
 
 void DesignSketchTool::begin_constrain(const SketchProfile& prof, const SketchPlane& plane)
