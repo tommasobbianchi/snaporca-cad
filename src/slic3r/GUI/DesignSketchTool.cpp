@@ -914,6 +914,11 @@ std::vector<Vec2d> DesignSketchTool::entity_polyline(const SketchEntity& e, bool
 
 std::vector<std::vector<Vec2d>> DesignSketchTool::closed_regions() const
 {
+    return closed_regions(m_entities);
+}
+
+std::vector<std::vector<Vec2d>> DesignSketchTool::closed_regions(const std::vector<SketchEntity>& ents) const
+{
     std::vector<std::vector<Vec2d>> regions;
     const double eps2 = 1e-3 * 1e-3;
     auto near = [&](const Vec2d& a, const Vec2d& b) { return (a - b).squaredNorm() < eps2; };
@@ -921,7 +926,7 @@ std::vector<std::vector<Vec2d>> DesignSketchTool::closed_regions() const
     // Circles are self-closed regions; lines/arcs are open segments to be chained.
     struct Seg { std::vector<Vec2d> pts; bool used{false}; };
     std::vector<Seg> segs;
-    for (const SketchEntity& e : m_entities) {
+    for (const SketchEntity& e : ents) {
         if (e.construction) continue;
         bool closed = false;
         if (e.type == SketchEntity::Type::Circle) {
@@ -1395,9 +1400,10 @@ void DesignSketchTool::draw_entities_preview(const std::vector<SketchEntity>& en
 void DesignSketchTool::render(GLCanvas3D& canvas)
 {
     (void)canvas;
-    if (!m_active)
+    if (!has_display())
         return;
-    if (m_mode != Mode::Constrain && m_entities.empty() && m_points.empty())
+    if (m_active && m_mode != Mode::Constrain && m_entities.empty() && m_points.empty()
+        && m_display_sketches.empty())
         return;
 
     GLShaderProgram* shader = wxGetApp().get_shader("flat");
@@ -1410,6 +1416,40 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     const Camera& camera = wxGetApp().plater()->get_camera();
     shader->set_uniform("view_model_matrix", camera.get_view_matrix());
     shader->set_uniform("projection_matrix", camera.get_projection_matrix());
+
+    // Persistent committed sketches (e.g. an un-consumed sketch left visible after its
+    // extrude is removed): faces translucent, outlines orange. Each uses its own plane.
+    if (!m_display_sketches.empty()) {
+        const SketchPlane saved_plane = m_plane;
+        const ColorRGBA dface(0.30f, 0.60f, 1.0f, 0.16f);
+        glsafe(::glEnable(GL_BLEND));
+        glsafe(::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+        for (const DisplaySketch& ds : m_display_sketches) {
+            m_plane = ds.plane;
+            for (const std::vector<Vec2d>& r : closed_regions(ds.entities))
+                draw_fill(m_fill_model, r, dface);
+        }
+        glsafe(::glDisable(GL_BLEND));
+        const ColorRGBA dwire(1.0f, 0.55f, 0.1f, 1.0f);
+        for (const DisplaySketch& ds : m_display_sketches) {
+            m_plane = ds.plane;
+            for (const SketchEntity& e : ds.entities) {
+                if (e.type == SketchEntity::Type::Point) continue;
+                bool closed = false;
+                std::vector<Vec2d> poly = entity_polyline(e, closed);
+                draw_quad_strip(m_line_model, poly, closed, dwire);
+            }
+        }
+        m_plane = saved_plane;
+    }
+
+    // Nothing else to draw when no live sketch session is active.
+    if (!m_active) {
+        shader->stop_using();
+        glsafe(::glEnable(GL_CULL_FACE));
+        glsafe(::glEnable(GL_DEPTH_TEST));
+        return;
+    }
 
     const ColorRGBA orange(1.0f, 0.55f, 0.1f, 1.0f);
     const ColorRGBA yellow(1.0f, 0.85f, 0.2f, 1.0f);

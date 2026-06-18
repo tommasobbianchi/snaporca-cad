@@ -2046,7 +2046,7 @@ void GLCanvas3D::render(bool only_init)
 
     // SnapOrca Design: interactive 2D sketch overlay, drawn over the scene but
     // beneath the UI overlays (toolbars, labels).
-    if (m_design_sketch_tool != nullptr && m_design_sketch_tool->is_active())
+    if (m_design_sketch_tool != nullptr && m_design_sketch_tool->has_display())
         m_design_sketch_tool->render(*this);
 
     // draw overlays

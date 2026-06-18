@@ -37,10 +37,10 @@ DesignCanvas::DesignCanvas(wxWindow* parent)
     m_canvas->set_process(wxGetApp().plater()->get_background_process());
     m_canvas->set_type(GLCanvas3D::ECanvasType::CanvasView3D);
 
-    m_canvas->enable_picking(false);
+    m_canvas->enable_picking(true);    // allow clicking a solid to select/highlight it
     m_canvas->enable_moving(false);
     m_canvas->enable_gizmos(false);
-    m_canvas->enable_selection(false);
+    m_canvas->enable_selection(true);  // standard volume selection (no move gizmos)
     m_canvas->enable_main_toolbar(false);
     m_canvas->enable_select_plate_toolbar(false);
     m_canvas->enable_assemble_view_toolbar(false);
@@ -270,6 +270,13 @@ void DesignCanvas::set_on_sketch_selection_changed(std::function<void(int)> cb)
 void DesignCanvas::set_on_sketch_face_selected(std::function<void()> cb)
 {
     m_sketch_tool.on_face_selected = std::move(cb);
+}
+
+void DesignCanvas::set_display_sketches(std::vector<DesignSketchTool::DisplaySketch> ds)
+{
+    m_sketch_tool.set_display_sketches(std::move(ds));
+    if (m_canvas) m_canvas->set_as_dirty();
+    if (m_canvas_widget) m_canvas_widget->Refresh();
 }
 
 void DesignCanvas::delete_selected_sketch_entities()

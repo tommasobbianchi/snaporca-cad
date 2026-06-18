@@ -718,6 +718,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
                 : wxString::Format(_L("Sketch created (%zu driving dims) — select it and Extrude"),
                                    cons.size()));
             refresh_tree();
+            sync_sketch_display();   // keep the just-committed sketch visible as a face
         });
 
     // Live length/angle readout while drawing a Line/Polyline segment.
@@ -853,6 +854,30 @@ void DesignPanel::set_status_ok()
                                         m_doc.display_mesh.its.indices.size()));
     if (m_viewport != nullptr)
         m_viewport->set_mesh(m_doc.display_mesh);
+    sync_sketch_display();
+}
+
+// Draw every committed sketch that no enabled Extrude consumes, so a sketch stays
+// visible (as a translucent face + outline) when it is not part of the solid — e.g.
+// after its Extrude is removed, or right after Finish.
+void DesignPanel::sync_sketch_display()
+{
+    if (m_viewport == nullptr) return;
+    const int n = int(m_doc.features.size());
+    std::vector<bool> consumed(n, false);
+    for (const CadFeature& f : m_doc.features)
+        if (f.type == CadFeatureType::Extrude && f.enabled &&
+            f.sketch_ref >= 0 && f.sketch_ref < n)
+            consumed[f.sketch_ref] = true;
+
+    std::vector<DesignSketchTool::DisplaySketch> ds;
+    for (int i = 0; i < n; ++i) {
+        const CadFeature& f = m_doc.features[i];
+        if (f.type != CadFeatureType::Sketch || consumed[i] || f.entities.empty())
+            continue;
+        ds.push_back({ f.entities, f.plane });
+    }
+    m_viewport->set_display_sketches(std::move(ds));
 }
 
 void DesignPanel::on_add_sketch()
@@ -1007,6 +1032,7 @@ void DesignPanel::after_tree_edit(bool ok)
     m_status->SetForegroundColour(wxNullColour);
     if (m_doc.display_mesh.its.indices.empty()) {
         if (m_viewport != nullptr) m_viewport->clear_mesh();
+        sync_sketch_display();   // empty body: show any un-consumed committed sketch
         m_status->SetLabel(wxString());
     } else {
         set_status_ok();

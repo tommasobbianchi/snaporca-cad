@@ -38,6 +38,13 @@ public:
     bool on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas);
     void render(GLCanvas3D& canvas);
 
+    // Persistent committed sketches to draw even when no session is active (e.g. an
+    // un-consumed sketch left visible after its extrude is removed). Each carries its
+    // own plane. render() draws these as translucent faces + outlines.
+    struct DisplaySketch { std::vector<SketchEntity> entities; SketchPlane plane; };
+    void set_display_sketches(std::vector<DisplaySketch> ds) { m_display_sketches = std::move(ds); }
+    bool has_display() const { return m_active || !m_display_sketches.empty(); }
+
     // Constrain mode: load an already-committed profile for entity picking +
     // constraint application (the geometry is solved in the kernel, not here).
     void begin_constrain(const SketchProfile& prof, const SketchPlane& plane);
@@ -182,6 +189,7 @@ private:
     // ordered boundary polygon on the plane. A circle is its own region; line/arc
     // chains are walked endpoint-to-endpoint into loops. Used to fill faces.
     std::vector<std::vector<Vec2d>> closed_regions() const;
+    std::vector<std::vector<Vec2d>> closed_regions(const std::vector<SketchEntity>& ents) const;
     // Index of the closed region containing plane-point p (point-in-polygon), or -1.
     int region_at(const Vec2d& p) const;
 
@@ -223,6 +231,7 @@ private:
     GLModel             m_vertex_model;
     GLModel             m_highlight_model;
     GLModel             m_fill_model;       // translucent face fill for closed regions
+    std::vector<DisplaySketch> m_display_sketches;  // committed sketches drawn persistently
 };
 
 }} // namespace Slic3r::GUI

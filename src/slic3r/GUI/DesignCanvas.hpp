@@ -58,6 +58,8 @@ public:
     // Sketch selection (Mode::Select).
     void set_on_sketch_selection_changed(std::function<void(int)> cb);
     void set_on_sketch_face_selected(std::function<void()> cb);  // closed loop clicked
+    // Persistently draw committed sketches (un-consumed ones stay visible).
+    void set_display_sketches(std::vector<DesignSketchTool::DisplaySketch> ds);
     void delete_selected_sketch_entities();
     void clear_sketch_selection();
 

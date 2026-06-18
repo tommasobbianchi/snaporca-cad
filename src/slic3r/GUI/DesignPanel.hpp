@@ -89,6 +89,7 @@ private:
     void       cancel_tool();
     CadFeature build_candidate(Tool t) const;
     int        resolve_extrude_sketch() const;
+    void       sync_sketch_display();   // push un-consumed committed sketches to the viewport
 
     CadDocument m_doc;
 
