@@ -1628,6 +1628,12 @@ void DesignPanel::on_edit_feature()
 
 void DesignPanel::on_commit()
 {
+    // A feature tool open with a live preview ghost (e.g. a fillet being previewed) is
+    // NOT yet part of the body. Apply it first so "Commit to Plate" ships exactly what
+    // is shown on screen, not the pre-feature solid. (confirm_tool() applies + closes.)
+    if (m_active != Tool::None)
+        confirm_tool();
+
     if (m_doc.display_mesh.its.indices.empty()) {
         m_status->SetLabel(_L("Nothing to commit — add a feature first"));
         return;
