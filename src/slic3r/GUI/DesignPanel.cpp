@@ -326,6 +326,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         ebtn("design_trim",       _L("Trim"),         EditOp::Trim);
         ebtn("design_extend",     _L("Extend"),       EditOp::Extend);
         ebtn("design_array",      _L("Linear array"), EditOp::Array);
+        ebtn("design_polararray", _L("Polar array (about centroid)"), EditOp::PolarArray);
         ebtn("design_move",       _L("Move (translate)"), EditOp::Move);
         ebtn("design_rotate",     _L("Rotate (about centroid)"), EditOp::Rotate);
         ebtn("design_scale",      _L("Scale (about centroid)"),  EditOp::Scale);
@@ -2170,6 +2171,73 @@ void DesignPanel::apply_edit_op(EditOp op)
                 after_edit_op();
             });
         return;   // deferred: edit runs on Confirm
+    }
+    case EditOp::PolarArray: {
+        // Polar array about the subject centroid. ADDITIVE op (originals untouched,
+        // count-1 rotated copies appended) -> no stale constraints to drop. Copies
+        // are rigid rotations of the source, so they preserve LENGTH but NOT
+        // orientation: bind each copy to the source with EqualLength only (Parallel
+        // does NOT hold under rotation, unlike the linear-array web). Dialogs: count
+        // then total sweep; angle_step = sweep/count spreads them evenly (last copy
+        // lands just shy of the original on a full 360).
+        const int a = e0;
+        request_value(_L("Polar count (incl. original)"), 6.0, 2.0, 200.0,
+            [this, a](double cnt_d) {
+                const int count = std::max(2, int(cnt_d + 0.5));
+                request_value(_L("Total sweep (deg)"), 360.0, -360.0, 360.0,
+                    [this, a, count](double sweep_deg) {
+                        CadFeature& f = m_doc.features[m_constrain_feat];
+                        if (a >= int(f.entities.size())) return;
+                        using Type = SketchEntity::Type;
+                        // Snapshot the subject by value BEFORE pushing copies: push_back
+                        // can reallocate f.entities and dangle a reference into it.
+                        const SketchEntity src = f.entities[a];
+                        const Type src_type = src.type;
+                        auto centroid_of = [](const SketchEntity& e) -> Vec2d {
+                            using T = SketchEntity::Type;
+                            switch (e.type) {
+                            case T::Line:    return 0.5 * (e.p0 + e.p1);
+                            case T::Arc: case T::Circle: case T::Ellipse: case T::EllipseArc:
+                                             return e.center;
+                            case T::BSpline:
+                                if (!e.ctrl.empty()) {
+                                    Vec2d s(0, 0); for (auto& p : e.ctrl) s += p;
+                                    return s / double(e.ctrl.size());
+                                }
+                                return 0.5 * (e.p0 + e.p1);
+                            default:         return e.p0;   // Point
+                            }
+                        };
+                        const Vec2d  piv        = centroid_of(src);
+                        const double angle_step = (sweep_deg * M_PI / 180.0) / double(count);
+                        auto copies = SketchEngine::array_entities(
+                            { src }, count, Vec2d(0, 0), angle_step, piv);
+                        if (copies.empty()) {
+                            m_status->SetForegroundColour(wxColour(235, 110, 110));
+                            m_status->SetLabel(_L("Polar array produced nothing")); m_status->Refresh(); return;
+                        }
+                        const int base = int(f.entities.size());   // first copy index
+                        for (auto& c : copies) f.entities.push_back(c);
+
+                        if (src_type == Type::Line) {
+                            using CT = SketchConstraintType;
+                            // Rotational web: each copy is EqualLength to the source
+                            // (rotation preserves length; orientation differs so NO
+                            // Parallel). Emit the whole web before solving, then fall
+                            // back to bare geometry if it is rank-deficient.
+                            const size_t cb = f.entity_constraints.size();
+                            for (int k = 0; k < int(copies.size()); ++k) {
+                                SketchEntityConstraintDef de; de.type = CT::EqualLength;
+                                de.ea = a; de.eb = base + k;
+                                f.entity_constraints.push_back(de);
+                            }
+                            if (!m_doc.solve_sketch_feature(m_constrain_feat))
+                                f.entity_constraints.resize(cb);
+                        }
+                        after_edit_op();
+                    });
+            });
+        return;   // deferred: edit runs on the two Confirms
     }
     }
 
