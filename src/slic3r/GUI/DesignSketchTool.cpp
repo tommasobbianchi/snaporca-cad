@@ -368,10 +368,14 @@ void DesignSketchTool::set_point(int ei, SketchPointRole role, const Vec2d& v)
         if (role == SketchPointRole::Center)  e.center = v;
         break;
     case SketchEntity::Type::Arc:
+    case SketchEntity::Type::EllipseArc:
         if (role == SketchPointRole::Center) {
             const Vec2d d = v - e.center;     // rigid translate, keep radius/angles
             e.center = v; e.p0 += d; e.p1 += d;
         }
+        break;
+    case SketchEntity::Type::Ellipse:
+        if (role == SketchPointRole::Center) { e.center = v; e.p0 = v; }
         break;
     }
 }
@@ -393,11 +397,13 @@ bool DesignSketchTool::hit_test_point(const Vec2d& p, double tol, int& ei, Sketc
             consider(int(i), SketchPointRole::P1, e.p1);
             break;
         case SketchEntity::Type::Arc:
+        case SketchEntity::Type::EllipseArc:
             consider(int(i), SketchPointRole::P0, e.p0);
             consider(int(i), SketchPointRole::P1, e.p1);
             consider(int(i), SketchPointRole::Center, e.center);
             break;
         case SketchEntity::Type::Circle:
+        case SketchEntity::Type::Ellipse:
             consider(int(i), SketchPointRole::Center, e.center);
             break;
         case SketchEntity::Type::Point:
@@ -781,6 +787,24 @@ static std::vector<Vec2d> circle_polygon(const Vec2d& c, double r, int n = 48)
     return v;
 }
 
+// Point on an ellipse at parametric angle theta: center + R(phi)*(a cos t, b sin t).
+static Vec2d ellipse_point(const Vec2d& c, double a, double b, double phi, double t)
+{
+    const double cu = std::cos(phi), su = std::sin(phi);
+    const double x = a * std::cos(t), y = b * std::sin(t);
+    return Vec2d(c.x() + x * cu - y * su, c.y() + x * su + y * cu);
+}
+
+// Tessellate an ellipse arc parametric range [t0,t1] into a polyline.
+static std::vector<Vec2d> ellipse_polyline(const Vec2d& c, double a, double b, double phi,
+                                           double t0, double t1, int n = 48)
+{
+    std::vector<Vec2d> v; v.reserve(n + 1);
+    for (int i = 0; i <= n; ++i)
+        v.push_back(ellipse_point(c, a, b, phi, t0 + (t1 - t0) * double(i) / double(n)));
+    return v;
+}
+
 // ---- entity builders --------------------------------------------------------
 
 void DesignSketchTool::push_line(const Vec2d& a, const Vec2d& b)
@@ -1086,6 +1110,66 @@ std::vector<SketchEntity> DesignSketchTool::make_polygon(const Vec2d& center, co
     return out;
 }
 
+// Derive (a, b, phi) of an ellipse from the 3 defining clicks. First axis click =
+// major (a, phi); the minor point's perpendicular distance to the major axis = b,
+// clamped to a so OCCT's a >= b holds.
+static void ellipse_axes(const Vec2d& center, const Vec2d& major_end, const Vec2d& minor_pt,
+                         double& a, double& b, double& phi)
+{
+    const Vec2d maj = major_end - center;
+    a   = std::max(maj.norm(), 1e-6);
+    phi = std::atan2(maj.y(), maj.x());
+    const Vec2d n(-std::sin(phi), std::cos(phi));        // minor-axis direction
+    b   = std::min(std::abs((minor_pt - center).dot(n)), a);
+}
+
+// Parametric angle on an ellipse of the point nearest `q` (q projected onto the frame).
+static double ellipse_param_of(const Vec2d& center, double a, double b, double phi, const Vec2d& q)
+{
+    const Vec2d d = q - center;
+    const double cu = std::cos(phi), su = std::sin(phi);
+    const double u =  d.x() * cu + d.y() * su;            // along major
+    const double v = -d.x() * su + d.y() * cu;            // along minor
+    return std::atan2(v / std::max(b, 1e-9), u / std::max(a, 1e-9));
+}
+
+std::vector<SketchEntity> DesignSketchTool::make_ellipse(const Vec2d& center, const Vec2d& major_end,
+                                                         const Vec2d& minor_pt) const
+{
+    double a, b, phi;
+    ellipse_axes(center, major_end, minor_pt, a, b, phi);
+    if (b < 1e-6) return {};
+    SketchEntity e;
+    e.type = SketchEntity::Type::Ellipse;
+    e.center = center; e.p0 = center;
+    e.radius = a; e.rminor = b; e.rotation = phi;
+    e.start_angle = 0.0; e.end_angle = 2.0 * M_PI;
+    e.construction = m_construction;
+    return { e };
+}
+
+std::vector<SketchEntity> DesignSketchTool::make_ellipse_arc(const Vec2d& center, const Vec2d& major_end,
+                                                             const Vec2d& minor_pt, const Vec2d& start_pt,
+                                                             const Vec2d& end_pt) const
+{
+    double a, b, phi;
+    ellipse_axes(center, major_end, minor_pt, a, b, phi);
+    if (b < 1e-6) return {};
+    double t0 = ellipse_param_of(center, a, b, phi, start_pt);
+    double t1 = ellipse_param_of(center, a, b, phi, end_pt);
+    // CCW sweep from t0 to t1.
+    while (t1 <= t0) t1 += 2.0 * M_PI;
+    SketchEntity e;
+    e.type = SketchEntity::Type::EllipseArc;
+    e.center = center;
+    e.radius = a; e.rminor = b; e.rotation = phi;
+    e.start_angle = t0; e.end_angle = t1;
+    e.p0 = ellipse_point(center, a, b, phi, t0);
+    e.p1 = ellipse_point(center, a, b, phi, t1);
+    e.construction = m_construction;
+    return { e };
+}
+
 std::vector<Vec2d> DesignSketchTool::entity_polyline(const SketchEntity& e, bool& closed) const
 {
     closed = false;
@@ -1105,6 +1189,11 @@ std::vector<Vec2d> DesignSketchTool::entity_polyline(const SketchEntity& e, bool
         }
         return pts;
     }
+    case SketchEntity::Type::Ellipse:
+        closed = true;
+        return ellipse_polyline(e.center, e.radius, e.rminor, e.rotation, 0.0, 2.0 * M_PI);
+    case SketchEntity::Type::EllipseArc:
+        return ellipse_polyline(e.center, e.radius, e.rminor, e.rotation, e.start_angle, e.end_angle);
     case SketchEntity::Type::Point:
         return { e.p0 };
     }
@@ -1128,9 +1217,10 @@ std::vector<std::vector<Vec2d>> DesignSketchTool::closed_regions(const std::vect
     for (const SketchEntity& e : ents) {
         if (e.construction) continue;
         bool closed = false;
-        if (e.type == SketchEntity::Type::Circle) {
+        if (e.type == SketchEntity::Type::Circle || e.type == SketchEntity::Type::Ellipse) {
             regions.push_back(entity_polyline(e, closed));
-        } else if (e.type == SketchEntity::Type::Line || e.type == SketchEntity::Type::Arc) {
+        } else if (e.type == SketchEntity::Type::Line || e.type == SketchEntity::Type::Arc
+                   || e.type == SketchEntity::Type::EllipseArc) {
             std::vector<Vec2d> p = entity_polyline(e, closed);
             if (p.size() >= 2) segs.push_back({ std::move(p), false });
         }
@@ -1741,11 +1831,13 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
                 add_h(int(i), SketchPointRole::P1, e.p1);
                 break;
             case SketchEntity::Type::Arc:
+            case SketchEntity::Type::EllipseArc:
                 add_h(int(i), SketchPointRole::P0, e.p0);
                 add_h(int(i), SketchPointRole::P1, e.p1);
                 add_h(int(i), SketchPointRole::Center, e.center);
                 break;
             case SketchEntity::Type::Circle:
+            case SketchEntity::Type::Ellipse:
                 add_h(int(i), SketchPointRole::Center, e.center);
                 break;
             case SketchEntity::Type::Point:
@@ -1941,6 +2033,37 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         break;
     }
 
+    case Mode::Ellipse: {
+        draw_vertices(m_vertex_model, m_points, yellow);
+        if (m_points.size() == 1 && m_has_cursor) {
+            SketchEntity g; g.type = SketchEntity::Type::Line;
+            g.p0 = m_points[0]; g.p1 = m_cursor; g.construction = true;   // major-axis rubber band
+            draw_entities_preview({ g }, preview);
+        } else if (m_points.size() == 2 && m_has_cursor) {
+            draw_entities_preview(make_ellipse(m_points[0], m_points[1], m_cursor), preview);
+        }
+        break;
+    }
+
+    case Mode::EllipseArc: {
+        draw_vertices(m_vertex_model, m_points, yellow);
+        if (m_points.size() == 1 && m_has_cursor) {
+            SketchEntity g; g.type = SketchEntity::Type::Line;
+            g.p0 = m_points[0]; g.p1 = m_cursor; g.construction = true;
+            draw_entities_preview({ g }, preview);
+        } else if (m_points.size() == 2 && m_has_cursor) {
+            draw_entities_preview(make_ellipse(m_points[0], m_points[1], m_cursor), preview);
+        } else if (m_points.size() == 3 && m_has_cursor) {
+            std::vector<SketchEntity> full = make_ellipse(m_points[0], m_points[1], m_points[2]);
+            for (auto& e : full) e.construction = true;                   // faint full ellipse
+            draw_entities_preview(full, preview);
+        } else if (m_points.size() == 4 && m_has_cursor) {
+            draw_entities_preview(make_ellipse_arc(m_points[0], m_points[1], m_points[2],
+                                                   m_points[3], m_cursor), preview);
+        }
+        break;
+    }
+
     case Mode::Point:
     case Mode::Constrain:
         break;
@@ -1985,6 +2108,12 @@ static double entity_pick_dist(const Vec2d& p, const SketchEntity& e)
     case SketchEntity::Type::Point:  return (p - e.p0).norm();
     case SketchEntity::Type::Circle:
     case SketchEntity::Type::Arc:    return std::abs((p - e.center).norm() - e.radius);
+    case SketchEntity::Type::Ellipse:
+    case SketchEntity::Type::EllipseArc: {
+        // Crude: distance to the mean-radius circle; good enough for edge picking.
+        const double rm = 0.5 * (e.radius + e.rminor);
+        return std::abs((p - e.center).norm() - rm);
+    }
     }
     return 1e30;
 }
@@ -2009,7 +2138,9 @@ static bool entity_ref_point(const SketchEntity& e, Vec2d& out)
     switch (e.type) {
     case SketchEntity::Type::Point:  out = e.p0;     return true;
     case SketchEntity::Type::Circle:
-    case SketchEntity::Type::Arc:    out = e.center; return true;
+    case SketchEntity::Type::Arc:
+    case SketchEntity::Type::Ellipse:
+    case SketchEntity::Type::EllipseArc: out = e.center; return true;
     default:                         return false;   // Line
     }
 }
@@ -2621,6 +2752,43 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             } else {
                 const int base = int(m_entities.size());
                 append_entities(make_polygon(m_points[0], p, m_polygon_sides));
+                infer_auto_constraints(base);
+                m_points.clear();
+            }
+            return true;
+        }
+        if (evt.RightDown()) { m_points.clear(); return true; }
+        break;
+    }
+
+    case Mode::Ellipse: {
+        if (evt.LeftDown()) {
+            Vec2d p; screen_to_plane(canvas, evt, p);
+            bool vsnap = false;
+            if (m_points.empty()) p = snap_vertex(canvas, evt, p, vsnap);   // center can snap
+            m_points.push_back(p);
+            if (m_points.size() == 3) {                                     // center, major-end, minor
+                const int base = int(m_entities.size());
+                append_entities(make_ellipse(m_points[0], m_points[1], m_points[2]));
+                infer_auto_constraints(base);
+                m_points.clear();
+            }
+            return true;
+        }
+        if (evt.RightDown()) { m_points.clear(); return true; }
+        break;
+    }
+
+    case Mode::EllipseArc: {
+        if (evt.LeftDown()) {
+            Vec2d p; screen_to_plane(canvas, evt, p);
+            bool vsnap = false;
+            if (m_points.empty()) p = snap_vertex(canvas, evt, p, vsnap);   // center can snap
+            m_points.push_back(p);
+            if (m_points.size() == 5) {                                     // center, major, minor, start, end
+                const int base = int(m_entities.size());
+                append_entities(make_ellipse_arc(m_points[0], m_points[1], m_points[2],
+                                                  m_points[3], m_points[4]));
                 infer_auto_constraints(base);
                 m_points.clear();
             }

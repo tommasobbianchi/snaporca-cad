@@ -82,6 +82,14 @@ InferenceSnap infer_point_snap(const std::vector<SketchEntity>& entities,
         case SketchEntity::Type::Point:
             offer(InferenceSnap::Kind::Endpoint, ei, SketchPointRole::P0, e.p0);
             break;
+        case SketchEntity::Type::EllipseArc:
+            offer(InferenceSnap::Kind::Endpoint, ei, SketchPointRole::P0, e.p0);
+            offer(InferenceSnap::Kind::Endpoint, ei, SketchPointRole::P1, e.p1);
+            offer(InferenceSnap::Kind::Center,   ei, SketchPointRole::Center, e.center);
+            break;
+        case SketchEntity::Type::Ellipse:
+            offer(InferenceSnap::Kind::Center, ei, SketchPointRole::Center, e.center);
+            break;
         }
     }
 

@@ -8,8 +8,10 @@
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <GC_MakeArcOfCircle.hxx>
+#include <GC_MakeArcOfEllipse.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <gp_Circ.hxx>
+#include <gp_Elips.hxx>
 #include <gp_Ax2.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
@@ -280,28 +282,51 @@ TopoDS_Wire SketchEngine::entities_to_wire(const std::vector<SketchEntity>& enti
     }
     if (valid.empty()) return TopoDS_Wire{};
 
-    bool has_circle      = false;
-    bool has_line_or_arc = false;
-    for (const auto* e : valid) {
-        if (e->type == SketchEntity::Type::Circle) has_circle = true;
-        else has_line_or_arc = true;
-    }
-
-    // Case 1: exactly one Circle and nothing else
-    if (has_circle && !has_line_or_arc && valid.size() == 1) {
-        const SketchEntity& c = *valid[0];
+    // Build an OCCT ellipse (gp_Elips) in the sketch plane from an Ellipse(Arc)
+    // entity. Major-axis direction = plane-rotated (cos phi, sin phi). Enforces
+    // a >= b (OCCT requirement); the GUI builder already guarantees this.
+    auto make_elips = [&](const SketchEntity& c) -> gp_Elips {
         Vec3d  c3 = plane.to_world(c.center);
         gp_Pnt center(c3.x(), c3.y(), c3.z());
         gp_Dir n(plane.normal.x(), plane.normal.y(), plane.normal.z());
-        gp_Circ circ(gp_Ax2(center, n), c.radius);
-        TopoDS_Edge e = BRepBuilderAPI_MakeEdge(circ).Edge();
+        Vec2d  maj2(std::cos(c.rotation), std::sin(c.rotation));
+        Vec3d  x3 = plane.to_world(c.center + maj2) - c3;
+        gp_Dir xdir(x3.x(), x3.y(), x3.z());
+        double a = c.radius, b = c.rminor;
+        if (a < b) std::swap(a, b);
+        return gp_Elips(gp_Ax2(center, n, xdir), a, b);
+    };
+
+    bool has_closed_single = false;   // Circle or full Ellipse (stand-alone closed)
+    bool has_chain         = false;   // Line / Arc / EllipseArc
+    for (const auto* e : valid) {
+        if (e->type == SketchEntity::Type::Circle || e->type == SketchEntity::Type::Ellipse)
+            has_closed_single = true;
+        else
+            has_chain = true;
+    }
+
+    // Case 1: exactly one closed entity (Circle or Ellipse) and nothing else
+    if (has_closed_single && !has_chain && valid.size() == 1) {
+        const SketchEntity& c = *valid[0];
+        TopoDS_Edge e;
+        if (c.type == SketchEntity::Type::Ellipse) {
+            if (c.radius <= 1e-9 || c.rminor <= 1e-9) return TopoDS_Wire{};
+            e = BRepBuilderAPI_MakeEdge(make_elips(c)).Edge();
+        } else {
+            Vec3d  c3 = plane.to_world(c.center);
+            gp_Pnt center(c3.x(), c3.y(), c3.z());
+            gp_Dir n(plane.normal.x(), plane.normal.y(), plane.normal.z());
+            gp_Circ circ(gp_Ax2(center, n), c.radius);
+            e = BRepBuilderAPI_MakeEdge(circ).Edge();
+        }
         BRepBuilderAPI_MakeWire wm(e);
         if (!wm.IsDone()) return TopoDS_Wire{};
         return wm.Wire();
     }
 
-    // Case 2: closed chain of Line/Arc entities (no Circle)
-    if (!has_circle && has_line_or_arc) {
+    // Case 2: closed chain of Line/Arc/EllipseArc entities (no closed-single)
+    if (!has_closed_single && has_chain) {
         BRepBuilderAPI_MakeWire builder;
         for (const SketchEntity* e : valid) {
             if (e->type == SketchEntity::Type::Line) {
@@ -310,6 +335,11 @@ TopoDS_Wire SketchEngine::entities_to_wire(const std::vector<SketchEntity>& enti
                 gp_Pnt pa(p0.x(), p0.y(), p0.z());
                 gp_Pnt pb(p1.x(), p1.y(), p1.z());
                 builder.Add(BRepBuilderAPI_MakeEdge(pa, pb).Edge());
+            } else if (e->type == SketchEntity::Type::EllipseArc) {
+                if (e->radius <= 1e-9 || e->rminor <= 1e-9) return TopoDS_Wire{};
+                GC_MakeArcOfEllipse arc_maker(make_elips(*e), e->start_angle, e->end_angle, Standard_True);
+                if (!arc_maker.IsDone()) return TopoDS_Wire{};
+                builder.Add(BRepBuilderAPI_MakeEdge(arc_maker.Value()).Edge());
             } else if (e->type == SketchEntity::Type::Arc) {
                 Vec3d  p0 = plane.to_world(e->p0);
                 Vec3d  p1 = plane.to_world(e->p1);
@@ -391,6 +421,32 @@ std::vector<SketchEntity> SketchEngine::mirror_entities(
             m.radius    = e.radius;
             break;
         }
+        case SketchEntity::Type::Ellipse:
+        case SketchEntity::Type::EllipseArc: {
+            m.center = reflect(e.center);
+            // Reflect the major-axis direction; a/b unchanged.
+            const Vec2d majdir(std::cos(e.rotation), std::sin(e.rotation));
+            const Vec2d rdir = reflect(e.center + majdir) - m.center;
+            m.rotation = std::atan2(rdir.y(), rdir.x());
+            if (e.type == SketchEntity::Type::Ellipse) {
+                m.p0 = m.center;
+            } else {
+                m.p0 = reflect(e.p0);
+                m.p1 = reflect(e.p1);
+                // Reflection reverses orientation: recompute parametric angles in
+                // the reflected frame, original end -> new start (CCW sense kept).
+                auto param = [&](const Vec2d& P) {
+                    const Vec2d d  = P - m.center;
+                    const double cu = std::cos(m.rotation), su = std::sin(m.rotation);
+                    const double u =  d.x() * cu + d.y() * su;
+                    const double v = -d.x() * su + d.y() * cu;
+                    return std::atan2(v / std::max(e.rminor, 1e-9), u / std::max(e.radius, 1e-9));
+                };
+                m.start_angle = param(m.p1);
+                m.end_angle   = param(m.p0);
+            }
+            break;
+        }
         }
         out.push_back(m);
     }
@@ -436,6 +492,10 @@ std::vector<SketchEntity> SketchEngine::offset_entities(
             break;
         }
         case SketchEntity::Type::Point:
+            continue;
+        case SketchEntity::Type::Ellipse:
+        case SketchEntity::Type::EllipseArc:
+            // A true parallel offset of an ellipse is not an ellipse; skip in v1.
             continue;
         }
     }

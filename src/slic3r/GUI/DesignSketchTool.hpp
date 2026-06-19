@@ -27,6 +27,7 @@ public:
     enum class Mode { Select, Dimension, Polyline, Line, CornerRect, CenterRect, ObliqueRect,
                       RoundedRect, CenterCircle, TwoPointCircle, Point,
                       ThreePointCircle, ThreePointArc, TangentArc, CenterArc, Slot, ArcSlot, Polygon,
+                      Ellipse, EllipseArc,
                       Constrain };
 
     void begin(const SketchPlane& plane, Mode mode = Mode::Polyline);
@@ -207,6 +208,15 @@ private:
                                             const Vec2d& end_dir, double half_width) const;
     std::vector<SketchEntity> make_rounded_rect(const Vec2d& a, const Vec2d& b, const Vec2d& radius_pt) const;
     std::vector<SketchEntity> make_polygon(const Vec2d& center, const Vec2d& vertex, int sides) const;
+    // Ellipse: click center, then major-axis endpoint (sets a + rotation phi),
+    // then a point whose perpendicular distance to the major axis sets b.
+    std::vector<SketchEntity> make_ellipse(const Vec2d& center, const Vec2d& major_end,
+                                           const Vec2d& minor_pt) const;
+    // Elliptical arc: same 3 axis clicks, then start and end points whose parametric
+    // angles on the ellipse bound the CCW sweep.
+    std::vector<SketchEntity> make_ellipse_arc(const Vec2d& center, const Vec2d& major_end,
+                                               const Vec2d& minor_pt, const Vec2d& start_pt,
+                                               const Vec2d& end_pt) const;
     void append_entities(const std::vector<SketchEntity>& ents);
     void draw_entities_preview(const std::vector<SketchEntity>& ents, const ColorRGBA& color);
 

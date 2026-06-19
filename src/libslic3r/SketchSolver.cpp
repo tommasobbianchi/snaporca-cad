@@ -97,6 +97,18 @@ SketchSolveResult sketch_solve(std::vector<SketchEntity>& entities,
             s.p1     = b.pt2d(G_SK, e.p1.x(), e.p1.y());   // end
             s.prim   = b.E(Slvs_MakeArcOfCircle(++b.eh, G_SK, b.wp, b.normal, s.center, s.p0, s.p1));
             break;
+        // libslvs has no conic entity (scope note): register the ellipse's defining
+        // points only (center + arc endpoints) so center/endpoint constraints solve;
+        // the a/b/phi shape params pass through unsolved.
+        case SketchEntity::Type::Ellipse:
+            s.center = b.pt2d(G_SK, e.center.x(), e.center.y());
+            s.p0     = s.center;                          // p0 mirrors centre (circle convention)
+            break;
+        case SketchEntity::Type::EllipseArc:
+            s.center = b.pt2d(G_SK, e.center.x(), e.center.y());
+            s.p0     = b.pt2d(G_SK, e.p0.x(), e.p0.y());   // start
+            s.p1     = b.pt2d(G_SK, e.p1.x(), e.p1.y());   // end
+            break;
         }
         slot[i] = s;
     }
