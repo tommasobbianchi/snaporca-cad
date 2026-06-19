@@ -705,6 +705,20 @@ DesignPanel::DesignPanel(wxWindow* parent)
         };
         auto* edit = edit_btn("design_edit", _L("Edit"));
         edit->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_edit_feature(); });
+        auto* move = edit_btn("design_move", _L("Move / Scale (imported Text/SVG)"));
+        move->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            const int sel = tree_selection();
+            if (sel != wxNOT_FOUND && sel < int(m_doc.features.size()) &&
+                !m_doc.features[sel].imported_regions.empty()) {
+                on_transform_imported(sel);
+            } else {
+                m_status->SetForegroundColour(wxColour(235, 110, 110));
+                m_status->SetLabel(_L("Move / Scale is available for imported Text/SVG art"));
+                m_status->Refresh();
+            }
+        });
+        auto* vis = edit_btn("design_eye", _L("Show / hide"));
+        vis->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_toggle_visibility(); });
         auto* del  = edit_btn("design_delete", _L("Delete"));
         del->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_delete_feature(); });
         auto* up   = edit_btn("design_moveup", _L("Move up"));
@@ -712,6 +726,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
         auto* down = edit_btn("design_movedown", _L("Move down"));
         down->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_move_feature(+1); });
         trow->Add(edit, 0, wxRIGHT, 4);
+        trow->Add(move, 0, wxRIGHT, 4);
+        trow->Add(vis,  0, wxRIGHT, 4);
         trow->Add(del,  0, wxRIGHT, 4);
         trow->Add(up,   0, wxRIGHT, 4);
         trow->Add(down, 0);
@@ -980,7 +996,7 @@ void DesignPanel::sync_sketch_display()
     std::vector<DesignSketchTool::DisplaySketch> ds;
     for (int i = 0; i < n; ++i) {
         const CadFeature& f = m_doc.features[i];
-        if (f.type != CadFeatureType::Sketch || consumed[i])
+        if (f.type != CadFeatureType::Sketch || consumed[i] || !f.enabled)
             continue;
         if (!f.entities.empty()) {
             ds.push_back({ f.entities, f.plane });
@@ -1060,9 +1076,10 @@ void DesignPanel::add_imported_sketch(
     m_doc.features.push_back(f);
     m_doc.recompute();   // a lone sketch yields an empty body; that is expected
     refresh_tree();
+    set_tree_selection(int(m_doc.features.size()) - 1);   // select the new art so Move/Scale is ready
     sync_sketch_display();
     m_status->SetForegroundColour(wxNullColour);
-    m_status->SetLabel(base_name + _L(" added — select it and Extrude"));
+    m_status->SetLabel(base_name + _L(" added — Move/Scale to place it, then Extrude"));
     m_status->Refresh();
 }
 
@@ -1224,14 +1241,24 @@ int DesignPanel::tree_icon_for(CadFeatureType t)
 
 void DesignPanel::refresh_tree()
 {
+    // Preserve the selected row across the rebuild — wxTreeCtrl::DeleteAllItems
+    // drops the selection, which made every edit/add feel like it "lost" the
+    // selection (and broke Edit/Move/Delete on the just-touched feature).
+    const int keep = tree_selection();
+
     m_tree->DeleteAllItems();
     m_tree_items.clear();
     wxTreeItemId root = m_tree->AddRoot("root");
     for (const auto& f : m_doc.features) {
         const int img = tree_icon_for(f.type);
-        m_tree_items.push_back(
-            m_tree->AppendItem(root, wxString::FromUTF8(f.name), img, img));
+        wxTreeItemId id = m_tree->AppendItem(root, wxString::FromUTF8(f.name), img, img);
+        // Hidden (disabled) features are greyed so the show/hide state reads at a glance.
+        m_tree->SetItemTextColour(id, f.enabled ? wxColour(0xE0, 0xE0, 0xE0)
+                                                : wxColour(0x70, 0x70, 0x70));
+        m_tree_items.push_back(id);
     }
+    if (keep >= 0 && keep < int(m_tree_items.size()))
+        m_tree->SelectItem(m_tree_items[keep]);
 }
 
 int DesignPanel::tree_selection() const
@@ -1279,6 +1306,39 @@ void DesignPanel::on_delete_feature()
         return;
     }
     after_tree_edit(m_doc.remove_feature(sel));
+}
+
+void DesignPanel::on_toggle_visibility()
+{
+    int sel = tree_selection();
+    if (sel == wxNOT_FOUND || sel >= int(m_doc.features.size())) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Select a feature in the tree first"));
+        m_status->Refresh();
+        return;
+    }
+    const bool shown = !m_doc.features[sel].enabled;
+    m_doc.features[sel].enabled = shown;
+
+    // recompute() reports an all-hidden / sketch-only document as false (no
+    // solid to build), but that is a VALID state for hide — so clear the body
+    // explicitly instead of letting after_tree_edit treat it as a rejected edit
+    // (which would skip the overlay refresh, leaving hidden art on screen).
+    if (!m_doc.recompute()) {
+        m_doc.body         = TopoDS_Shape();
+        m_doc.display_mesh = TriangleMesh{};
+        m_doc.error.clear();
+    }
+    refresh_tree();                       // greys the row
+    set_tree_selection(sel);              // keep the toggled feature selected
+    if (m_viewport != nullptr) {
+        if (m_doc.display_mesh.its.indices.empty()) m_viewport->clear_mesh();
+        else                                        m_viewport->set_mesh(m_doc.display_mesh);
+    }
+    sync_sketch_display();                // skips the hidden sketch + direct-renders
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(shown ? _L("Feature shown") : _L("Feature hidden"));
+    m_status->Refresh();
 }
 
 void DesignPanel::on_move_feature(int delta)

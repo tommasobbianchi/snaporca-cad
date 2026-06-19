@@ -103,6 +103,14 @@ ImportRegions svg_to_regions(const std::string& svg_path, double scale)
     if (!image)
         return {};
 
+    // A filled shape that also carries a stroke would import the stroke as a
+    // thick outline band wrapped around the fill (the reported "too large line
+    // width"). For CAD import the fill silhouette is what's wanted, so drop the
+    // stroke on any shape that has a fill; stroke-only line art is kept.
+    for (NSVGshape* s = image->shapes; s != nullptr; s = s->next)
+        if (s->fill.type != NSVG_PAINT_NONE)
+            s->stroke.type = NSVG_PAINT_NONE;
+
     // tesselation tolerance is in image (mm) scale; 0.3 mm keeps curves smooth
     // without exploding the contour count. is_y_negative (default) flips SVG's
     // y-down to the sketch's y-up.

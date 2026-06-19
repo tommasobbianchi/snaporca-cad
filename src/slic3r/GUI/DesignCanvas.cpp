@@ -286,8 +286,10 @@ void DesignCanvas::set_on_sketch_face_selected(std::function<void()> cb)
 void DesignCanvas::set_display_sketches(std::vector<DesignSketchTool::DisplaySketch> ds)
 {
     m_sketch_tool.set_display_sketches(std::move(ds));
-    if (m_canvas) m_canvas->set_as_dirty();
-    if (m_canvas_widget) m_canvas_widget->Refresh();
+    // Direct render: under llvmpipe a scheduled Refresh() often doesn't repaint
+    // unless some other event (e.g. a modal close) forces it, so programmatic
+    // overlay changes (hide/show, re-solve) could leave a stale overlay.
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
 }
 
 void DesignCanvas::set_body_highlight(bool on)
