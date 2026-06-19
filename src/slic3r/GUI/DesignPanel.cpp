@@ -1602,7 +1602,35 @@ void DesignPanel::apply_edit_op(EditOp op)
         if (axis.type != Type::Line) { fail(_L("Mirror axis must be a line")); return; }
         auto out = SketchEngine::mirror_entities({ feat.entities[e0] }, axis.p0, axis.p1);
         if (out.empty()) { fail(_L("Mirror produced nothing")); return; }
+        const int mi = n;   // index the single mirrored copy lands at (n entities before push)
         for (auto& m : out) feat.entities.push_back(m);
+
+        // C4a: bind the mirror to its source with Symmetric constraints about the
+        // axis, so the pair stays mirror-symmetric under later solves and drags.
+        // mirror_entities preserves P0/P1/Center ordering, so the constraints are
+        // satisfied by construction; if the solver still rejects them (degenerate
+        // axis, redundancy) keep the geometry and drop only the binding.
+        {
+            using R  = SketchPointRole;
+            using CT = SketchConstraintType;
+            const std::vector<SketchEntity> saved_ents = feat.entities;
+            const size_t cons_before = feat.entity_constraints.size();
+            SketchEntityConstraintDef d; d.type = CT::Symmetric; d.ea = e0; d.eb = mi; d.ec = e1;
+            const Type st = feat.entities[e0].type;
+            if (st == Type::Line) {
+                d.ra = R::P0; d.rb = R::P0; feat.entity_constraints.push_back(d);
+                d.ra = R::P1; d.rb = R::P1; feat.entity_constraints.push_back(d);
+            } else if (st == Type::Arc || st == Type::Circle) {
+                d.ra = R::Center; d.rb = R::Center; feat.entity_constraints.push_back(d);
+            } else if (st == Type::Point) {
+                d.ra = R::P0; d.rb = R::P0; feat.entity_constraints.push_back(d);
+            }
+            if (feat.entity_constraints.size() != cons_before &&
+                !m_doc.solve_sketch_feature(m_constrain_feat)) {
+                feat.entity_constraints.resize(cons_before);
+                feat.entities = saved_ents;
+            }
+        }
         break;
     }
     case EditOp::Offset: {
