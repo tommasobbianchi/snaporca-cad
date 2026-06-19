@@ -327,6 +327,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
         ebtn("design_extend",     _L("Extend"),       EditOp::Extend);
         ebtn("design_array",      _L("Linear array"), EditOp::Array);
         ebtn("design_move",       _L("Move (translate)"), EditOp::Move);
+        ebtn("design_rotate",     _L("Rotate (about centroid)"), EditOp::Rotate);
+        ebtn("design_scale",      _L("Scale (about centroid)"),  EditOp::Scale);
         add_sep(m_tb_constrain);
         auto* b_done = icon_btn("design_check", _L("Done constraining"));
         b_done->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
@@ -2050,6 +2052,124 @@ void DesignPanel::apply_edit_op(EditOp op)
                     });
             });
         return;   // deferred: edit runs on the two Confirms
+    }
+    case EditOp::Rotate: {
+        // C4.5b Transform (rotate-in-place about the subject centroid). MUTATING op.
+        // Rotation PRESERVES intrinsic size (length/radius) but changes the subject's
+        // ORIENTATION and the POSITION of its points. So only the size constraints
+        // survive (EqualLength/Radius/Diameter + self-length Distance); every
+        // position- or orientation-coupling constraint is broken and must be dropped
+        // before re-solving, otherwise the solver spins the subject back to satisfy
+        // them and the rotation never sticks (governing P4 insight).
+        const int a = e0;
+        request_value(_L("Rotate angle (deg)"), 45.0, -360.0, 360.0,
+            [this, a](double deg) {
+                CadFeature& f = m_doc.features[m_constrain_feat];
+                if (a >= int(f.entities.size())) return;
+                auto centroid_of = [](const SketchEntity& e) -> Vec2d {
+                    using T = SketchEntity::Type;
+                    switch (e.type) {
+                    case T::Line:    return 0.5 * (e.p0 + e.p1);
+                    case T::Arc: case T::Circle: case T::Ellipse: case T::EllipseArc:
+                                     return e.center;
+                    case T::BSpline:
+                        if (!e.ctrl.empty()) {
+                            Vec2d s(0, 0); for (auto& p : e.ctrl) s += p;
+                            return s / double(e.ctrl.size());
+                        }
+                        return 0.5 * (e.p0 + e.p1);
+                    default:         return e.p0;   // Point
+                    }
+                };
+                const Vec2d piv = centroid_of(f.entities[a]);
+                auto out = SketchEngine::transform_entities(
+                    { f.entities[a] }, Vec2d(0, 0), deg * M_PI / 180.0, 1.0, piv);
+                if (out.empty()) {
+                    m_status->SetForegroundColour(wxColour(235, 110, 110));
+                    m_status->SetLabel(_L("Rotate produced nothing")); m_status->Refresh(); return;
+                }
+                f.entities[a] = out[0];
+
+                using CT = SketchConstraintType;
+                auto refs_a = [&](const SketchEntityConstraintDef& d) {
+                    return d.ea == a || d.eb == a || d.ec == a;
+                };
+                auto& cs = f.entity_constraints;
+                cs.erase(std::remove_if(cs.begin(), cs.end(),
+                    [&](const SketchEntityConstraintDef& d) {
+                        if (!refs_a(d)) return false;
+                        switch (d.type) {
+                        case CT::EqualLength: case CT::Radius: case CT::Diameter:
+                            return false;   // intrinsic size: preserved by rotation
+                        case CT::Distance:
+                            return !(d.ea == a && d.eb == a);   // self-length survives
+                        default:
+                            return true;    // position/orientation-coupling: broken
+                        }
+                    }), cs.end());
+
+                m_doc.solve_sketch_feature(m_constrain_feat);
+                after_edit_op();
+            });
+        return;   // deferred: edit runs on Confirm
+    }
+    case EditOp::Scale: {
+        // C4.5c Transform (uniform scale-in-place about the subject centroid). MUTATING
+        // op. Uniform scaling PRESERVES orientation and angles (Horizontal/Vertical/
+        // Parallel/Perpendicular/Angle survive) but changes SIZE and point POSITIONS:
+        // drop every size constraint (Radius/Diameter/EqualLength/any Distance) and
+        // every position-coupling constraint before re-solving, else the solver
+        // rescales the subject back to satisfy them.
+        const int a = e0;
+        request_value(_L("Scale factor"), 2.0, 0.01, 1000.0,
+            [this, a](double sf) {
+                CadFeature& f = m_doc.features[m_constrain_feat];
+                if (a >= int(f.entities.size())) return;
+                auto centroid_of = [](const SketchEntity& e) -> Vec2d {
+                    using T = SketchEntity::Type;
+                    switch (e.type) {
+                    case T::Line:    return 0.5 * (e.p0 + e.p1);
+                    case T::Arc: case T::Circle: case T::Ellipse: case T::EllipseArc:
+                                     return e.center;
+                    case T::BSpline:
+                        if (!e.ctrl.empty()) {
+                            Vec2d s(0, 0); for (auto& p : e.ctrl) s += p;
+                            return s / double(e.ctrl.size());
+                        }
+                        return 0.5 * (e.p0 + e.p1);
+                    default:         return e.p0;   // Point
+                    }
+                };
+                const Vec2d piv = centroid_of(f.entities[a]);
+                auto out = SketchEngine::transform_entities(
+                    { f.entities[a] }, Vec2d(0, 0), 0.0, sf, piv);
+                if (out.empty()) {
+                    m_status->SetForegroundColour(wxColour(235, 110, 110));
+                    m_status->SetLabel(_L("Scale produced nothing")); m_status->Refresh(); return;
+                }
+                f.entities[a] = out[0];
+
+                using CT = SketchConstraintType;
+                auto refs_a = [&](const SketchEntityConstraintDef& d) {
+                    return d.ea == a || d.eb == a || d.ec == a;
+                };
+                auto& cs = f.entity_constraints;
+                cs.erase(std::remove_if(cs.begin(), cs.end(),
+                    [&](const SketchEntityConstraintDef& d) {
+                        if (!refs_a(d)) return false;
+                        switch (d.type) {
+                        case CT::Horizontal: case CT::Vertical: case CT::Parallel:
+                        case CT::Perpendicular: case CT::Angle:
+                            return false;   // orientation/angle: preserved by uniform scale
+                        default:
+                            return true;    // size + position-coupling: broken
+                        }
+                    }), cs.end());
+
+                m_doc.solve_sketch_feature(m_constrain_feat);
+                after_edit_op();
+            });
+        return;   // deferred: edit runs on Confirm
     }
     }
 
