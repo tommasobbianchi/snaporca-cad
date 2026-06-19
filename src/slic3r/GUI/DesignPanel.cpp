@@ -640,6 +640,17 @@ DesignPanel::DesignPanel(wxWindow* parent)
     }
     root->Add(m_box_sketch_session, 0, wxEXPAND);
 
+    // --- Constraint-manager card (C3.4): list of the constrained sketch's
+    //     entity-constraints; each row selects (highlights) + deletes. Shown only
+    //     in Constrain mode; rebuilt by rebuild_constraint_list().
+    m_box_constraints = new wxBoxSizer(wxVERTICAL);
+    m_box_constraints->Add(card_header("design_constrain", _L("Constraints"), m_hdr_constraints),
+                           0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_constraints->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
+    m_constraint_rows = new wxBoxSizer(wxVERTICAL);
+    m_box_constraints->Add(m_constraint_rows, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 12);
+    root->Add(m_box_constraints, 0, wxEXPAND);
+
     root->Add(new wxStaticText(m_form, wxID_ANY, _L("Feature tree")), 0, wxLEFT | wxTOP, 12);
     m_tree = new wxTreeCtrl(m_form, wxID_ANY, wxDefaultPosition, wxSize(-1, 140),
                             wxTR_HIDE_ROOT | wxTR_SINGLE | wxTR_NO_LINES |
@@ -726,6 +737,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     root->Show(m_box_thread,  false, true);
     root->Show(m_box_value,   false, true);
     root->Show(m_box_sketch_session, false, true);
+    root->Show(m_box_constraints,    false, true);
 
     m_form->FitInside();
     m_form->SetScrollRate(10, 10);
@@ -904,6 +916,15 @@ void DesignPanel::set_ui_mode(UiMode m)
         if (m == UiMode::Sketch && m_hdr_sketch_session != nullptr)
             m_hdr_sketch_session->SetLabel(wxString::Format(_L("Sketch %d"), m_feature_counter + 1));
         m_form->GetSizer()->Show(m_box_sketch_session, m == UiMode::Sketch, true);
+        m_form->Layout();
+        m_form->FitInside();
+    }
+    // Constraint-manager card follows Constrain mode; rebuilt from the active feature.
+    if (m_box_constraints != nullptr && m_form != nullptr && m_form->GetSizer() != nullptr) {
+        if (m == UiMode::Constrain)
+            rebuild_constraint_list();
+        else
+            m_form->GetSizer()->Show(m_box_constraints, false, true);
         m_form->Layout();
         m_form->FitInside();
     }
@@ -1374,27 +1395,178 @@ void DesignPanel::commit_entity_constraints(const std::vector<SketchEntityConstr
     m_status->SetLabel(_L("Applied constraint"));
     m_status->Refresh();
 
-    // DoF feedback (P3) for the Constrain path: re-derive the solve state of the
-    // committed feature and mirror it into the same readout the in-session path
-    // uses, so "✓ Fully constrained" is reachable here (e.g. after a Fix).
-    if (m_dof_status) {
-        std::vector<SketchEntity> ents = feat.entities;   // already solved; re-solve is a cheap no-op
-        const SketchSolveResult r = sketch_solve(ents, feat.entity_constraints);
-        if (!r.ok) {
-            m_dof_status->SetForegroundColour(wxColour(235, 80, 80));
-            m_dof_status->SetLabel(_L("✗ Conflicting constraints"));
-        } else if (r.dof == 0) {
-            m_dof_status->SetForegroundColour(wxColour(80, 200, 110));
-            m_dof_status->SetLabel(_L("✓ Fully constrained"));
-        } else if (r.dof > 0) {
-            m_dof_status->SetForegroundColour(wxColour(0xC8, 0xC8, 0xC8));
-            m_dof_status->SetLabel(wxString::Format(_L("%d degrees of freedom"), r.dof));
-        } else {
-            m_dof_status->SetLabel(wxString());
-        }
-        m_dof_status->Refresh();
-        m_form->Layout();
+    refresh_constrain_dof();      // P3 DoF readout for the Constrain path
+    rebuild_constraint_list();    // C3.4 manager: a row appeared
+}
+
+// Re-derive the solve state of the constrained feature and mirror it into the same
+// DoF readout the in-session path uses, so "✓ Fully constrained" is reachable here.
+void DesignPanel::refresh_constrain_dof()
+{
+    if (!m_dof_status || m_constrain_feat < 0 || m_constrain_feat >= int(m_doc.features.size()))
+        return;
+    const CadFeature& feat = m_doc.features[m_constrain_feat];
+    std::vector<SketchEntity> ents = feat.entities;   // already solved; re-solve is a cheap no-op
+    const SketchSolveResult r = sketch_solve(ents, feat.entity_constraints);
+    if (!r.ok) {
+        m_dof_status->SetForegroundColour(wxColour(235, 80, 80));
+        m_dof_status->SetLabel(_L("✗ Conflicting constraints"));
+    } else if (r.dof == 0) {
+        m_dof_status->SetForegroundColour(wxColour(80, 200, 110));
+        m_dof_status->SetLabel(_L("✓ Fully constrained"));
+    } else if (r.dof > 0) {
+        m_dof_status->SetForegroundColour(wxColour(0xC8, 0xC8, 0xC8));
+        m_dof_status->SetLabel(wxString::Format(_L("%d degrees of freedom"), r.dof));
+    } else {
+        m_dof_status->SetLabel(wxString());
     }
+    m_dof_status->Refresh();
+    m_form->Layout();
+}
+
+// Human-readable label for a constraint row, e.g. "Coincident L0·P1 — L1·P0",
+// "Horizontal L2", "Radius C3 = 7.00". Entities are tagged by type letter + index.
+wxString DesignPanel::constraint_label(const SketchEntityConstraintDef& d) const
+{
+    using T = SketchConstraintType;
+    const CadFeature* feat = (m_constrain_feat >= 0 && m_constrain_feat < int(m_doc.features.size()))
+                                 ? &m_doc.features[m_constrain_feat] : nullptr;
+    auto tag = [&](int ei, SketchPointRole r) -> wxString {
+        if (ei < 0) return wxString();
+        char c = 'E';
+        if (feat && ei < int(feat->entities.size())) {
+            switch (feat->entities[ei].type) {
+            case SketchEntity::Type::Line:       c = 'L'; break;
+            case SketchEntity::Type::Circle:     c = 'C'; break;
+            case SketchEntity::Type::Arc:        c = 'A'; break;
+            case SketchEntity::Type::Point:      c = 'P'; break;
+            case SketchEntity::Type::Ellipse:
+            case SketchEntity::Type::EllipseArc: c = 'E'; break;
+            case SketchEntity::Type::BSpline:    c = 'B'; break;
+            }
+        }
+        wxString s; s << wxUniChar(c) << ei;   // avoid %c assert in Unicode build
+        if (r == SketchPointRole::P1)     s += "·P1";
+        else if (r == SketchPointRole::Center) s += "·Ctr";
+        else if (r == SketchPointRole::P0)     s += "·P0";
+        return s;
+    };
+    auto two = [&](const wxString& name) {
+        return d.eb >= 0 ? wxString::Format("%s %s — %s", name, tag(d.ea, d.ra), tag(d.eb, d.rb))
+                         : wxString::Format("%s %s", name, tag(d.ea, d.ra));
+    };
+    switch (d.type) {
+    case T::Fix:           return wxString::Format(_L("Fix %s"), tag(d.ea, d.ra));
+    case T::Coincident:    return two(_L("Coincident"));
+    case T::Horizontal:    return two(_L("Horizontal"));
+    case T::Vertical:      return two(_L("Vertical"));
+    case T::Distance:      return wxString::Format("%s = %s", two(_L("Distance")), en_format(d.value));
+    case T::LockX:         return wxString::Format(_L("Lock X %s"), tag(d.ea, d.ra));
+    case T::LockY:         return wxString::Format(_L("Lock Y %s"), tag(d.ea, d.ra));
+    case T::EqualLength:   return two(_L("Equal"));
+    case T::Parallel:      return two(_L("Parallel"));
+    case T::Perpendicular: return two(_L("Perpendicular"));
+    case T::Concentric:    return two(_L("Concentric"));
+    case T::Tangent:       return two(_L("Tangent"));
+    case T::Midpoint:      return two(_L("Midpoint"));
+    case T::Symmetric:     return wxString::Format(_L("Symmetric %s — %s / %s"),
+                                                   tag(d.ea, d.ra), tag(d.eb, d.rb), tag(d.ec, d.rc));
+    case T::Angle:         return wxString::Format("%s = %s°", two(_L("Angle")), en_format(d.value, 1));
+    case T::Radius:        return wxString::Format("%s %s = %s", _L("Radius"),   tag(d.ea, d.ra), en_format(d.value));
+    case T::Diameter:      return wxString::Format("%s %s = %s", _L("Diameter"), tag(d.ea, d.ra), en_format(d.value));
+    case T::PointOnLine:   return two(_L("On line"));
+    case T::PointOnObject: return two(_L("On edge"));
+    }
+    return _L("Constraint");
+}
+
+// Rebuild the constraint-row list from the constrained feature's entity_constraints.
+void DesignPanel::rebuild_constraint_list()
+{
+    if (m_constraint_rows == nullptr || m_form == nullptr)
+        return;
+    m_constraint_rows->Clear(true /* delete windows */);
+    m_constraint_sel = -1;
+
+    const bool active = (m_constrain_feat >= 0 && m_constrain_feat < int(m_doc.features.size()));
+    const std::vector<SketchEntityConstraintDef> empty;
+    const std::vector<SketchEntityConstraintDef>& cons =
+        active ? m_doc.features[m_constrain_feat].entity_constraints : empty;
+
+    if (m_hdr_constraints)
+        m_hdr_constraints->SetLabel(wxString::Format(_L("Constraints (%d)"), int(cons.size())));
+
+    if (cons.empty()) {
+        auto* none = new wxStaticText(m_form, wxID_ANY, _L("No constraints yet"));
+        none->SetForegroundColour(wxColour(0x90, 0x90, 0x90));
+        m_constraint_rows->Add(none, 0, wxTOP, 4);
+    }
+    for (int i = 0; i < int(cons.size()); ++i) {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        // Delete button first (fixed left position, always visible — long labels can
+        // horizontally scroll but ✗ stays put and clickable). BMP-safe ✗ glyph.
+        auto* del = new wxButton(m_form, wxID_ANY, wxString::FromUTF8("✗"),
+                                 wxDefaultPosition, wxSize(26, -1));
+        del->SetToolTip(_L("Delete constraint"));
+        del->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent&) { delete_constraint(i); });
+        // Clickable label: selecting it highlights the referenced entities.
+        auto* lbl = new wxButton(m_form, wxID_ANY, constraint_label(cons[i]),
+                                 wxDefaultPosition, wxDefaultSize, wxBU_LEFT | wxBORDER_NONE);
+        lbl->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent&) { highlight_constraint_entities(i); });
+        row->Add(del, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+        row->Add(lbl, 1, wxALIGN_CENTER_VERTICAL);
+        m_constraint_rows->Add(row, 0, wxEXPAND | wxTOP, 2);
+    }
+
+    m_form->GetSizer()->Show(m_box_constraints, m_ui_mode == UiMode::Constrain, true);
+    m_form->Layout();
+    m_form->FitInside();
+}
+
+// Push the entities referenced by constraint `idx` to the viewport as a yellow
+// highlight (toggle off if the same row is clicked again).
+void DesignPanel::highlight_constraint_entities(int idx)
+{
+    if (!m_viewport || m_constrain_feat < 0 || m_constrain_feat >= int(m_doc.features.size()))
+        return;
+    const auto& cons = m_doc.features[m_constrain_feat].entity_constraints;
+    if (idx < 0 || idx >= int(cons.size()))
+        return;
+    if (m_constraint_sel == idx) {     // second click clears
+        m_constraint_sel = -1;
+        m_viewport->set_constraint_highlight({});
+        return;
+    }
+    m_constraint_sel = idx;
+    const SketchEntityConstraintDef& d = cons[idx];
+    std::vector<int> ents;
+    for (int e : { d.ea, d.eb, d.ec })
+        if (e >= 0) ents.push_back(e);
+    m_viewport->set_constraint_highlight(std::move(ents));
+}
+
+// Drop constraint `idx`, re-solve the feature, and refresh viewport + list + DoF.
+void DesignPanel::delete_constraint(int idx)
+{
+    if (m_constrain_feat < 0 || m_constrain_feat >= int(m_doc.features.size()) || !m_viewport)
+        return;
+    CadFeature& feat = m_doc.features[m_constrain_feat];
+    if (idx < 0 || idx >= int(feat.entity_constraints.size()))
+        return;
+    feat.entity_constraints.erase(feat.entity_constraints.begin() + idx);
+    // Re-solve the remaining system (deleting a constraint can only free DoF, so it
+    // cannot fail for over-constraint; ignore the bool and refresh either way).
+    m_doc.solve_sketch_feature(m_constrain_feat);
+    m_doc.recompute();
+    m_viewport->set_constraint_highlight({});
+    m_viewport->update_constrain_entities(m_doc.features[m_constrain_feat].entities);
+    if (!m_doc.display_mesh.its.indices.empty())
+        m_viewport->set_mesh(m_doc.display_mesh);
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(_L("Constraint deleted"));
+    m_status->Refresh();
+    refresh_constrain_dof();
+    rebuild_constraint_list();
 }
 
 void DesignPanel::apply_edit_op(EditOp op)
@@ -1503,12 +1675,15 @@ void DesignPanel::after_edit_op()
     if (m_constrain_feat < 0 || m_constrain_feat >= int(m_doc.features.size()) || !m_viewport)
         return;
     m_doc.recompute();
+    m_viewport->set_constraint_highlight({});   // entity indices may have shifted
     m_viewport->update_constrain_entities(m_doc.features[m_constrain_feat].entities);
     if (!m_doc.display_mesh.its.indices.empty())
         m_viewport->set_mesh(m_doc.display_mesh);
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(_L("Applied edit"));
     m_status->Refresh();
+    refresh_constrain_dof();
+    rebuild_constraint_list();
 }
 
 void DesignPanel::request_value(const wxString& label, double def, double mn, double mx,

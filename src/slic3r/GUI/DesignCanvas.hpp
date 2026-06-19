@@ -93,6 +93,9 @@ public:
     int  selected_constrain_axis() const;  // third pick slot (Symmetric axis), -1 if unset
     bool pick0_point(Vec2d& out) const;   // plane-coords of the slot-0 pick (trim/extend)
     void update_constrain_entities(const std::vector<SketchEntity>& ents);
+    // Constraint manager (C3.4): highlight the entities referenced by a selected
+    // constraint (yellow tint in Constrain mode); empty clears the highlight.
+    void set_constraint_highlight(std::vector<int> entities);
 
 private:
     void reload(bool keep_view);

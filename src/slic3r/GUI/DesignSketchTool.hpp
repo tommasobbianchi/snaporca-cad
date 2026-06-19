@@ -71,6 +71,9 @@ public:
     bool pick0_point(Vec2d& out) const { out = m_pick0_pt; return m_pick0 >= 0; }
     // Refresh the displayed entities after the kernel re-solved them.
     void set_constrain_entities(const std::vector<SketchEntity>& ents) { m_entities = ents; }
+    // Constraint manager (C3.4): entity indices the panel asks to highlight (the
+    // entities a selected constraint references); rendered yellow in Constrain mode.
+    void set_constraint_highlight(std::vector<int> v) { m_constraint_hl = std::move(v); }
 
     // Line tool: after a single segment is placed, the panel pops a length dialog
     // (length, angle_deg are the as-drawn values); it then resolves via
@@ -282,6 +285,7 @@ private:
     int                 m_pick1{-1};
     int                 m_pick2{-1};   // third slot (Symmetric axis)
     Vec2d               m_pick0_pt{0,0}; // plane-coords of the slot-0 pick (trim/extend)
+    std::vector<int>    m_constraint_hl; // entities highlighted by the constraint manager
     GLModel             m_line_model;
     GLModel             m_vertex_model;
     GLModel             m_highlight_model;

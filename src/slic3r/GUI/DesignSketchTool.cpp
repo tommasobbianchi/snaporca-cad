@@ -30,6 +30,7 @@ void DesignSketchTool::begin(const SketchPlane& plane, Mode mode)
     m_sel_a = m_sel_b = -1;
     m_constrain_entities = false;
     m_pick0 = m_pick1 = m_pick2 = -1;
+    m_constraint_hl.clear();
     m_awaiting_length = false;
     m_selection.clear();
     m_point_sel.clear();
@@ -60,6 +61,7 @@ void DesignSketchTool::cancel()
     m_sel_a = m_sel_b = -1;
     m_constrain_entities = false;
     m_pick0 = m_pick1 = m_pick2 = -1;
+    m_constraint_hl.clear();
     m_awaiting_length = false;
     m_selection.clear();
     m_point_sel.clear();
@@ -1856,11 +1858,15 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
             for (size_t i = 0; i < m_entities.size(); ++i) {
                 const SketchEntity& e = m_entities[i];
                 const bool sel = (int(i) == m_pick0 || int(i) == m_pick1 || int(i) == m_pick2);
-                const ColorRGBA col = sel ? red : cyan;
+                // Constraint-manager highlight: the entities a selected constraint
+                // references glow yellow (picked entities still win as red).
+                const bool hl = !sel && std::find(m_constraint_hl.begin(), m_constraint_hl.end(),
+                                                   int(i)) != m_constraint_hl.end();
+                const ColorRGBA col = sel ? red : (hl ? yellow : cyan);
                 if (e.type == SketchEntity::Type::Point) { markers.push_back(e.p0); continue; }
                 bool closed = false;
                 std::vector<Vec2d> poly = entity_polyline(e, closed);
-                draw_quad_strip(sel ? m_highlight_model : m_line_model, poly, closed, col);
+                draw_quad_strip((sel || hl) ? m_highlight_model : m_line_model, poly, closed, col);
             }
             if (!markers.empty())
                 draw_vertices(m_vertex_model, markers, cyan);

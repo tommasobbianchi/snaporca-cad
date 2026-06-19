@@ -74,6 +74,16 @@ private:
     void cancel_value();
     void commit_entity_constraint(const SketchEntityConstraintDef& def); // shared solve/refresh tail
     void commit_entity_constraints(const std::vector<SketchEntityConstraintDef>& defs); // multi-def (Symmetric)
+
+    // Constraint manager (C3.4): a docked list of the constrained sketch's
+    // entity-constraints with per-row select (highlight the referenced entities in
+    // the viewport) and delete (drop the constraint + re-solve). Shown in Constrain
+    // mode only; operates on m_doc.features[m_constrain_feat].entity_constraints.
+    void rebuild_constraint_list();                                      // refill m_constraint_rows
+    void delete_constraint(int idx);                                     // erase + re-solve + refresh
+    void highlight_constraint_entities(int idx);                         // push referenced entities to viewport
+    void refresh_constrain_dof();                                        // re-solve feature, mirror DoF readout
+    wxString constraint_label(const SketchEntityConstraintDef& d) const; // human-readable row text
     void after_edit_op();                                                // shared edit-op refresh tail
     void on_edit_feature();            // reopen the selected feature's dialog populated
     void after_tree_edit(bool ok);     // shared post-op refresh of tree/viewport/status
@@ -188,6 +198,12 @@ private:
 
     // Tree row of the sketch currently being constrained (-1 = not constraining).
     int               m_constrain_feat{-1};
+
+    // Constraint-manager card (C3.4): header + a rebuildable list of constraint rows.
+    wxSizer*          m_box_constraints{nullptr};
+    wxStaticText*     m_hdr_constraints{nullptr};
+    wxSizer*          m_constraint_rows{nullptr};
+    int               m_constraint_sel{-1};   // highlighted constraint row, or -1
 };
 
 }} // namespace Slic3r::GUI
