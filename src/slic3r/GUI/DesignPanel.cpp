@@ -312,6 +312,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         cbtn("design_c_angle",         _L("Angle"),         SketchConstraintType::Angle);
         cbtn("design_c_radius",        _L("Radius"),        SketchConstraintType::Radius);
         cbtn("design_c_diameter",      _L("Diameter"),      SketchConstraintType::Diameter);
+        cbtn("design_c_fix",           _L("Fix point (anchor in place)"), SketchConstraintType::Fix);
         add_sep(m_tb_constrain);
         auto ebtn = [&](const char* icon, const wxString& tip, EditOp op) {
             auto* b = icon_btn(icon, tip);
@@ -1304,6 +1305,20 @@ void DesignPanel::apply_entity_constraint(SketchConstraintType type)
         commit_entity_constraints(defs);
         return;   // multi-def commit done here
     }
+    case T::Fix: {
+        // Anchor the picked entity's reference point to its current coordinate (the
+        // kernel pins it to a fixed reference). A single point — not both endpoints —
+        // so it composes with any existing Horizontal/Vertical/length constraint
+        // instead of duplicating it (pinning both endpoints of an already-horizontal
+        // line is redundant → over-constrained). Removes 2 DoF (the entity's position);
+        // combine with H/V + a dimension to reach fully constrained.
+        using ET = SketchEntity::Type;
+        const ET et = feat.entities[e0].type;
+        def.ea = e0;
+        def.ra = (et == ET::Circle || et == ET::Ellipse ||
+                  et == ET::Arc    || et == ET::EllipseArc) ? R::Center : R::P0;
+        break;
+    }
     case T::Radius:
     case T::Diameter: {
         const SketchEntity& A = feat.entities[e0];
@@ -1358,6 +1373,28 @@ void DesignPanel::commit_entity_constraints(const std::vector<SketchEntityConstr
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(_L("Applied constraint"));
     m_status->Refresh();
+
+    // DoF feedback (P3) for the Constrain path: re-derive the solve state of the
+    // committed feature and mirror it into the same readout the in-session path
+    // uses, so "✓ Fully constrained" is reachable here (e.g. after a Fix).
+    if (m_dof_status) {
+        std::vector<SketchEntity> ents = feat.entities;   // already solved; re-solve is a cheap no-op
+        const SketchSolveResult r = sketch_solve(ents, feat.entity_constraints);
+        if (!r.ok) {
+            m_dof_status->SetForegroundColour(wxColour(235, 80, 80));
+            m_dof_status->SetLabel(_L("✗ Conflicting constraints"));
+        } else if (r.dof == 0) {
+            m_dof_status->SetForegroundColour(wxColour(80, 200, 110));
+            m_dof_status->SetLabel(_L("✓ Fully constrained"));
+        } else if (r.dof > 0) {
+            m_dof_status->SetForegroundColour(wxColour(0xC8, 0xC8, 0xC8));
+            m_dof_status->SetLabel(wxString::Format(_L("%d degrees of freedom"), r.dof));
+        } else {
+            m_dof_status->SetLabel(wxString());
+        }
+        m_dof_status->Refresh();
+        m_form->Layout();
+    }
 }
 
 void DesignPanel::apply_edit_op(EditOp op)
