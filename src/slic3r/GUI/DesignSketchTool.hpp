@@ -33,6 +33,12 @@ public:
                       Constrain };
 
     void begin(const SketchPlane& plane, Mode mode = Mode::Polyline);
+    // Re-open a committed entity sketch for full in-canvas editing: load its entities +
+    // driving constraints, re-detect the polygon/rect/slot grouping, and live-solve. The
+    // caller re-commits via finish() (the panel replaces the feature, see m_edit_index).
+    void begin_edit(const std::vector<SketchEntity>& entities,
+                    const std::vector<SketchEntityConstraintDef>& constraints,
+                    const SketchPlane& plane);
     void set_tool(Mode mode);                 // switch tool, keep accumulated entities
     void set_construction(bool c) { m_construction = c; }
     void set_polygon_sides(int n) { m_polygon_sides = (n < 3 ? 3 : n); }
@@ -239,6 +245,9 @@ private:
     bool update_hover(GLCanvas3D& canvas, wxMouseEvent& evt);
     // Index of the Feature whose [begin,end) entity span contains ei, or -1.
     int  feature_of(int ei) const;
+    // Re-detect parametric Feature groups (polygon / rect / slot) from the raw entity
+    // list — used when a committed sketch is re-opened, where m_features is empty.
+    void rebuild_features_from_entities();
     // Open/close a Feature record around the entities a single gesture appends.
     void begin_feature(FeatureKind kind);
     void end_feature(const Vec2d& c0 = Vec2d(0, 0), const Vec2d& c1 = Vec2d(0, 0),
@@ -268,6 +277,10 @@ private:
     void set_polygon_side(int fi, double side);
     void set_polygon_angle(int fi, double deg);
     void set_polygon_radius(int fi, double R);
+    // Drag a polygon vertex while keeping the loop REGULAR: scale + rotate the whole
+    // polygon about its centroid so the grabbed vertex follows `target` (adjusts
+    // circumradius + orientation together).
+    void drag_polygon_vertex(int fi, int ei, SketchPointRole role, const Vec2d& target);
     double measure_dim(const DimAnnot& a) const;                            // value from geometry
     SketchEntityConstraintDef constraint_for(const DimAnnot& a) const;      // driving def
     int  place_dimension(DimAnnot a);                                       // create+drive+notify
@@ -362,6 +375,8 @@ private:
     int                 m_last_mouse_y{0};        // anchoring the in-canvas value editor
     bool                m_dragging_point{false};  // a point grab is in progress (Mode::Select)
     int                 m_drag_ei{-1};            // entity whose point is being dragged
+    int                 m_drag_poly_fi{-1};       // >=0 if the grabbed point is a polygon
+                                                  // vertex: drag scales+rotates the loop
     SketchPointRole     m_drag_role{SketchPointRole::P0};
     std::vector<SketchEntityConstraintDef> m_constraints; // driving dims, committed on finish
 

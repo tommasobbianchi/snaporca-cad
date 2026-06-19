@@ -39,6 +39,11 @@ public:
     void set_view(const std::string& view_name);
 
     void begin_sketch(const SketchPlane& plane, DesignSketchTool::Mode mode);
+    // Re-open a committed entity sketch for full in-canvas editing (load geometry +
+    // constraints, re-detect feature groups). Re-commits via finish_sketch().
+    void edit_sketch(const std::vector<SketchEntity>& entities,
+                     const std::vector<SketchEntityConstraintDef>& constraints,
+                     const SketchPlane& plane);
     void set_sketch_tool(DesignSketchTool::Mode mode);
     void set_sketch_construction(bool c);
     void set_sketch_polygon_sides(int n);

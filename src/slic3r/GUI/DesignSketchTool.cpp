@@ -58,7 +58,92 @@ void DesignSketchTool::begin(const SketchPlane& plane, Mode mode)
     m_dim_has0 = false;
     m_pending_dim = -1;
     m_dof = -1; m_solve_ok = true; m_entity_conflict.clear();
+    m_features.clear();
+    m_open_feature = -1;
     m_active = true;
+}
+
+// Re-open a committed entity sketch for editing: mirror begin() (fresh Select session),
+// then load the geometry + driving constraints, re-detect feature groups, and live-solve
+// so handles/quotes/regular-drag work exactly as in the original draw session.
+void DesignSketchTool::begin_edit(const std::vector<SketchEntity>& entities,
+                                  const std::vector<SketchEntityConstraintDef>& constraints,
+                                  const SketchPlane& plane)
+{
+    begin(plane, Mode::Select);
+    m_entities    = entities;
+    m_constraints = constraints;
+    rebuild_features_from_entities();
+    resolve_live();
+}
+
+// Walk the entity list grouping each consecutive CLOSED chain (entities are stored in
+// gesture order, so a polygon/rect/slot's members are contiguous and end-to-end linked)
+// and classify it: L,A,L,A -> Slot; 4 right-angled lines -> Rect; N equal-length lines
+// -> Polygon. Single/irregular entities stay ungrouped (they fall back to per-entity
+// quotes). This reconstructs m_features for a re-opened sketch.
+void DesignSketchTool::rebuild_features_from_entities()
+{
+    m_features.clear();
+    m_open_feature = -1;
+    const int n = int(m_entities.size());
+    using T = SketchEntity::Type;
+    auto start = [&](int i) { return m_entities[i].p0; };
+    auto end   = [&](int i) { const SketchEntity& e = m_entities[i];
+        return (e.type == T::Line || e.type == T::Arc) ? e.p1 : e.p0; };
+    auto near  = [](const Vec2d& a, const Vec2d& b) {
+        return (a - b).norm() <= 0.05 + 1e-3 * std::max(a.norm(), b.norm()); };
+
+    int i = 0;
+    while (i < n) {
+        int j = i; bool closed = false;            // greedily extend a consecutive chain
+        while (j + 1 < n && near(end(j), start(j + 1))) {
+            ++j;
+            if ((j - i) >= 2 && near(end(j), start(i))) { closed = true; break; }
+        }
+        const int cnt = j - i + 1;
+        if (!closed || cnt < 3) { ++i; continue; }
+
+        int arcs = 0; bool all_line = true;
+        for (int k = i; k <= j; ++k) {
+            if (m_entities[k].type == T::Arc)       ++arcs;
+            if (m_entities[k].type != T::Line)      all_line = false;
+        }
+        Vec2d c(0, 0); for (int k = i; k <= j; ++k) c += start(k); c /= double(cnt);
+        Feature f; f.begin = i; f.end = j + 1; f.c0 = c;
+
+        if (cnt == 4 && arcs == 2 &&
+            m_entities[i].type   == T::Line && m_entities[i + 1].type == T::Arc &&
+            m_entities[i + 2].type == T::Line && m_entities[i + 3].type == T::Arc) {
+            f.kind  = FeatureKind::Slot;          // make_slot: top, cap@c1, bottom, cap@c0
+            f.c0    = m_entities[i + 3].center;
+            f.c1    = m_entities[i + 1].center;
+            f.param = m_entities[i + 1].radius;
+            m_features.push_back(f);
+        } else if (all_line) {
+            std::vector<double> sidelen(cnt);
+            for (int k = 0; k < cnt; ++k) sidelen[k] = (m_entities[i + k].p1 - m_entities[i + k].p0).norm();
+            const double lmin = *std::min_element(sidelen.begin(), sidelen.end());
+            const double lmax = *std::max_element(sidelen.begin(), sidelen.end());
+            const bool equal_sides = lmin > 1e-6 && (lmax - lmin) / lmax < 0.02;
+            bool all_right = true;
+            for (int k = 0; k < cnt && all_right; ++k) {
+                Vec2d u = m_entities[i + k].p1 - m_entities[i + k].p0;
+                Vec2d v = m_entities[i + (k + 1) % cnt].p1 - m_entities[i + (k + 1) % cnt].p0;
+                if (u.norm() < 1e-9 || v.norm() < 1e-9) { all_right = false; break; }
+                if (std::abs(u.normalized().dot(v.normalized())) > 0.06) all_right = false; // ~3.4°
+            }
+            if (cnt == 4 && all_right) {
+                f.kind = FeatureKind::CornerRect; f.c0 = start(i); f.c1 = start(i + 2);
+                m_features.push_back(f);
+            } else if (equal_sides) {
+                f.kind = FeatureKind::Polygon; f.c0 = c; f.c1 = start(i);
+                f.sides = cnt; f.param = (start(i) - c).norm();
+                m_features.push_back(f);
+            }
+        }
+        i = j + 1;
+    }
 }
 
 void DesignSketchTool::set_tool(Mode mode)
@@ -90,6 +175,8 @@ void DesignSketchTool::cancel()
     m_dim_has0 = false;
     m_pending_dim = -1;
     m_dof = -1; m_solve_ok = true; m_entity_conflict.clear();
+    m_features.clear();
+    m_open_feature = -1;
 }
 
 void DesignSketchTool::clear_selection()
@@ -827,6 +914,40 @@ void DesignSketchTool::set_polygon_angle(int fi, double deg)
     resolve_live();
 }
 
+// Drag a polygon vertex keeping the loop regular: scale + rotate the whole polygon
+// about its centroid so the grabbed vertex lands on `target`. This adjusts both the
+// circumradius (|target-centroid|) and the orientation (its direction) at once.
+void DesignSketchTool::drag_polygon_vertex(int fi, int ei, SketchPointRole role, const Vec2d& target)
+{
+    if (fi < 0 || fi >= int(m_features.size())) return;
+    Feature& f = m_features[fi];
+    if (f.begin < 0 || f.end > int(m_entities.size())) return;
+    // Centroid of the loop = the regular polygon's centre (robust if it was moved).
+    Vec2d c(0, 0); int n = 0;
+    for (int i = f.begin; i < f.end; ++i)
+        if (m_entities[i].type == SketchEntity::Type::Line) { c += m_entities[i].p0; ++n; }
+    if (n == 0) return;
+    c /= double(n);
+    Vec2d vpos;
+    if (!point_at(ei, role, vpos)) return;
+    const Vec2d cur = vpos - c;                 // current grabbed-vertex spoke
+    const Vec2d tgt = target - c;               // desired spoke
+    const double curR = cur.norm(), newR = tgt.norm();
+    if (curR < 1e-9 || newR < 1e-6) return;
+    const double s  = newR / curR;
+    const double da = std::atan2(tgt.y(), tgt.x()) - std::atan2(cur.y(), cur.x());
+    const double ca = std::cos(da), sa = std::sin(da);
+    auto tf = [&](const Vec2d& p) { const Vec2d r = (p - c) * s;
+        return c + Vec2d(r.x() * ca - r.y() * sa, r.x() * sa + r.y() * ca); };
+    for (int i = f.begin; i < f.end; ++i) {
+        SketchEntity& e = m_entities[i];
+        if (e.type != SketchEntity::Type::Line) continue;
+        e.p0 = tf(e.p0); e.p1 = tf(e.p1);
+    }
+    f.c0 = c; f.param = newR;
+    resolve_live();
+}
+
 void DesignSketchTool::set_polygon_radius(int fi, double R)
 {
     if (fi < 0 || fi >= int(m_features.size()) || R < 1e-6) return;
@@ -933,6 +1054,8 @@ void DesignSketchTool::finish()
     m_dim_has0 = false;
     m_pending_dim = -1;
     m_has_cursor = false;
+    m_features.clear();
+    m_open_feature = -1;
     if (cb)
         cb(ents, cons, pl);
 }
@@ -3019,8 +3142,12 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
         if (m_dragging_point && evt.Dragging() && evt.LeftIsDown()) {
             Vec2d p;
             screen_to_plane(canvas, evt, p);
-            set_point(m_drag_ei, m_drag_role, p);
-            resolve_live_drag(m_drag_ei, m_drag_role);
+            if (m_drag_poly_fi >= 0)
+                drag_polygon_vertex(m_drag_poly_fi, m_drag_ei, m_drag_role, p);  // keep regular
+            else {
+                set_point(m_drag_ei, m_drag_role, p);
+                resolve_live_drag(m_drag_ei, m_drag_role);
+            }
             return true;
         }
         // Derived-handle drag (A4): the circle RadiusHandle (and later slot/rect/etc.)
@@ -3036,10 +3163,15 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             if (m_dragging_point) {
                 Vec2d p;
                 screen_to_plane(canvas, evt, p);
-                set_point(m_drag_ei, m_drag_role, p);
-                resolve_live_drag(m_drag_ei, m_drag_role);
+                if (m_drag_poly_fi >= 0)
+                    drag_polygon_vertex(m_drag_poly_fi, m_drag_ei, m_drag_role, p);
+                else {
+                    set_point(m_drag_ei, m_drag_role, p);
+                    resolve_live_drag(m_drag_ei, m_drag_role);
+                }
                 m_dragging_point = false;
                 m_drag_ei = -1;
+                m_drag_poly_fi = -1;
                 return true;
             }
             if (m_dragging_handle) {
@@ -3055,6 +3187,7 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
         if (evt.LeftDown() || evt.LeftDClick()) {
             m_dragging_point = false;           // a fresh press disarms any stale grab
             m_dragging_handle = false;
+            m_drag_poly_fi = -1;
             Vec2d p;
             screen_to_plane(canvas, evt, p);
             if (evt.LeftDClick()) {                // double-click a quote label -> edit it
@@ -3136,6 +3269,11 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                     m_dragging_point = true;
                     m_drag_ei = pe;
                     m_drag_role = pr;
+                    // If the grabbed point is a polygon vertex, the drag must keep the
+                    // polygon REGULAR — it adjusts the circumradius + orientation (the
+                    // vertex follows the cursor) instead of moving one point freely.
+                    const int pf = feature_of(pe);
+                    m_drag_poly_fi = (pf >= 0 && m_features[pf].kind == FeatureKind::Polygon) ? pf : -1;
                     if (on_selection_changed)
                         on_selection_changed(int(m_selection.size() + m_point_sel.size()));
                     return true;

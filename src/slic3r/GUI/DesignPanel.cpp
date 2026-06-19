@@ -799,6 +799,25 @@ DesignPanel::DesignPanel(wxWindow* parent)
                 m_status->Refresh();
                 return;
             }
+            // Re-edit of a committed entity sketch: REPLACE it in place (keep its name +
+            // tree position) instead of appending a duplicate.
+            if (m_edit_index >= 0 && m_edit_index < int(m_doc.features.size()) &&
+                m_doc.features[m_edit_index].type == CadFeatureType::Sketch) {
+                CadFeature edited = m_doc.features[m_edit_index];
+                edited.entities           = ents;
+                edited.entity_constraints = cons;
+                edited.plane              = plane;
+                if (m_doc.replace_feature(m_edit_index, edited)) {
+                    if (!cons.empty()) m_doc.solve_sketch_feature(m_edit_index);
+                    m_doc.recompute();
+                    m_status->SetForegroundColour(wxNullColour);
+                    m_status->SetLabel(_L("Sketch updated"));
+                    m_edit_index = -1;
+                    refresh_tree();
+                    sync_sketch_display();
+                }
+                return;
+            }
             m_feature_counter++;
             const int sk = m_doc.add_sketch_entities(ents, plane,
                                "Sketch" + std::to_string(m_feature_counter), cons);
@@ -2695,8 +2714,24 @@ void DesignPanel::on_edit_feature()
             break;
         }
         m_edit_index = sel;
-        load_feature_into_dialog(f);
-        open_tool(Tool::Sketch);
+        if (!f.entities.empty()) {
+            // Entity sketcher: re-open the geometry for full in-canvas editing (handles,
+            // live quotes, regular-polygon drag) in the ENTITY sketch UI (the top sketch
+            // toolbar + session card), NOT the legacy parametric card. The commit handler
+            // replaces this feature in place (see m_edit_index). Hide its display overlay
+            // so the live tool is the only copy drawn.
+            set_ui_mode(UiMode::Sketch);
+            if (m_viewport) {
+                m_viewport->set_display_sketches({});
+                m_viewport->edit_sketch(f.entities, f.entity_constraints, f.plane);
+            }
+            m_status->SetForegroundColour(wxNullColour);
+            m_status->SetLabel(_L("Editing sketch — drag a handle or click a quote to edit"));
+            m_status->Refresh();
+        } else {
+            load_feature_into_dialog(f);
+            open_tool(Tool::Sketch);
+        }
         break;
     case CadFeatureType::Extrude:
         m_edit_index = sel;

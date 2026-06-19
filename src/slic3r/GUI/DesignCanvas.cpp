@@ -220,6 +220,15 @@ void DesignCanvas::begin_sketch(const SketchPlane& plane, DesignSketchTool::Mode
     if (m_canvas_widget) m_canvas_widget->Refresh();
 }
 
+void DesignCanvas::edit_sketch(const std::vector<SketchEntity>& entities,
+                               const std::vector<SketchEntityConstraintDef>& constraints,
+                               const SketchPlane& plane)
+{
+    m_sketch_tool.begin_edit(entities, constraints, plane);
+    if (m_canvas) m_canvas->set_as_dirty();
+    if (m_canvas_widget) m_canvas_widget->Refresh();
+}
+
 void DesignCanvas::set_sketch_tool(DesignSketchTool::Mode mode)
 {
     m_sketch_tool.set_tool(mode);
