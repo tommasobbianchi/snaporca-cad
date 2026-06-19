@@ -1771,11 +1771,84 @@ void DesignPanel::apply_edit_op(EditOp op)
         others.reserve(n > 0 ? n - 1 : 0);
         for (int i = 0; i < n; ++i)
             if (i != e0) others.push_back(feat.entities[i]);
+        const SketchEntity before = feat.entities[e0];   // C4.1: detect the moved endpoint
         const bool ok = (op == EditOp::Trim)
             ? SketchEngine::trim_entity(feat.entities[e0], others, pick)
             : SketchEngine::extend_entity(feat.entities[e0], others, pick);
         if (!ok) { fail(op == EditOp::Trim ? _L("Nothing to trim at the pick")
                                            : _L("No edge to extend to")); return; }
+
+        // C4.1: trim/extend slides ONE endpoint of the subject along its own
+        // direction (line) or sweep (arc). That (a) kills the subject's
+        // self-length Distance dim and (b) detaches the moved endpoint from any
+        // corner Coincident/PointOn* it used to hold. Drop both stale classes,
+        // then re-anchor the moved endpoint onto the entity it now lands on with a
+        // PointOnObject (the bridge picks PT_ON_LINE / PT_ON_CIRCLE). A Circle
+        // subject restructures into an Arc (both endpoints new) — skip the
+        // re-anchor there; its self constraints (Radius/Concentric) survive, so
+        // there is nothing stale to drop either.
+        if (st == Type::Line || st == Type::Arc) {
+            using R  = SketchPointRole;
+            using CT = SketchConstraintType;
+            const SketchEntity& aft = feat.entities[e0];
+            R     moved = R::P0;
+            Vec2d P;
+            if (st == Type::Line) {
+                const bool p0_moved = (before.p0 - aft.p0).squaredNorm()
+                                    > (before.p1 - aft.p1).squaredNorm();
+                moved = p0_moved ? R::P0 : R::P1;
+                P     = p0_moved ? aft.p0 : aft.p1;
+            } else {
+                const bool start_moved = std::abs(before.start_angle - aft.start_angle)
+                                       > std::abs(before.end_angle - aft.end_angle);
+                moved = start_moved ? R::P0 : R::P1;
+                const double ang = start_moved ? aft.start_angle : aft.end_angle;
+                P = aft.center + aft.radius * Vec2d(std::cos(ang), std::sin(ang));
+            }
+
+            // Drop stale: subject self-length Distance + any Coincident/PointOn*
+            // pinning the moved endpoint to its old corner.
+            auto refs = [&](const SketchEntityConstraintDef& d, R r) {
+                return (d.ea == e0 && d.ra == r) || (d.eb == e0 && d.rb == r);
+            };
+            auto& cs = feat.entity_constraints;
+            cs.erase(std::remove_if(cs.begin(), cs.end(),
+                [&](const SketchEntityConstraintDef& d) {
+                    if (d.type == CT::Distance && d.ea == e0 && d.eb == e0) return true;
+                    return (d.type == CT::Coincident || d.type == CT::PointOnLine
+                         || d.type == CT::PointOnObject) && refs(d, moved);
+                }), cs.end());
+
+            // Find which other entity the moved endpoint now lies on (Line/Circle
+            // cutters only — PT_ON_* needs a line or circle primitive).
+            int cutter = -1;
+            const double tol = 1e-5;
+            for (int i = 0; i < int(feat.entities.size()); ++i) {
+                if (i == e0) continue;
+                const SketchEntity& o = feat.entities[i];
+                if (o.type == Type::Line) {
+                    Vec2d dv = o.p1 - o.p0;
+                    const double L2 = dv.dot(dv);
+                    if (L2 < 1e-18) continue;
+                    const double t = (P - o.p0).dot(dv) / L2;
+                    if (t < -1e-6 || t > 1.0 + 1e-6) continue;
+                    if ((o.p0 + t * dv - P).norm() < tol) { cutter = i; break; }
+                } else if (o.type == Type::Circle) {
+                    if (std::abs((P - o.center).norm() - o.radius) < tol) { cutter = i; break; }
+                }
+            }
+
+            // Re-anchor with PointOnObject; keep geometry + the stale-drop even if
+            // the solver rejects the new (possibly redundant) binding.
+            if (cutter >= 0) {
+                const size_t cbefore = feat.entity_constraints.size();
+                SketchEntityConstraintDef d; d.type = CT::PointOnObject;
+                d.ea = e0; d.ra = moved; d.eb = cutter;
+                feat.entity_constraints.push_back(d);
+                if (!m_doc.solve_sketch_feature(m_constrain_feat))
+                    feat.entity_constraints.resize(cbefore);
+            }
+        }
         break;
     }
     }
