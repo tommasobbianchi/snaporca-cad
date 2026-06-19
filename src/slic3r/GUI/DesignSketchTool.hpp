@@ -258,10 +258,15 @@ private:
     int  place_dimension(DimAnnot a);                                       // create+drive+notify
     std::string dim_text(const DimAnnot& a) const;                          // rendered label string
     void render_dimensions(double unit_per_px);                            // quote lines + labels
-    // Live, non-driving radius quote for the circle being radius-dragged (or a lone
-    // selected circle) so resizing shows its value Onshape-style. Self-gates; no-op
-    // otherwise.
-    void render_live_radius_quote(double unit_per_px);
+    // Draw ONE dimension's quote (extension/dimension lines, arrowheads, label) and
+    // return its label centre in out_label; false if the annot can't be drawn. Shared
+    // by render_dimensions (placed driving quotes) and render_live_quotes (live ones).
+    bool draw_dim_quote(const DimAnnot& a, double th, const ColorRGBA& col, Vec2d& out_label);
+    // Live, non-driving characteristic quotes for the entity being edited (point/handle
+    // drag, or a lone selection): the tool's defining dimensions shown Onshape-style so
+    // editing shows live values; click one (m_live_quotes) to promote it to a driving
+    // dim. Self-gates; skips a dim already driven on that entity.
+    void render_live_quotes(double unit_per_px);
     // Iconic constraint badges (C3.4b): for each m_constrain_cons entry, append a
     // small screen-constant glyph (H, V, ∥, ⊥, =, ○, …) near its primary entity into
     // `out`; glyphs touching the same entity stack so they don't overlap.
@@ -351,8 +356,8 @@ private:
     Handle                m_drag_handle;           // the handle being dragged
     bool                  m_has_hover_handle{false};// cursor is near a handle (highlight it)
     Handle                m_hover_handle;          // the hovered handle (recomputed on move)
-    int                   m_live_radius_ei{-1};    // circle whose live (non-driving) radius
-    Vec2d                 m_live_radius_label{0,0}; // quote is shown; label centre for click-to-edit
+    std::vector<DimAnnot> m_live_quotes;           // live non-driving characteristic quotes,
+                                                   // clickable to promote to driving dims
     std::vector<Feature>  m_features;              // parametric groups over m_entities
     int                   m_open_feature{-1};      // index of the Feature being built, or -1
 

@@ -1873,6 +1873,86 @@ void DesignSketchTool::draw_text(GLModel& model, const std::string& s, const Vec
 // Draw every placed dimension: extension lines, the offset dimension line, arrowheads
 // and the numeric label. Geometry is recomputed from the (solved) entities each frame
 // so the quote tracks the sketch.
+// Draw one dimension's quote (extension/dimension lines, arrowheads, numeric label).
+// Geometry is recomputed from the (solved) entities so the quote tracks the sketch.
+// Returns the label centre in out_label; false if the annot references missing/degenerate
+// geometry. Shared by placed (render_dimensions) and live (render_live_quotes) quotes.
+bool DesignSketchTool::draw_dim_quote(const DimAnnot& a, double th, const ColorRGBA& dimcol,
+                                      Vec2d& out_label)
+{
+    std::vector<std::pair<Vec2d, Vec2d>> segs;
+    if (a.kind == DimType::Length || a.kind == DimType::Distance) {
+        Vec2d pa, pb;
+        if (a.kind == DimType::Length) {
+            if (a.ea < 0 || a.ea >= int(m_entities.size())) return false;
+            pa = m_entities[a.ea].p0; pb = m_entities[a.ea].p1;
+        } else if (!point_at(a.ea, a.ra, pa) || !point_at(a.eb, a.rb, pb)) {
+            return false;
+        }
+        const Vec2d d = pb - pa;
+        const double L = d.norm();
+        if (L < 1e-6) return false;
+        const Vec2d u = d / L;
+        const Vec2d nrm(-u.y(), u.x());
+        const double side = (a.side != 0.0) ? a.side : 1.0;
+        const double off = side * std::max(L * 0.18, 8.0);
+        const Vec2d A2 = pa + nrm * off, B2 = pb + nrm * off;
+        const Vec2d ext = nrm * (off + side * 2.0);
+        segs.emplace_back(pa, pa + ext);      // extension lines
+        segs.emplace_back(pb, pb + ext);
+        segs.emplace_back(A2, B2);            // dimension line
+        const double as = std::max(L * 0.04, 2.0);
+        auto arrow = [&](const Vec2d& tip, const Vec2d& dir) {
+            const Vec2d back = tip + dir * as;
+            segs.emplace_back(tip, back + nrm * (as * 0.5));
+            segs.emplace_back(tip, back - nrm * (as * 0.5));
+        };
+        arrow(A2, u); arrow(B2, -u);
+        out_label = (A2 + B2) * 0.5 + nrm * (side * (th * 0.7 + 1.5));
+    } else if (a.kind == DimType::Diameter || a.kind == DimType::Radius) {
+        if (a.ea < 0 || a.ea >= int(m_entities.size())) return false;
+        const SketchEntity& e = m_entities[a.ea];
+        const Vec2d c = e.center;
+        const double r = e.radius;
+        if (r < 1e-6) return false;
+        const Vec2d u(1.0, 0.0);
+        const double as = std::max(r * 0.12, 2.0);
+        if (a.kind == DimType::Diameter) {
+            const Vec2d p1 = c - u * r, p2 = c + u * r;
+            segs.emplace_back(p1, p2);
+            segs.emplace_back(p1, p1 + u * as + Vec2d(0, 1) * (as * 0.5));
+            segs.emplace_back(p1, p1 + u * as - Vec2d(0, 1) * (as * 0.5));
+            segs.emplace_back(p2, p2 - u * as + Vec2d(0, 1) * (as * 0.5));
+            segs.emplace_back(p2, p2 - u * as - Vec2d(0, 1) * (as * 0.5));
+            out_label = c + Vec2d(0, 1) * (th * 0.8);
+        } else {
+            const Vec2d p2 = c + u * r;
+            segs.emplace_back(c, p2);
+            segs.emplace_back(p2, p2 - u * as + Vec2d(0, 1) * (as * 0.5));
+            segs.emplace_back(p2, p2 - u * as - Vec2d(0, 1) * (as * 0.5));
+            out_label = (c + p2) * 0.5 + Vec2d(0, 1) * (th * 0.8);
+        }
+    } else if (a.kind == DimType::DistanceToLine) {
+        Vec2d pa;
+        if (!point_at(a.ea, a.ra, pa) || a.eb < 0 || a.eb >= int(m_entities.size())) return false;
+        const SketchEntity& Ln = m_entities[a.eb];
+        const Vec2d ld = Ln.p1 - Ln.p0;
+        const double n = ld.norm();
+        if (n < 1e-9) return false;
+        const Vec2d u = ld / n;
+        const double t = (pa - Ln.p0).dot(u);
+        const Vec2d foot = Ln.p0 + u * t;       // perpendicular foot on the line
+        segs.emplace_back(pa, foot);
+        out_label = (pa + foot) * 0.5 + u * (th * 0.7 + 1.5);
+    } else {
+        return false;
+    }
+    draw_strokes(m_highlight_model, segs, 0.6, dimcol);
+    draw_text(m_line_model, dim_text(a), out_label, th, dimcol);
+    return true;
+}
+
+// Draw every placed (driving) dimension; cache each label centre for picking.
 void DesignSketchTool::render_dimensions(double unit_per_px)
 {
     if (m_dimensions.empty()) return;
@@ -1881,123 +1961,50 @@ void DesignSketchTool::render_dimensions(double unit_per_px)
     // so a long line doesn't get huge text. ~15 px tall in plane units at this zoom.
     const double th = std::max(15.0 * unit_per_px, 1e-4);
     for (size_t di = 0; di < m_dimensions.size(); ++di) {
-        const DimAnnot& a = m_dimensions[di];
-        std::vector<std::pair<Vec2d, Vec2d>> segs;
-        if (a.kind == DimType::Length || a.kind == DimType::Distance) {
-            Vec2d pa, pb;
-            if (a.kind == DimType::Length) {
-                if (a.ea < 0 || a.ea >= int(m_entities.size())) continue;
-                pa = m_entities[a.ea].p0; pb = m_entities[a.ea].p1;
-            } else if (!point_at(a.ea, a.ra, pa) || !point_at(a.eb, a.rb, pb)) {
-                continue;
-            }
-            const Vec2d d = pb - pa;
-            const double L = d.norm();
-            if (L < 1e-6) continue;
-            const Vec2d u = d / L;
-            const Vec2d nrm(-u.y(), u.x());
-            const double off = a.side * std::max(L * 0.18, 8.0);
-            const Vec2d A2 = pa + nrm * off, B2 = pb + nrm * off;
-            const Vec2d ext = nrm * (off + a.side * 2.0);
-            segs.emplace_back(pa, pa + ext);      // extension lines
-            segs.emplace_back(pb, pb + ext);
-            segs.emplace_back(A2, B2);            // dimension line
-            const double as = std::max(L * 0.04, 2.0);
-            auto arrow = [&](const Vec2d& tip, const Vec2d& dir) {
-                const Vec2d back = tip + dir * as;
-                segs.emplace_back(tip, back + nrm * (as * 0.5));
-                segs.emplace_back(tip, back - nrm * (as * 0.5));
-            };
-            arrow(A2, u); arrow(B2, -u);
-            const Vec2d label = (A2 + B2) * 0.5 + nrm * (a.side * (th * 0.7 + 1.5));
+        Vec2d label;
+        if (draw_dim_quote(m_dimensions[di], th, dimcol, label))
             m_dimensions[di].label_pos = label;
-            draw_strokes(m_highlight_model, segs, 0.6, dimcol);
-            draw_text(m_line_model, dim_text(a), label, th, dimcol);
-        } else if (a.kind == DimType::Diameter || a.kind == DimType::Radius) {
-            if (a.ea < 0 || a.ea >= int(m_entities.size())) continue;
-            const SketchEntity& e = m_entities[a.ea];
-            const Vec2d c = e.center;
-            const double r = e.radius;
-            const Vec2d u(1.0, 0.0);
-            const double as = std::max(r * 0.12, 2.0);
-            Vec2d label;
-            if (a.kind == DimType::Diameter) {
-                const Vec2d p1 = c - u * r, p2 = c + u * r;
-                segs.emplace_back(p1, p2);
-                segs.emplace_back(p1, p1 + u * as + Vec2d(0, 1) * (as * 0.5));
-                segs.emplace_back(p1, p1 + u * as - Vec2d(0, 1) * (as * 0.5));
-                segs.emplace_back(p2, p2 - u * as + Vec2d(0, 1) * (as * 0.5));
-                segs.emplace_back(p2, p2 - u * as - Vec2d(0, 1) * (as * 0.5));
-                label = c + Vec2d(0, 1) * (th * 0.8);
-            } else {
-                const Vec2d p2 = c + u * r;
-                segs.emplace_back(c, p2);
-                segs.emplace_back(p2, p2 - u * as + Vec2d(0, 1) * (as * 0.5));
-                segs.emplace_back(p2, p2 - u * as - Vec2d(0, 1) * (as * 0.5));
-                label = (c + p2) * 0.5 + Vec2d(0, 1) * (th * 0.8);
-            }
-            m_dimensions[di].label_pos = label;
-            draw_strokes(m_highlight_model, segs, 0.6, dimcol);
-            draw_text(m_line_model, dim_text(a), label, th, dimcol);
-        } else if (a.kind == DimType::DistanceToLine) {
-            Vec2d pa;
-            if (!point_at(a.ea, a.ra, pa) || a.eb < 0 || a.eb >= int(m_entities.size())) continue;
-            const SketchEntity& Ln = m_entities[a.eb];
-            const Vec2d ld = Ln.p1 - Ln.p0;
-            const double n = ld.norm();
-            if (n < 1e-9) continue;
-            const Vec2d u = ld / n;
-            const double t = (pa - Ln.p0).dot(u);
-            const Vec2d foot = Ln.p0 + u * t;       // perpendicular foot on the line
-            segs.emplace_back(pa, foot);
-            const Vec2d label = (pa + foot) * 0.5 + u * (th * 0.7 + 1.5);
-            m_dimensions[di].label_pos = label;
-            draw_strokes(m_highlight_model, segs, 0.6, dimcol);
-            draw_text(m_line_model, dim_text(a), label, th, dimcol);
-        }
     }
 }
 
-// Live radius quote (Onshape-style): while the circle's RadiusHandle is being dragged
-// — or when a lone circle is selected — draw a centre→edge quote line with an arrowhead
-// and the live "R<value>" label, reusing the teal CAD dimension styling. Non-driving:
-// it reports the current radius, it does not constrain it.
-void DesignSketchTool::render_live_radius_quote(double unit_per_px)
+// Per-entity-type characteristic dimensions, drawn as live non-driving quotes for the
+// entity being edited (point/handle drag, or a lone selection). This is the Onshape
+// pattern that scales to every tool: each kind reports its defining dimension(s); each
+// is clickable (m_live_quotes) to promote to a driving dim + open the inline editor.
+// A dim already driven on the entity is skipped (render_dimensions draws that one).
+void DesignSketchTool::render_live_quotes(double unit_per_px)
 {
-    m_live_radius_ei = -1;
+    m_live_quotes.clear();
     int ei = -1;
-    if (m_dragging_handle && m_drag_handle.role == HandleRole::RadiusHandle)
-        ei = m_drag_handle.ei;
-    else if (m_selection.size() == 1)
-        ei = m_selection[0];
+    if (m_dragging_point && m_drag_ei >= 0)  ei = m_drag_ei;
+    else if (m_dragging_handle)              ei = m_drag_handle.ei;
+    else if (m_selection.size() == 1)        ei = m_selection[0];
     if (ei < 0 || ei >= int(m_entities.size())) return;
     const SketchEntity& e = m_entities[ei];
-    if (e.type != SketchEntity::Type::Circle) return;
-    const double r = e.radius;
-    if (r < 1e-6) return;
-    // If this circle already carries a driving Radius/Diameter dimension, render_dimensions
-    // draws the (persistent, editable) quote — don't double it with the live readout.
-    for (const DimAnnot& d : m_dimensions)
-        if (d.ea == ei && (d.kind == DimType::Radius || d.kind == DimType::Diameter)) return;
 
-    const ColorRGBA dimcol(0.30f, 0.88f, 0.66f, 1.0f);   // teal-green CAD quote
+    std::vector<DimAnnot> protos;
+    auto add = [&](DimType k) { DimAnnot a; a.kind = k; a.ea = ei; a.side = 1.0; protos.push_back(a); };
+    switch (e.type) {
+    case SketchEntity::Type::Line:   add(DimType::Length); break;   // segment length
+    case SketchEntity::Type::Circle: add(DimType::Radius); break;   // radius
+    default: break;                                                 // arc/ellipse/etc.: later
+    }
+    if (protos.empty()) return;
+
+    const ColorRGBA dimcol(0.30f, 0.88f, 0.66f, 1.0f);
     const double th = std::max(15.0 * unit_per_px, 1e-4);
-    const Vec2d  c  = e.center;
-    const Vec2d  u(1.0, 0.0);                             // toward the +x radius handle
-    const double as = std::max(r * 0.12, 2.0);
-    const Vec2d  p2 = c + u * r;
-    std::vector<std::pair<Vec2d, Vec2d>> segs;
-    segs.emplace_back(c, p2);                             // radius line
-    segs.emplace_back(p2, p2 - u * as + Vec2d(0, 1) * (as * 0.5));   // arrowhead
-    segs.emplace_back(p2, p2 - u * as - Vec2d(0, 1) * (as * 0.5));
-    const Vec2d label = (c + p2) * 0.5 + Vec2d(0, 1) * (th * 0.8);
-    DimAnnot tmp; tmp.kind = DimType::Radius; tmp.ea = ei; tmp.value = r;
-    draw_strokes(m_highlight_model, segs, 0.6, dimcol);
-    draw_text(m_line_model, dim_text(tmp), label, th, dimcol);
-    // Cache the label centre so a single click promotes this readout to a driving
-    // Radius dimension and opens the in-canvas editor (click-to-set-precise-value).
-    m_live_radius_ei    = ei;
-    m_live_radius_label = label;
+    for (DimAnnot a : protos) {
+        bool driven = false;                       // skip if already a driving dim of this kind
+        for (const DimAnnot& d : m_dimensions)
+            if (d.ea == a.ea && d.kind == a.kind) { driven = true; break; }
+        if (driven) continue;
+        a.value = measure_dim(a);
+        Vec2d label;
+        if (draw_dim_quote(a, th, dimcol, label)) {
+            a.label_pos = label;
+            m_live_quotes.push_back(a);            // remember for click-to-promote
+        }
+    }
 }
 
 // Iconic constraint badges drawn near each constraint's primary entity (C3.4b).
@@ -2300,7 +2307,7 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     // Placed dimension quotes (drawn in every mode so they persist while sketching).
     // Pass plane-units-per-pixel so labels keep a constant on-screen size.
     render_dimensions(1.0 / std::max(camera.get_zoom(), 1e-6));
-    render_live_radius_quote(1.0 / std::max(camera.get_zoom(), 1e-6));
+    render_live_quotes(1.0 / std::max(camera.get_zoom(), 1e-6));
 
     // In-progress entity preview for the active tool.
     const ColorRGBA preview = m_construction ? grey : orange;
@@ -2794,19 +2801,20 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             const double tol = std::max(1e-3, (p2 - p).norm());
 
             // Single-click a dimension quote label -> edit its value in place. A placed
-            // driving quote reopens its editor; the live (non-driving) radius readout is
-            // first promoted to a driving Radius dimension, then place_dimension opens the
-            // editor — so typing a value sets the precise radius. Uses a generous label
+            // driving quote reopens its editor; a live (non-driving) characteristic quote
+            // is first promoted to a driving dimension (place_dimension), then its editor
+            // opens — so typing a value sets the precise dimension. Generous label
             // tolerance (~24 px) since text labels are wider than a point grip.
             if (evt.LeftDown()) {
                 const Linef3 rdl = canvas.mouse_ray(Point(evt.GetX() + 24, evt.GetY()));
                 const double ltol = std::max(tol, (m_plane.project(rdl.a, rdl.vector()) - p).norm());
                 const int di = hit_test_dimension(p, ltol);
                 if (di >= 0) { open_value_editor(di); return true; }
-                if (m_live_radius_ei >= 0 && (m_live_radius_label - p).norm() <= ltol) {
-                    DimAnnot a; a.kind = DimType::Radius; a.ea = m_live_radius_ei;
-                    place_dimension(a);   // append driving Radius dim + open inline editor
-                    return true;
+                for (const DimAnnot& q : m_live_quotes) {
+                    if ((q.label_pos - p).norm() <= ltol) {
+                        place_dimension(q);   // promote live quote -> driving dim + open editor
+                        return true;
+                    }
                 }
             }
 
@@ -3009,8 +3017,6 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     }
 
     case Mode::Line: {
-        if (m_awaiting_length)         // length dialog is open: ignore canvas input
-            return true;
         if (evt.LeftDown()) {
             Vec2d p;
             screen_to_plane(canvas, evt, p);
@@ -3024,13 +3030,10 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             bool lk = false;
             if (!vsnap) p = snap_dir(m_points.back(), p, lk);  // vertex snap wins over angle
             m_points.push_back(p);      // second click completes the segment
-            m_awaiting_length = true;
-            if (on_segment_drawn) {
-                const Vec2d d = m_points[1] - m_points[0];
-                on_segment_drawn(d.norm(), std::atan2(d.y(), d.x()) * 180.0 / M_PI);
-            } else {
-                keep_segment_as_drawn();  // no handler: commit as drawn
-            }
+            // Onshape paradigm: commit the segment as drawn — no docked length modal.
+            // The length is edited in-canvas via the live Length quote (click it in
+            // Select mode to set a precise driving dimension), like the circle radius.
+            keep_segment_as_drawn();
             return true;
         }
         if (evt.RightDown()) {          // abandon the in-progress anchor
