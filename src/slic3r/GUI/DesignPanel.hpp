@@ -49,6 +49,13 @@ private:
     void on_add_dressup();
     void on_add_hole();
     void on_add_thread();
+    // Import rigid 2D art (Text / SVG) as a new Sketch feature carrying
+    // imported_regions (no solver entities). on_add_text/on_import_svg gather
+    // input; add_imported_sketch builds the feature, refreshes tree + display.
+    void on_add_text();
+    void on_import_svg();
+    void add_imported_sketch(const std::vector<std::vector<std::vector<Vec2d>>>& regions,
+                             const wxString& base_name);
     void on_commit();
     void refresh_tree();
     void set_status_ok();

@@ -13,6 +13,8 @@
 #include <wx/statline.h>
 #include <wx/statbmp.h>
 #include <wx/font.h>
+#include <wx/textdlg.h>
+#include <wx/filedlg.h>
 
 #include <string>
 #include <cmath>
@@ -20,6 +22,7 @@
 #include <algorithm>
 
 #include "slic3r/GUI/wxExtensions.hpp"   // ScalableButton, create_scaled_bitmap
+#include "libslic3r/SketchImport.hpp"    // text_to_regions / svg_to_regions
 #include "libslic3r/Model.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
 #include "slic3r/GUI/Plater.hpp"
@@ -187,6 +190,13 @@ DesignPanel::DesignPanel(wxWindow* parent)
         auto* b_thread = icon_btn("design_thread", _L("Thread"));
         b_thread->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Thread); });
         fadd(b_thread);
+        add_sep(m_tb_feature);
+        auto* b_text = icon_btn("design_text", _L("Text"));
+        b_text->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_text(); });
+        fadd(b_text);
+        auto* b_svg = icon_btn("design_svg", _L("Import SVG"));
+        b_svg->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_import_svg(); });
+        fadd(b_svg);
         add_sep(m_tb_feature);
         auto* b_constrain = icon_btn("design_constrain", _L("Constrain selected sketch"));
         b_constrain->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
@@ -969,11 +979,86 @@ void DesignPanel::sync_sketch_display()
     std::vector<DesignSketchTool::DisplaySketch> ds;
     for (int i = 0; i < n; ++i) {
         const CadFeature& f = m_doc.features[i];
-        if (f.type != CadFeatureType::Sketch || consumed[i] || f.entities.empty())
+        if (f.type != CadFeatureType::Sketch || consumed[i])
             continue;
-        ds.push_back({ f.entities, f.plane });
+        if (!f.entities.empty()) {
+            ds.push_back({ f.entities, f.plane });
+        } else if (!f.imported_regions.empty()) {
+            // Imported art (Text/SVG) carries no solver entities; synthesize
+            // closed line loops from each region contour so it shows as an
+            // outline overlay (display only — never stored on the feature).
+            std::vector<SketchEntity> lines;
+            for (const auto& region : f.imported_regions)
+                for (const auto& contour : region) {
+                    const int m = int(contour.size());
+                    for (int k = 0; k < m; ++k) {
+                        SketchEntity e;
+                        e.type = SketchEntity::Type::Line;
+                        e.p0   = contour[k];
+                        e.p1   = contour[(k + 1) % m];
+                        lines.push_back(e);
+                    }
+                }
+            if (!lines.empty())
+                ds.push_back({ std::move(lines), f.plane });
+        }
     }
     m_viewport->set_display_sketches(std::move(ds));
+}
+
+void DesignPanel::on_add_text()
+{
+    wxTextEntryDialog dlg(this, _L("Text to insert:"), _L("Text"), wxEmptyString);
+    if (dlg.ShowModal() != wxID_OK)
+        return;
+    const wxString text = dlg.GetValue();
+    if (text.empty())
+        return;
+    const std::string utf8(text.ToUTF8().data());
+    request_value(_L("Text height (mm)"), 10.0, 1.0, 1000.0,
+        [this, utf8](double mm) {
+            add_imported_sketch(text_to_regions(utf8, mm), _L("Text"));
+        });
+}
+
+void DesignPanel::on_import_svg()
+{
+    wxFileDialog dlg(this, _L("Import SVG"), wxEmptyString, wxEmptyString,
+                     "SVG files (*.svg)|*.svg|All files|*.*",
+                     wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+    if (dlg.ShowModal() != wxID_OK)
+        return;
+    const std::string path(dlg.GetPath().ToUTF8().data());
+    request_value(_L("Scale"), 1.0, 0.01, 1000.0,
+        [this, path](double scale) {
+            add_imported_sketch(svg_to_regions(path, scale), _L("SVG"));
+        });
+}
+
+void DesignPanel::add_imported_sketch(
+    const std::vector<std::vector<std::vector<Vec2d>>>& regions,
+    const wxString& base_name)
+{
+    if (regions.empty()) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("No importable geometry found"));
+        m_status->Refresh();
+        return;
+    }
+    m_feature_counter++;
+    CadFeature f;
+    f.type            = CadFeatureType::Sketch;
+    f.name            = std::string(base_name.ToUTF8().data()) + std::to_string(m_feature_counter);
+    f.plane           = m_draw_plane ? plane_from_index(m_draw_plane->GetSelection())
+                                     : SketchPlane::XY();
+    f.imported_regions = regions;
+    m_doc.features.push_back(f);
+    m_doc.recompute();   // a lone sketch yields an empty body; that is expected
+    refresh_tree();
+    sync_sketch_display();
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(base_name + _L(" added — select it and Extrude"));
+    m_status->Refresh();
 }
 
 void DesignPanel::on_add_sketch()
