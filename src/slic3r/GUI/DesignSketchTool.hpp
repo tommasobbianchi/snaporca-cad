@@ -237,6 +237,8 @@ private:
     // On a no-button move, recompute the hovered handle; returns true iff it changed
     // (so the caller forces exactly one repaint). No-op for non-Moving events.
     bool update_hover(GLCanvas3D& canvas, wxMouseEvent& evt);
+    // Index of the Feature whose [begin,end) entity span contains ei, or -1.
+    int  feature_of(int ei) const;
     // Open/close a Feature record around the entities a single gesture appends.
     void begin_feature(FeatureKind kind);
     void end_feature(const Vec2d& c0 = Vec2d(0, 0), const Vec2d& c1 = Vec2d(0, 0),

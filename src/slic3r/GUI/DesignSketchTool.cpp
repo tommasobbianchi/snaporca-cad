@@ -384,6 +384,15 @@ void DesignSketchTool::resolve_live_drag(int dragged_ei, SketchPointRole dragged
 
 // ---- Onshape-style visual editing: feature grouping + handles -----------------
 
+// Index of the Feature whose entity span contains ei, or -1 (last match wins so a
+// later, tighter gesture shadows an earlier one if they ever overlap).
+int DesignSketchTool::feature_of(int ei) const
+{
+    for (int i = int(m_features.size()) - 1; i >= 0; --i)
+        if (ei >= m_features[i].begin && ei < m_features[i].end) return i;
+    return -1;
+}
+
 // Open a Feature spanning the entities a single gesture is about to append. The
 // [begin,end) range is closed in end_feature() once the gesture's entities are in.
 void DesignSketchTool::begin_feature(FeatureKind kind)
@@ -1983,11 +1992,37 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
     const SketchEntity& e = m_entities[ei];
 
     std::vector<DimAnnot> protos;
-    auto add = [&](DimType k) { DimAnnot a; a.kind = k; a.ea = ei; a.side = 1.0; protos.push_back(a); };
-    switch (e.type) {
-    case SketchEntity::Type::Line:   add(DimType::Length); break;   // segment length
-    case SketchEntity::Type::Circle: add(DimType::Radius); break;   // radius
-    default: break;                                                 // arc/ellipse/etc.: later
+    auto add_len = [&](int line_ei, double side) {
+        if (line_ei < 0 || line_ei >= int(m_entities.size())) return;
+        if (m_entities[line_ei].type != SketchEntity::Type::Line) return;
+        DimAnnot a; a.kind = DimType::Length; a.ea = line_ei; a.side = side; protos.push_back(a);
+    };
+
+    // A grouped gesture (rect/slot/polygon decomposes into raw lines/arcs) exposes its
+    // DERIVED characteristic dims off the Feature span, regardless of which member edge
+    // was picked. Rect: Width = first edge length, Height = second edge length (the two
+    // axes of the 4-line loop pushed by push_closed_lines: edge0 horizontal, edge1
+    // vertical). Quotes offset to opposite sides so they don't overlap.
+    const int fi = feature_of(ei);
+    if (fi >= 0) {
+        const Feature& f = m_features[fi];
+        switch (f.kind) {
+        case FeatureKind::CornerRect:
+        case FeatureKind::CenterRect:
+            add_len(f.begin + 0,  1.0);   // Width
+            add_len(f.begin + 1, -1.0);   // Height
+            break;
+        default: break;                   // slot/polygon/etc.: later chunks
+        }
+    }
+
+    if (protos.empty()) {                 // ungrouped single entity
+        DimAnnot a; a.ea = ei; a.side = 1.0;
+        switch (e.type) {
+        case SketchEntity::Type::Line:   a.kind = DimType::Length; protos.push_back(a); break;
+        case SketchEntity::Type::Circle: a.kind = DimType::Radius; protos.push_back(a); break;
+        default: break;                   // arc/ellipse/etc.: later
+        }
     }
     if (protos.empty()) return;
 
@@ -3054,8 +3089,10 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 const Vec2d A = m_points[0];
                 const Vec2d B = p;
                 const int base = int(m_entities.size());
+                begin_feature(FeatureKind::CornerRect);
                 push_closed_lines({ A, Vec2d(B.x(), A.y()), B, Vec2d(A.x(), B.y()) });
                 infer_auto_constraints(base);   // corners Coincident + sides H/V
+                end_feature(A, B);              // group: Width/Height live quotes
                 m_points.clear();
             }
             return true;
@@ -3075,10 +3112,12 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 const double hx = std::abs(p.x() - C.x());
                 const double hy = std::abs(p.y() - C.y());
                 const int base = int(m_entities.size());
+                begin_feature(FeatureKind::CenterRect);
                 push_closed_lines({
                     Vec2d(C.x() - hx, C.y() - hy), Vec2d(C.x() + hx, C.y() - hy),
                     Vec2d(C.x() + hx, C.y() + hy), Vec2d(C.x() - hx, C.y() + hy) });
                 infer_auto_constraints(base);
+                end_feature(Vec2d(C.x() - hx, C.y() - hy), Vec2d(C.x() + hx, C.y() + hy));
                 m_points.clear();
             }
             return true;
@@ -3102,8 +3141,10 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                     const Vec2d n(-u.y(), u.x());
                     const double w = n.dot(m_points[2] - A);   // signed perpendicular width
                     const int base = int(m_entities.size());
+                    begin_feature(FeatureKind::CornerRect);
                     push_closed_lines({ A, B, B + n * w, A + n * w });
                     infer_auto_constraints(base);   // corners Coincident + the AB pair parallel
+                    end_feature(A, B + n * w);      // group: Width/Height live quotes
                 }
                 m_points.clear();
             }
