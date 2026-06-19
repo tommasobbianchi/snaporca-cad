@@ -1644,7 +1644,30 @@ void DesignPanel::apply_edit_op(EditOp op)
                     m_status->SetForegroundColour(wxColour(235, 110, 110));
                     m_status->SetLabel(_L("Offset collapsed the entity")); m_status->Refresh(); return;
                 }
+                const int ni = int(f.entities.size());   // offset copy lands here
                 for (auto& o : out) f.entities.push_back(o);
+
+                // C4c: bind the offset copy to its source. Offset only ADDS geometry
+                // (the source is untouched), so unlike trim/fillet there are no stale
+                // constraints to drop — just glue the pair. A line offset stays
+                // Parallel to its source; an arc/circle offset stays Concentric (same
+                // centre). Single constraint, so no degradation ladder; solve and roll
+                // the binding back if the solver rejects it (keep the geometry).
+                {
+                    using CT = SketchConstraintType;
+                    const Type st = f.entities[a].type;
+                    SketchEntityConstraintDef d2; d2.ea = a; d2.eb = ni;
+                    bool emit = true;
+                    if (st == Type::Line)                              d2.type = CT::Parallel;
+                    else if (st == Type::Arc || st == Type::Circle)    d2.type = CT::Concentric;
+                    else                                               emit = false;
+                    if (emit) {
+                        const size_t cbefore = f.entity_constraints.size();
+                        f.entity_constraints.push_back(d2);
+                        if (!m_doc.solve_sketch_feature(m_constrain_feat))
+                            f.entity_constraints.resize(cbefore);
+                    }
+                }
                 after_edit_op();
             });
         return;   // deferred: edit runs on Confirm
