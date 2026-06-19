@@ -151,6 +151,11 @@ public:
     // Emitted when a closed-loop face is clicked in Select mode (Onshape: a region
     // becomes a selectable face → extrude). The panel commits the sketch + extrudes.
     std::function<void()> on_face_selected;
+    // Esc pressed while the tool is active: exit/cancel the session (the panel restores
+    // Feature mode). Layered: an in-progress entity or a non-Select draw tool is dropped
+    // first; a second Esc exits the session.
+    std::function<void()> on_exit;
+    void request_exit();
 
 private:
     bool screen_to_plane(GLCanvas3D& canvas, const wxMouseEvent& evt, Vec2d& out) const;
@@ -277,6 +282,10 @@ private:
     void set_polygon_side(int fi, double side);
     void set_polygon_angle(int fi, double deg);
     void set_polygon_radius(int fi, double R);
+    // Drop orientation constraints (H/V/Parallel/Perp/Angle/LockX/LockY) on entities in
+    // [begin,end). A ROTATION makes inferred per-edge H/V inconsistent, so re-solving
+    // against them collapses the shape — drop them first (fixes up DimAnnot.con indices).
+    void drop_orientation_constraints(int begin, int end);
     // Drag a polygon vertex while keeping the loop REGULAR: scale + rotate the whole
     // polygon about its centroid so the grabbed vertex follows `target` (adjusts
     // circumradius + orientation together).

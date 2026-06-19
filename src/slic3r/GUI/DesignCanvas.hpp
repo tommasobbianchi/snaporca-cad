@@ -67,6 +67,7 @@ public:
     // Sketch selection (Mode::Select).
     void set_on_sketch_selection_changed(std::function<void(int)> cb);
     void set_on_sketch_face_selected(std::function<void()> cb);  // closed loop clicked
+    void set_on_sketch_exit(std::function<void()> cb);           // Esc -> exit the tool
     // Persistently draw committed sketches (un-consumed ones stay visible).
     void set_display_sketches(std::vector<DesignSketchTool::DisplaySketch> ds);
     void set_body_highlight(bool on);   // tint the solid when its feature is tree-selected

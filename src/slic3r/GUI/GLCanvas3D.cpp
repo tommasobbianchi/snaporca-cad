@@ -3161,6 +3161,16 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
         return;
     }
 
+    // Esc exits the active sketch tool (Onshape-like, layered: abort in-progress entity ->
+    // drop to Select -> exit the session back to Feature mode).
+    if (m_design_sketch_tool != nullptr && m_design_sketch_tool->is_active()
+        && keyCode == WXK_ESCAPE) {
+        m_design_sketch_tool->request_exit();
+        m_dirty = true;
+        render();
+        return;
+    }
+
     bool is_in_painting_mode = false;
     GLGizmoPainterBase *current_gizmo_painter = dynamic_cast<GLGizmoPainterBase *>(get_gizmos_manager().get_current());
     if (current_gizmo_painter != nullptr) {

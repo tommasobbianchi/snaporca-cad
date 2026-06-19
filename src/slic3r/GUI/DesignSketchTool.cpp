@@ -179,6 +179,15 @@ void DesignSketchTool::cancel()
     m_open_feature = -1;
 }
 
+// Esc while active: layered exit (Onshape-like). Abort an in-progress entity first, then
+// drop a draw tool back to Select; only an idle Select session exits to Feature mode.
+void DesignSketchTool::request_exit()
+{
+    if (!m_points.empty()) { m_points.clear(); m_has_cursor = false; return; }
+    if (m_mode != Mode::Select) { set_tool(Mode::Select); return; }
+    if (on_exit) on_exit(); else cancel();
+}
+
 void DesignSketchTool::clear_selection()
 {
     if (m_selection.empty() && m_point_sel.empty()) return;
@@ -891,6 +900,32 @@ void DesignSketchTool::set_polygon_side(int fi, double side)
     set_polygon_radius(fi, R);
 }
 
+// Remove orientation constraints touching [begin,end). A pure rotation makes inferred
+// per-edge Horizontal/Vertical (and Parallel/Perp/Angle/Lock) inconsistent, so leaving
+// them in would make resolve_live collapse the shape to satisfy them.
+void DesignSketchTool::drop_orientation_constraints(int begin, int end)
+{
+    using CT = SketchConstraintType;
+    auto orient = [](CT t) {
+        return t == CT::Horizontal || t == CT::Vertical || t == CT::Parallel ||
+               t == CT::Perpendicular || t == CT::Angle || t == CT::LockX || t == CT::LockY;
+    };
+    auto in = [&](int e) { return e >= begin && e < end; };
+    std::vector<int> remap(m_constraints.size(), -1);
+    std::vector<SketchEntityConstraintDef> kept;
+    kept.reserve(m_constraints.size());
+    for (int i = 0; i < int(m_constraints.size()); ++i) {
+        const SketchEntityConstraintDef& c = m_constraints[i];
+        if (orient(c.type) && (in(c.ea) || in(c.eb))) continue;   // drop
+        remap[i] = int(kept.size());
+        kept.push_back(c);
+    }
+    if (kept.size() == m_constraints.size()) return;             // nothing dropped
+    m_constraints.swap(kept);
+    for (DimAnnot& a : m_dimensions)                              // fix cached con indices
+        if (a.con >= 0) a.con = (a.con < int(remap.size())) ? remap[a.con] : -1;
+}
+
 // Rotate the whole loop about its centre so the centre->vertex0 spoke points at `deg`
 // (degrees from +X).
 void DesignSketchTool::set_polygon_angle(int fi, double deg)
@@ -903,15 +938,21 @@ void DesignSketchTool::set_polygon_angle(int fi, double deg)
     if (sp.squaredNorm() < 1e-12) return;
     const double cur = std::atan2(sp.y(), sp.x());
     const double da  = deg * M_PI / 180.0 - cur;
+    drop_orientation_constraints(f.begin, f.end);         // rotation invalidates edge H/V
     const double ca = std::cos(da), sa = std::sin(da);
-    auto rot = [&](const Vec2d& pt) { const Vec2d r = pt - c;
+    // -> Vec2d is REQUIRED: an auto return deduces an Eigen expression template that holds
+    // a reference to the destroyed `c + Vec2d(...)` temporary (dangling -> garbage coords).
+    auto rot = [&](const Vec2d& pt) -> Vec2d { const Vec2d r = pt - c;
         return c + Vec2d(r.x() * ca - r.y() * sa, r.x() * sa + r.y() * ca); };
     for (int i = f.begin; i < f.end && i < int(m_entities.size()); ++i) {
         SketchEntity& e = m_entities[i];
         if (e.type != SketchEntity::Type::Line) continue;
         e.p0 = rot(e.p0); e.p1 = rot(e.p1);
     }
-    resolve_live();
+    // Do NOT re-solve: the rotated geometry is already a correct regular polygon, and the
+    // inferred loop (redundant Coincident, now with no H/V anchor) collapses to a point
+    // under libslvs. We only drop the stale edge H/V (above) so a later commit-solve stays
+    // sane; the display renders the mutated entities directly.
 }
 
 // Drag a polygon vertex keeping the loop regular: scale + rotate the whole polygon
@@ -937,15 +978,18 @@ void DesignSketchTool::drag_polygon_vertex(int fi, int ei, SketchPointRole role,
     const double s  = newR / curR;
     const double da = std::atan2(tgt.y(), tgt.x()) - std::atan2(cur.y(), cur.x());
     const double ca = std::cos(da), sa = std::sin(da);
-    auto tf = [&](const Vec2d& p) { const Vec2d r = (p - c) * s;
-        return c + Vec2d(r.x() * ca - r.y() * sa, r.x() * sa + r.y() * ca); };
+    auto tf = [&](const Vec2d& p) -> Vec2d { const Vec2d r = (p - c) * s;   // -> Vec2d: avoid
+        return c + Vec2d(r.x() * ca - r.y() * sa, r.x() * sa + r.y() * ca); };  // Eigen dangling
+
     for (int i = f.begin; i < f.end; ++i) {
         SketchEntity& e = m_entities[i];
         if (e.type != SketchEntity::Type::Line) continue;
         e.p0 = tf(e.p0); e.p1 = tf(e.p1);
     }
     f.c0 = c; f.param = newR;
-    resolve_live();
+    drop_orientation_constraints(f.begin, f.end);   // the drag rotates -> edge H/V invalid
+    // No re-solve (see set_polygon_angle): the transformed geometry is already a correct
+    // regular polygon; solving the anchorless redundant loop would collapse it.
 }
 
 void DesignSketchTool::set_polygon_radius(int fi, double R)
@@ -964,7 +1008,8 @@ void DesignSketchTool::set_polygon_radius(int fi, double R)
         e.p1 = c + (e.p1 - c) * s;
     }
     f.param = R;
-    resolve_live();
+    // Geometric only (no solve): consistent with the rotation edits, and avoids collapsing
+    // the loop if its H/V anchors were already dropped by a prior rotation.
 }
 
 DesignSketchTool::DimType DesignSketchTool::pending_dimension_type() const

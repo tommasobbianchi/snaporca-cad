@@ -891,6 +891,20 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_status->Refresh();
     });
 
+    // Esc exits the active sketch tool: drop the live session, restore Feature mode +
+    // the committed-sketch overlay (an in-progress draw is discarded). The tool's layered
+    // request_exit only calls this once it's an idle Select session.
+    m_viewport->set_on_sketch_exit([this]() {
+        if (m_viewport) m_viewport->cancel_sketch();
+        m_edit_index = -1;
+        set_ui_mode(UiMode::Feature);
+        sync_sketch_display();
+        refresh_tree();
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(_L("Tool exited"));
+        m_status->Refresh();
+    });
+
     // Line tool: after the segment is placed, ask for the exact length (Confirm
     // rescales it; Cancel keeps it as drawn).
     m_viewport->set_on_segment_drawn([this](double len, double /*ang_deg*/) {
