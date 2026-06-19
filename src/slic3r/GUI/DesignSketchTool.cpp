@@ -766,6 +766,84 @@ void DesignSketchTool::set_line_angle(int ei, double deg)
     resolve_live();
 }
 
+// A regular polygon is N raw lines with no centre entity, so (like the line angle) its
+// side and orientation edits transform the whole loop GEOMETRICALLY about its centre.
+void DesignSketchTool::open_polygon_side_editor(int fi)
+{
+    if (fi < 0 || fi >= int(m_features.size()) || !on_inline_edit) return;
+    const Feature& f = m_features[fi];
+    if (f.begin < 0 || f.begin >= int(m_entities.size())) return;
+    const double side = (m_entities[f.begin].p1 - m_entities[f.begin].p0).norm();
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    on_inline_edit(px, side,
+                   [this, fi](double v) { set_polygon_side(fi, v); },
+                   []()                 {});
+}
+
+void DesignSketchTool::open_polygon_angle_editor(int fi)
+{
+    if (fi < 0 || fi >= int(m_features.size()) || !on_inline_edit) return;
+    const Feature& f = m_features[fi];
+    if (f.begin < 0 || f.begin >= int(m_entities.size())) return;
+    DimAnnot a; a.kind = DimType::Angle; a.ea = f.begin;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    on_inline_edit(px, measure_dim(a),
+                   [this, fi](double v) { set_polygon_angle(fi, v); },
+                   []()                 {});
+}
+
+// Scale the loop uniformly about its centre so an edge equals `side`. For a regular
+// n-gon, circumradius R = side / (2 sin(pi/n)).
+void DesignSketchTool::set_polygon_side(int fi, double side)
+{
+    if (fi < 0 || fi >= int(m_features.size()) || side < 1e-6) return;
+    const int n = std::max(3, m_features[fi].sides);
+    const double R = side / (2.0 * std::sin(M_PI / double(n)));
+    set_polygon_radius(fi, R);
+}
+
+// Rotate the whole loop about its centre so edge0 points at `deg` (degrees from +X).
+void DesignSketchTool::set_polygon_angle(int fi, double deg)
+{
+    if (fi < 0 || fi >= int(m_features.size())) return;
+    Feature& f = m_features[fi];
+    if (f.begin < 0 || f.begin >= int(m_entities.size())) return;
+    const Vec2d c = f.c0;
+    const SketchEntity& e0 = m_entities[f.begin];
+    const Vec2d d0 = e0.p1 - e0.p0;
+    if (d0.squaredNorm() < 1e-12) return;
+    const double cur = std::atan2(d0.y(), d0.x());
+    const double da  = deg * M_PI / 180.0 - cur;
+    const double ca = std::cos(da), sa = std::sin(da);
+    auto rot = [&](const Vec2d& pt) { const Vec2d r = pt - c;
+        return c + Vec2d(r.x() * ca - r.y() * sa, r.x() * sa + r.y() * ca); };
+    for (int i = f.begin; i < f.end && i < int(m_entities.size()); ++i) {
+        SketchEntity& e = m_entities[i];
+        if (e.type != SketchEntity::Type::Line) continue;
+        e.p0 = rot(e.p0); e.p1 = rot(e.p1);
+    }
+    resolve_live();
+}
+
+void DesignSketchTool::set_polygon_radius(int fi, double R)
+{
+    if (fi < 0 || fi >= int(m_features.size()) || R < 1e-6) return;
+    Feature& f = m_features[fi];
+    if (f.begin < 0 || f.begin >= int(m_entities.size())) return;
+    const Vec2d  c    = f.c0;
+    const double curR = (m_entities[f.begin].p0 - c).norm();
+    if (curR < 1e-9) return;
+    const double s = R / curR;                       // uniform scale about the centre
+    for (int i = f.begin; i < f.end && i < int(m_entities.size()); ++i) {
+        SketchEntity& e = m_entities[i];
+        if (e.type != SketchEntity::Type::Line) continue;
+        e.p0 = c + (e.p0 - c) * s;
+        e.p1 = c + (e.p1 - c) * s;
+    }
+    f.param = R;
+    resolve_live();
+}
+
 DesignSketchTool::DimType DesignSketchTool::pending_dimension_type() const
 {
     return (m_pending_dim >= 0 && m_pending_dim < int(m_dimensions.size()))
@@ -2057,6 +2135,8 @@ void DesignSketchTool::render_dimensions(double unit_per_px)
 void DesignSketchTool::render_live_quotes(double unit_per_px)
 {
     m_live_quotes.clear();
+    m_live_poly_fi = -1;
+    m_live_poly_side_label = m_live_poly_angle_label = Vec2d(1e18, 1e18);
     int ei = -1;
     if (m_dragging_point && m_drag_ei >= 0)  ei = m_drag_ei;
     else if (m_dragging_handle)              ei = m_drag_handle.ei;
@@ -2107,11 +2187,39 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
             }
             break;
         }
-        default: break;                   // polygon/etc.: later chunks
+        case FeatureKind::Polygon: {
+            // A regular polygon is N raw lines (no centre entity). Its natural editable
+            // dims are the SIDE length and the ORIENTATION — NOT a circumradius (a polygon
+            // is not a circle). Both edit the whole loop geometrically: side scales it
+            // uniformly, angle rotates it. Drawn off edge0 with draw_dim_quote (Length +
+            // Angle); the side quote is offset OUTWARD so its label clears the face.
+            if (f.begin < int(m_entities.size()) &&
+                m_entities[f.begin].type == SketchEntity::Type::Line) {
+                const ColorRGBA dc(0.30f, 0.88f, 0.66f, 1.0f);
+                const double th = std::max(15.0 * unit_per_px, 1e-4);
+                const SketchEntity& e0 = m_entities[f.begin];
+                const Vec2d m0 = 0.5 * (e0.p0 + e0.p1);
+                Vec2d u0 = e0.p1 - e0.p0;
+                if (u0.squaredNorm() > 1e-12) u0.normalize();
+                const Vec2d n0(-u0.y(), u0.x());
+                const double outsign = ((m0 + n0) - f.c0).norm() >= (m0 - f.c0).norm() ? 1.0 : -1.0;
+                DimAnnot side; side.kind = DimType::Length; side.ea = f.begin; side.side = outsign;
+                side.value = measure_dim(side);
+                Vec2d slbl;
+                if (draw_dim_quote(side, th, dc, slbl)) m_live_poly_side_label = slbl;
+                DimAnnot ang; ang.kind = DimType::Angle; ang.ea = f.begin;
+                ang.value = measure_dim(ang);
+                Vec2d albl;
+                if (draw_dim_quote(ang, th, dc, albl)) m_live_poly_angle_label = albl;
+                m_live_poly_fi = fi;
+            }
+            break;
+        }
+        default: break;                   // arc/ellipse/etc.: later chunks
         }
     }
 
-    if (protos.empty()) {                 // ungrouped single entity
+    if (protos.empty() && m_live_poly_fi < 0) {  // ungrouped single entity
         switch (e.type) {
         case SketchEntity::Type::Line: {
             DimAnnot len; len.kind = DimType::Length; len.ea = ei; len.side = 1.0; protos.push_back(len);
@@ -2954,6 +3062,16 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                         return true;
                     }
                 }
+                if (m_live_poly_fi >= 0) {
+                    if ((m_live_poly_side_label - p).norm() <= ltol) {
+                        open_polygon_side_editor(m_live_poly_fi);   // geometric uniform scale
+                        return true;
+                    }
+                    if ((m_live_poly_angle_label - p).norm() <= ltol) {
+                        open_polygon_angle_editor(m_live_poly_fi);  // geometric rotate
+                        return true;
+                    }
+                }
             }
 
             // A derived handle (the circle RadiusHandle — not an entity point, so
@@ -3437,8 +3555,10 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 m_points.push_back(p);
             } else {
                 const int base = int(m_entities.size());
+                begin_feature(FeatureKind::Polygon);
                 append_entities(make_polygon(m_points[0], p, m_polygon_sides));
                 infer_auto_constraints(base);
+                end_feature(m_points[0], p, (p - m_points[0]).norm(), m_polygon_sides);
                 m_points.clear();
             }
             return true;

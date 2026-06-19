@@ -259,6 +259,15 @@ private:
     // geometrically about P0 (no single-line angle constraint in libslvs).
     void open_angle_editor(int ei);
     void set_line_angle(int ei, double deg);
+    // In-canvas editors for a regular polygon's side length and orientation. Both edit
+    // the whole loop GEOMETRICALLY (polygon has no centre entity): side scales it
+    // uniformly about its centre, angle rotates it. set_polygon_radius is the shared
+    // uniform-scale primitive (circumradius).
+    void open_polygon_side_editor(int fi);
+    void open_polygon_angle_editor(int fi);
+    void set_polygon_side(int fi, double side);
+    void set_polygon_angle(int fi, double deg);
+    void set_polygon_radius(int fi, double R);
     double measure_dim(const DimAnnot& a) const;                            // value from geometry
     SketchEntityConstraintDef constraint_for(const DimAnnot& a) const;      // driving def
     int  place_dimension(DimAnnot a);                                       // create+drive+notify
@@ -364,6 +373,9 @@ private:
     Handle                m_hover_handle;          // the hovered handle (recomputed on move)
     std::vector<DimAnnot> m_live_quotes;           // live non-driving characteristic quotes,
                                                    // clickable to promote to driving dims
+    Vec2d                 m_live_poly_side_label{0,0};  // polygon side-length quote label
+    Vec2d                 m_live_poly_angle_label{0,0}; // polygon orientation quote label
+    int                   m_live_poly_fi{-1};           // their Feature (geometric edits)
     std::vector<Feature>  m_features;              // parametric groups over m_entities
     int                   m_open_feature{-1};      // index of the Feature being built, or -1
 
