@@ -177,6 +177,16 @@ public:
     static std::vector<SketchEntity> offset_entities(
         const std::vector<SketchEntity>& src, double d);
 
+    // Rigid-transform array. Returns the (count-1) copies for instance i=1..count-1
+    // (the originals in `src` are NOT included). Each copy i is `src` rigidly
+    // transformed by: rotate by i*angle_step about `pivot`, then translate by i*step.
+    //   Rectangular/linear array: angle_step = 0, step = spacing*direction (pivot unused).
+    //   Polar array:              step = (0,0), angle_step = sweep/count, pivot = centre.
+    // Orientation-preserving, so arc/ellipse parametric angles shift by i*angle_step.
+    static std::vector<SketchEntity> array_entities(
+        const std::vector<SketchEntity>& src, int count,
+        const Vec2d& step, double angle_step, const Vec2d& pivot);
+
     static bool fillet_lines(const SketchEntity& a, const SketchEntity& b, double r,
                              SketchEntity& a_out, SketchEntity& b_out, SketchEntity& arc_out);
 

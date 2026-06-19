@@ -324,6 +324,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         ebtn("design_filletedge", _L("Sketch fillet"),EditOp::Fillet);
         ebtn("design_trim",       _L("Trim"),         EditOp::Trim);
         ebtn("design_extend",     _L("Extend"),       EditOp::Extend);
+        ebtn("design_array",      _L("Linear array"), EditOp::Array);
         add_sep(m_tb_constrain);
         auto* b_done = icon_btn("design_check", _L("Done constraining"));
         b_done->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
@@ -1850,6 +1851,81 @@ void DesignPanel::apply_edit_op(EditOp op)
             }
         }
         break;
+    }
+    case EditOp::Array: {
+        // C4.4 linear array. Additive op (originals untouched, copies appended) ->
+        // no stale constraints to drop. Collect count, then spacing; the array runs
+        // along the subject line's own direction (or +X for non-lines). Copies are
+        // pure translates, so for lines they are Parallel + EqualLength to the
+        // source by construction -> bind each copy to the source in a star web.
+        const int a = e0;
+        request_value(_L("Array count (incl. original)"), 3.0, 2.0, 200.0,
+            [this, a](double cnt_d) {
+                const int count = std::max(2, int(cnt_d + 0.5));
+                request_value(_L("Spacing (mm)"), 20.0, -100000.0, 100000.0,
+                    [this, a, count](double sp) {
+                        CadFeature& f = m_doc.features[m_constrain_feat];
+                        if (a >= int(f.entities.size())) return;
+                        using Type = SketchEntity::Type;
+                        // Snapshot everything we need from the source BEFORE pushing the
+                        // copies: push_back can reallocate f.entities and dangle any
+                        // reference into it. Copy the subject by value.
+                        const SketchEntity src = f.entities[a];
+                        const Type src_type = src.type;
+                        // Default direction: perpendicular to a line (so copies stack
+                        // into a visible, non-overlapping parallel pattern rather than
+                        // extending collinearly); +X for non-line subjects.
+                        Vec2d dir(1.0, 0.0);
+                        if (src_type == Type::Line) {
+                            const Vec2d t = src.p1 - src.p0;
+                            if (t.norm() > 1e-9) {
+                                const Vec2d u = t.normalized();
+                                dir = Vec2d(-u.y(), u.x());
+                            }
+                        }
+                        auto copies = SketchEngine::array_entities(
+                            { src }, count, sp * dir, 0.0, Vec2d(0, 0));
+                        if (copies.empty()) {
+                            m_status->SetForegroundColour(wxColour(235, 110, 110));
+                            m_status->SetLabel(_L("Array produced nothing")); m_status->Refresh(); return;
+                        }
+                        const int base = int(f.entities.size());   // first copy index
+                        for (auto& c : copies) f.entities.push_back(c);
+
+                        if (src_type == Type::Line) {
+                            using CT = SketchConstraintType;
+                            // Bind every copy to the source in a star web. Emit the
+                            // WHOLE web before solving (a per-constraint solve would run
+                            // while later copies are still unconstrained, which the
+                            // solver rejects), then degrade as a set: try Parallel +
+                            // EqualLength, fall back to Parallel only (EqualLength can be
+                            // rank-deficient on exact congruent copies), then to bare
+                            // geometry. Keep the geometry regardless.
+                            const size_t cb = f.entity_constraints.size();
+                            auto build_web = [&](bool with_equal) {
+                                f.entity_constraints.resize(cb);
+                                for (int k = 0; k < int(copies.size()); ++k) {
+                                    SketchEntityConstraintDef dp; dp.type = CT::Parallel;
+                                    dp.ea = a; dp.eb = base + k;
+                                    f.entity_constraints.push_back(dp);
+                                    if (with_equal) {
+                                        SketchEntityConstraintDef de; de.type = CT::EqualLength;
+                                        de.ea = a; de.eb = base + k;
+                                        f.entity_constraints.push_back(de);
+                                    }
+                                }
+                            };
+                            build_web(true);
+                            if (!m_doc.solve_sketch_feature(m_constrain_feat)) {
+                                build_web(false);
+                                if (!m_doc.solve_sketch_feature(m_constrain_feat))
+                                    f.entity_constraints.resize(cb);
+                            }
+                        }
+                        after_edit_op();
+                    });
+            });
+        return;   // deferred: edit runs on the two Confirms
     }
     }
 

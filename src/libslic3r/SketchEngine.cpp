@@ -541,6 +541,66 @@ std::vector<SketchEntity> SketchEngine::offset_entities(
     return out;
 }
 
+std::vector<SketchEntity> SketchEngine::array_entities(
+    const std::vector<SketchEntity>& src, int count,
+    const Vec2d& step, double angle_step, const Vec2d& pivot)
+{
+    std::vector<SketchEntity> out;
+    if (count < 2) return out;
+
+    for (int i = 1; i < count; ++i) {
+        const double ang = i * angle_step;
+        const double ca = std::cos(ang), sa = std::sin(ang);
+        const Vec2d  tr  = double(i) * step;
+        // Rigid map: rotate about pivot by `ang`, then translate by `tr`.
+        auto xf = [&](const Vec2d& p) -> Vec2d {
+            const Vec2d d = p - pivot;
+            return Vec2d(pivot.x() + ca * d.x() - sa * d.y(),
+                         pivot.y() + sa * d.x() + ca * d.y()) + tr;
+        };
+
+        for (const auto& e : src) {
+            SketchEntity m = e;   // carry construction flag, radii, etc.
+            switch (e.type) {
+            case SketchEntity::Type::Line:
+                m.p0 = xf(e.p0); m.p1 = xf(e.p1);
+                break;
+            case SketchEntity::Type::Point:
+                m.p0 = xf(e.p0);
+                break;
+            case SketchEntity::Type::Circle:
+                m.center = xf(e.center); m.p0 = m.center;   // radius unchanged
+                break;
+            case SketchEntity::Type::Arc: {
+                m.center      = xf(e.center);
+                m.start_angle = e.start_angle + ang;
+                m.end_angle   = e.end_angle   + ang;        // rigid: sweep preserved
+                m.p0 = m.center + e.radius * Vec2d(std::cos(m.start_angle), std::sin(m.start_angle));
+                m.p1 = m.center + e.radius * Vec2d(std::cos(m.end_angle),   std::sin(m.end_angle));
+                break;
+            }
+            case SketchEntity::Type::Ellipse:
+            case SketchEntity::Type::EllipseArc:
+                m.center   = xf(e.center);
+                m.rotation = e.rotation + ang;              // major axis rotates with the body
+                if (e.type == SketchEntity::Type::Ellipse) {
+                    m.p0 = m.center;
+                } else {
+                    m.p0 = xf(e.p0); m.p1 = xf(e.p1);
+                    // Parametric angles are in the (rotated) body frame -> unchanged.
+                }
+                break;
+            case SketchEntity::Type::BSpline:
+                for (auto& cp : m.ctrl) cp = xf(cp);
+                m.p0 = xf(e.p0); m.p1 = xf(e.p1);
+                break;
+            }
+            out.push_back(m);
+        }
+    }
+    return out;
+}
+
 bool SketchEngine::fillet_lines(const SketchEntity& a, const SketchEntity& b, double r,
                                 SketchEntity& a_out, SketchEntity& b_out, SketchEntity& arc_out)
 {
