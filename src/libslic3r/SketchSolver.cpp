@@ -21,6 +21,7 @@ constexpr Slvs_hGroup G_SK    = 2;   // sketch geometry: the group we solve
 struct Slots {
     Slvs_hEntity prim{0}, p0{0}, p1{0}, center{0};
     Slvs_hParam  rparam{0};
+    std::vector<Slvs_hEntity> pts;   // BSpline control points (point2d handles)
 };
 
 struct Build {
@@ -108,6 +109,16 @@ SketchSolveResult sketch_solve(std::vector<SketchEntity>& entities,
             s.center = b.pt2d(G_SK, e.center.x(), e.center.y());
             s.p0     = b.pt2d(G_SK, e.p0.x(), e.p0.y());   // start
             s.p1     = b.pt2d(G_SK, e.p1.x(), e.p1.y());   // end
+            break;
+        // No native slvs curve for an arbitrary-degree spline: register the control
+        // poles as point2d so endpoints (and any pole-targeted constraint) solve. The
+        // OCCT curve is rebuilt from the solved poles. p0/p1 mirror first/last pole so
+        // Coincident at the spline ends closes loops just like a Line.
+        case SketchEntity::Type::BSpline:
+            s.pts.reserve(e.ctrl.size());
+            for (const Vec2d& cp : e.ctrl)
+                s.pts.push_back(b.pt2d(G_SK, cp.x(), cp.y()));
+            if (!s.pts.empty()) { s.p0 = s.pts.front(); s.p1 = s.pts.back(); }
             break;
         }
         slot[i] = s;
@@ -273,7 +284,11 @@ SketchSolveResult sketch_solve(std::vector<SketchEntity>& entities,
         if (s.p1)     e.p1     = coord(s.p1);
         if (s.center) e.center = coord(s.center);
 
-        if (e.type == SketchEntity::Type::Circle) {
+        if (e.type == SketchEntity::Type::BSpline) {
+            for (size_t k = 0; k < s.pts.size() && k < e.ctrl.size(); ++k)
+                e.ctrl[k] = coord(s.pts[k]);
+            if (!e.ctrl.empty()) { e.p0 = e.ctrl.front(); e.p1 = e.ctrl.back(); }
+        } else if (e.type == SketchEntity::Type::Circle) {
             if (s.rparam) { auto it = pv.find(s.rparam); if (it != pv.end()) e.radius = it->second; }
             e.p0 = e.center;
         } else if (e.type == SketchEntity::Type::Arc && s.center) {

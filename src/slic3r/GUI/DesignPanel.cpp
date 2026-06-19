@@ -249,6 +249,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
               _L("Click center, a major-axis end, then a point for the minor axis"));
         skbtn("design_ellipse_arc", DesignSketchTool::Mode::EllipseArc,     _L("Elliptical arc"),
               _L("Click center, major-axis end, minor point, then arc start and end"));
+        skbtn("design_bspline",   DesignSketchTool::Mode::BSpline,          _L("Spline"),
+              _L("Click control points; double-click or right-click to finish"));
 
         m_sides = new wxSpinCtrl(m_toolbar, wxID_ANY, "6", wxDefaultPosition, wxSize(50, -1));
         m_sides->SetRange(3, 64);

@@ -26,10 +26,10 @@ struct SketchSegment {
 };
 
 struct SketchEntity {
-    enum class Type { Line, Arc, Circle, Point, Ellipse, EllipseArc };
+    enum class Type { Line, Arc, Circle, Point, Ellipse, EllipseArc, BSpline };
     Type   type{Type::Line};
-    Vec2d  p0{0,0};            // Line: start; Arc/EllipseArc: start; Circle/Point/Ellipse: center
-    Vec2d  p1{0,0};            // Line: end;   Arc/EllipseArc: end;   (unused for Circle/Point/Ellipse)
+    Vec2d  p0{0,0};            // Line: start; Arc/EllipseArc: start; Circle/Point/Ellipse: center; BSpline: first pole
+    Vec2d  p1{0,0};            // Line: end;   Arc/EllipseArc: end;   (unused for Circle/Point/Ellipse); BSpline: last pole
     Vec2d  center{0,0};        // Arc/Circle/Ellipse(Arc) center
     double radius{0};          // Circle/Arc radius; Ellipse(Arc): semi-major axis (a)
     double start_angle{0};     // Arc sweep start; Ellipse(Arc): parametric start angle (radians)
@@ -37,10 +37,11 @@ struct SketchEntity {
     bool   construction{false};
     double rminor{0};          // Ellipse(Arc): semi-minor axis (b)
     double rotation{0};        // Ellipse(Arc): major-axis angle phi (radians, about center)
+    std::vector<Vec2d> ctrl;   // BSpline: control points (poles); p0/p1 mirror first/last pole
     template<class Archive>
     void serialize(Archive& ar) {
-        // Append-only: rminor/rotation added for Ellipse(Arc) (P2 Tier-B.1).
-        ar(type, p0, p1, center, radius, start_angle, end_angle, construction, rminor, rotation);
+        // Append-only: rminor/rotation added for Ellipse(Arc) (P2 Tier-B.1); ctrl for BSpline (B.2).
+        ar(type, p0, p1, center, radius, start_angle, end_angle, construction, rminor, rotation, ctrl);
     }
 };
 

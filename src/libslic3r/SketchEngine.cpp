@@ -10,6 +10,10 @@
 #include <GC_MakeArcOfCircle.hxx>
 #include <GC_MakeArcOfEllipse.hxx>
 #include <Geom_TrimmedCurve.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <TColgp_Array1OfPnt.hxx>
+#include <TColStd_Array1OfReal.hxx>
+#include <TColStd_Array1OfInteger.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Elips.hxx>
 #include <gp_Ax2.hxx>
@@ -297,6 +301,28 @@ TopoDS_Wire SketchEngine::entities_to_wire(const std::vector<SketchEntity>& enti
         return gp_Elips(gp_Ax2(center, n, xdir), a, b);
     };
 
+    // Clamped uniform B-spline (degree min(3, n-1)) through the control poles. The
+    // knot construction is mirrored in DesignSketchTool's GUI sampler so the on-screen
+    // curve matches the extruded geometry exactly.
+    auto make_bspline = [&](const SketchEntity& c) -> Handle(Geom_BSplineCurve) {
+        const int n = int(c.ctrl.size());
+        const int p = n >= 4 ? 3 : (n >= 2 ? n - 1 : 0);
+        if (p < 1) return Handle(Geom_BSplineCurve)();
+        TColgp_Array1OfPnt poles(1, n);
+        for (int i = 0; i < n; ++i) {
+            Vec3d w = plane.to_world(c.ctrl[i]);
+            poles.SetValue(i + 1, gp_Pnt(w.x(), w.y(), w.z()));
+        }
+        const int interior = n - p - 1;        // count of single interior knots
+        const int nknots   = interior + 2;
+        TColStd_Array1OfReal    knots(1, nknots);
+        TColStd_Array1OfInteger mults(1, nknots);
+        knots.SetValue(1, 0.0);                mults.SetValue(1, p + 1);
+        for (int i = 1; i <= interior; ++i) { knots.SetValue(i + 1, double(i)); mults.SetValue(i + 1, 1); }
+        knots.SetValue(nknots, double(interior + 1)); mults.SetValue(nknots, p + 1);
+        return new Geom_BSplineCurve(poles, knots, mults, p);
+    };
+
     bool has_closed_single = false;   // Circle or full Ellipse (stand-alone closed)
     bool has_chain         = false;   // Line / Arc / EllipseArc
     for (const auto* e : valid) {
@@ -354,6 +380,10 @@ TopoDS_Wire SketchEngine::entities_to_wire(const std::vector<SketchEntity>& enti
                 if (!arc_maker.IsDone()) return TopoDS_Wire{};
                 Handle(Geom_TrimmedCurve) curve = arc_maker.Value();
                 builder.Add(BRepBuilderAPI_MakeEdge(curve).Edge());
+            } else if (e->type == SketchEntity::Type::BSpline) {
+                Handle(Geom_BSplineCurve) crv = make_bspline(*e);
+                if (crv.IsNull()) return TopoDS_Wire{};
+                builder.Add(BRepBuilderAPI_MakeEdge(crv).Edge());
             }
         }
         builder.Build();
@@ -447,6 +477,11 @@ std::vector<SketchEntity> SketchEngine::mirror_entities(
             }
             break;
         }
+        case SketchEntity::Type::BSpline:
+            for (auto& cp : m.ctrl) cp = reflect(cp);
+            m.p0 = reflect(e.p0);
+            m.p1 = reflect(e.p1);
+            break;
         }
         out.push_back(m);
     }
@@ -496,6 +531,9 @@ std::vector<SketchEntity> SketchEngine::offset_entities(
         case SketchEntity::Type::Ellipse:
         case SketchEntity::Type::EllipseArc:
             // A true parallel offset of an ellipse is not an ellipse; skip in v1.
+            continue;
+        case SketchEntity::Type::BSpline:
+            // Offset of a spline is not a same-degree spline; skip in v1.
             continue;
         }
     }

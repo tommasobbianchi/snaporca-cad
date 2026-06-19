@@ -377,6 +377,16 @@ void DesignSketchTool::set_point(int ei, SketchPointRole role, const Vec2d& v)
     case SketchEntity::Type::Ellipse:
         if (role == SketchPointRole::Center) { e.center = v; e.p0 = v; }
         break;
+    case SketchEntity::Type::BSpline:
+        // P0/P1 drag the end poles; Center rigidly translates the whole curve.
+        if (role == SketchPointRole::P0 && !e.ctrl.empty()) { e.ctrl.front() = v; e.p0 = v; }
+        else if (role == SketchPointRole::P1 && !e.ctrl.empty()) { e.ctrl.back() = v; e.p1 = v; }
+        else if (role == SketchPointRole::Center) {
+            const Vec2d d = v - (e.ctrl.empty() ? e.p0 : e.ctrl.front());
+            for (auto& cp : e.ctrl) cp += d;
+            e.p0 += d; e.p1 += d;
+        }
+        break;
     }
 }
 
@@ -405,6 +415,10 @@ bool DesignSketchTool::hit_test_point(const Vec2d& p, double tol, int& ei, Sketc
         case SketchEntity::Type::Circle:
         case SketchEntity::Type::Ellipse:
             consider(int(i), SketchPointRole::Center, e.center);
+            break;
+        case SketchEntity::Type::BSpline:
+            consider(int(i), SketchPointRole::P0, e.p0);
+            consider(int(i), SketchPointRole::P1, e.p1);
             break;
         case SketchEntity::Type::Point:
             consider(int(i), SketchPointRole::P0, e.p0);
@@ -728,9 +742,10 @@ void DesignSketchTool::infer_auto_constraints(int base)
     // Endpoint roles an entity exposes for coincidence matching.
     auto roles_of = [](const SketchEntity& e, SketchPointRole out[2]) -> int {
         switch (e.type) {
-        case SketchEntity::Type::Line: out[0] = SketchPointRole::P0; out[1] = SketchPointRole::P1; return 2;
-        case SketchEntity::Type::Arc:  out[0] = SketchPointRole::P0; out[1] = SketchPointRole::P1; return 2;
-        case SketchEntity::Type::Point:out[0] = SketchPointRole::P0; return 1;
+        case SketchEntity::Type::Line:   out[0] = SketchPointRole::P0; out[1] = SketchPointRole::P1; return 2;
+        case SketchEntity::Type::Arc:    out[0] = SketchPointRole::P0; out[1] = SketchPointRole::P1; return 2;
+        case SketchEntity::Type::BSpline:out[0] = SketchPointRole::P0; out[1] = SketchPointRole::P1; return 2;
+        case SketchEntity::Type::Point:  out[0] = SketchPointRole::P0; return 1;
         default: return 0;   // circle: centre coincidence handled by Concentric, not here
         }
     };
@@ -803,6 +818,54 @@ static std::vector<Vec2d> ellipse_polyline(const Vec2d& c, double a, double b, d
     for (int i = 0; i <= n; ++i)
         v.push_back(ellipse_point(c, a, b, phi, t0 + (t1 - t0) * double(i) / double(n)));
     return v;
+}
+
+// Clamped uniform B-spline (degree min(3, n-1)) through control poles. The knot
+// construction mirrors SketchEngine::entities_to_wire's OCCT Geom_BSplineCurve so
+// the previewed/extruded curve match. de Boor evaluation.
+static int bspline_degree(int n) { return n >= 4 ? 3 : (n >= 2 ? n - 1 : 0); }
+
+static std::vector<double> bspline_knots(int n, int p)
+{
+    std::vector<double> U;                     // full knot vector, length n+p+1
+    const int interior = n - p - 1;
+    for (int i = 0; i <= p; ++i) U.push_back(0.0);
+    for (int i = 1; i <= interior; ++i) U.push_back(double(i));
+    const double last = double(interior + 1);
+    for (int i = 0; i <= p; ++i) U.push_back(last);
+    return U;
+}
+
+static Vec2d bspline_eval(const std::vector<Vec2d>& P, const std::vector<double>& U, int p, double u)
+{
+    const int n = int(P.size());
+    if (u <= U[p])            return P.front();
+    if (u >= U[n])            return P.back();   // U[n] == domain max (clamped)
+    int k = p;
+    while (k < n - 1 && U[k + 1] <= u) ++k;       // span: U[k] <= u < U[k+1]
+    std::vector<Vec2d> d(p + 1);
+    for (int j = 0; j <= p; ++j) d[j] = P[j + k - p];
+    for (int r = 1; r <= p; ++r)
+        for (int j = p; j >= r; --j) {
+            const double denom = U[j + 1 + k - r] - U[j + k - p];
+            const double a = denom > 1e-12 ? (u - U[j + k - p]) / denom : 0.0;
+            d[j] = (1.0 - a) * d[j - 1] + a * d[j];
+        }
+    return d[p];
+}
+
+static std::vector<Vec2d> bspline_polyline(const std::vector<Vec2d>& ctrl, int samples = 0)
+{
+    const int n = int(ctrl.size());
+    if (n < 2) return ctrl;
+    const int p = bspline_degree(n);
+    const std::vector<double> U = bspline_knots(n, p);
+    const double umax = double(n - p);
+    if (samples <= 0) samples = std::max(24, 14 * (n - 1));
+    std::vector<Vec2d> out; out.reserve(samples + 1);
+    for (int i = 0; i <= samples; ++i)
+        out.push_back(bspline_eval(ctrl, U, p, umax * double(i) / double(samples)));
+    return out;
 }
 
 // ---- entity builders --------------------------------------------------------
@@ -1170,6 +1233,18 @@ std::vector<SketchEntity> DesignSketchTool::make_ellipse_arc(const Vec2d& center
     return { e };
 }
 
+std::vector<SketchEntity> DesignSketchTool::make_bspline(const std::vector<Vec2d>& ctrl) const
+{
+    if (ctrl.size() < 2) return {};
+    SketchEntity e;
+    e.type = SketchEntity::Type::BSpline;
+    e.ctrl = ctrl;
+    e.p0 = ctrl.front();
+    e.p1 = ctrl.back();
+    e.construction = m_construction;
+    return { e };
+}
+
 std::vector<Vec2d> DesignSketchTool::entity_polyline(const SketchEntity& e, bool& closed) const
 {
     closed = false;
@@ -1194,6 +1269,8 @@ std::vector<Vec2d> DesignSketchTool::entity_polyline(const SketchEntity& e, bool
         return ellipse_polyline(e.center, e.radius, e.rminor, e.rotation, 0.0, 2.0 * M_PI);
     case SketchEntity::Type::EllipseArc:
         return ellipse_polyline(e.center, e.radius, e.rminor, e.rotation, e.start_angle, e.end_angle);
+    case SketchEntity::Type::BSpline:
+        return bspline_polyline(e.ctrl);
     case SketchEntity::Type::Point:
         return { e.p0 };
     }
@@ -1220,7 +1297,8 @@ std::vector<std::vector<Vec2d>> DesignSketchTool::closed_regions(const std::vect
         if (e.type == SketchEntity::Type::Circle || e.type == SketchEntity::Type::Ellipse) {
             regions.push_back(entity_polyline(e, closed));
         } else if (e.type == SketchEntity::Type::Line || e.type == SketchEntity::Type::Arc
-                   || e.type == SketchEntity::Type::EllipseArc) {
+                   || e.type == SketchEntity::Type::EllipseArc
+                   || e.type == SketchEntity::Type::BSpline) {
             std::vector<Vec2d> p = entity_polyline(e, closed);
             if (p.size() >= 2) segs.push_back({ std::move(p), false });
         }
@@ -1840,6 +1918,10 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
             case SketchEntity::Type::Ellipse:
                 add_h(int(i), SketchPointRole::Center, e.center);
                 break;
+            case SketchEntity::Type::BSpline:
+                add_h(int(i), SketchPointRole::P0, e.p0);
+                add_h(int(i), SketchPointRole::P1, e.p1);
+                break;
             case SketchEntity::Type::Point:
                 break;   // its own marker is drawn above
             }
@@ -2064,6 +2146,26 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         break;
     }
 
+    case Mode::BSpline: {
+        std::vector<Vec2d> poles = m_points;
+        if (m_has_cursor) poles.push_back(m_cursor);
+        // Faint control polygon as a placement guide.
+        if (poles.size() >= 2) {
+            std::vector<SketchEntity> guide;
+            for (size_t i = 1; i < poles.size(); ++i) {
+                SketchEntity g; g.type = SketchEntity::Type::Line;
+                g.p0 = poles[i - 1]; g.p1 = poles[i]; g.construction = true;
+                guide.push_back(g);
+            }
+            draw_entities_preview(guide, grey);
+        }
+        // The spline curve itself.
+        if (poles.size() >= 2)
+            draw_quad_strip(m_highlight_model, bspline_polyline(poles), false, preview);
+        draw_vertices(m_vertex_model, m_points, yellow);
+        break;
+    }
+
     case Mode::Point:
     case Mode::Constrain:
         break;
@@ -2114,6 +2216,13 @@ static double entity_pick_dist(const Vec2d& p, const SketchEntity& e)
         const double rm = 0.5 * (e.radius + e.rminor);
         return std::abs((p - e.center).norm() - rm);
     }
+    case SketchEntity::Type::BSpline: {
+        const std::vector<Vec2d> poly = bspline_polyline(e.ctrl);
+        double best = 1e30;
+        for (size_t i = 1; i < poly.size(); ++i)
+            best = std::min(best, point_segment_dist(p, poly[i - 1], poly[i]));
+        return best;
+    }
     }
     return 1e30;
 }
@@ -2151,6 +2260,7 @@ static void translate_entity(SketchEntity& e, const Vec2d& d)
     e.p0 += d;
     e.p1 += d;
     e.center += d;
+    for (auto& cp : e.ctrl) cp += d;     // BSpline poles
 }
 
 int DesignSketchTool::hit_test(const Vec2d& p, double tol) const
@@ -2795,6 +2905,29 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             return true;
         }
         if (evt.RightDown()) { m_points.clear(); return true; }
+        break;
+    }
+
+    case Mode::BSpline: {
+        // Variable-length: left-click adds a control pole (each can snap onto existing
+        // geometry); double-click or right-click finishes as an open spline.
+        if (evt.LeftDown()) {
+            Vec2d p; screen_to_plane(canvas, evt, p);
+            m_snap_off = evt.ShiftDown();
+            bool vsnap = false;
+            p = snap_vertex(canvas, evt, p, vsnap);   // poles can land on endpoints
+            m_points.push_back(p);
+            return true;
+        }
+        if (evt.LeftDClick() || evt.RightDown()) {
+            if (m_points.size() >= 2) {
+                const int base = int(m_entities.size());
+                append_entities(make_bspline(m_points));
+                infer_auto_constraints(base);         // end poles auto-Coincident -> loops close
+            }
+            m_points.clear();
+            return true;
+        }
         break;
     }
 

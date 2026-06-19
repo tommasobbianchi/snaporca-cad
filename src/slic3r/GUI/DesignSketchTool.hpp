@@ -27,7 +27,7 @@ public:
     enum class Mode { Select, Dimension, Polyline, Line, CornerRect, CenterRect, ObliqueRect,
                       RoundedRect, CenterCircle, TwoPointCircle, Point,
                       ThreePointCircle, ThreePointArc, TangentArc, CenterArc, Slot, ArcSlot, Polygon,
-                      Ellipse, EllipseArc,
+                      Ellipse, EllipseArc, BSpline,
                       Constrain };
 
     void begin(const SketchPlane& plane, Mode mode = Mode::Polyline);
@@ -214,6 +214,7 @@ private:
                                            const Vec2d& minor_pt) const;
     // Elliptical arc: same 3 axis clicks, then start and end points whose parametric
     // angles on the ellipse bound the CCW sweep.
+    std::vector<SketchEntity> make_bspline(const std::vector<Vec2d>& ctrl) const;
     std::vector<SketchEntity> make_ellipse_arc(const Vec2d& center, const Vec2d& major_end,
                                                const Vec2d& minor_pt, const Vec2d& start_pt,
                                                const Vec2d& end_pt) const;

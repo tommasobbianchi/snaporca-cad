@@ -90,6 +90,11 @@ InferenceSnap infer_point_snap(const std::vector<SketchEntity>& entities,
         case SketchEntity::Type::Ellipse:
             offer(InferenceSnap::Kind::Center, ei, SketchPointRole::Center, e.center);
             break;
+        case SketchEntity::Type::BSpline:
+            // Endpoints (first/last pole) snap for loop closure.
+            offer(InferenceSnap::Kind::Endpoint, ei, SketchPointRole::P0, e.p0);
+            offer(InferenceSnap::Kind::Endpoint, ei, SketchPointRole::P1, e.p1);
+            break;
         }
     }
 
