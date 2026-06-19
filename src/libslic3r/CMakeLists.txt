@@ -390,6 +390,8 @@ set(lisbslic3r_sources
     SketchSolver.hpp
     SketchInference.cpp
     SketchInference.hpp
+    SketchImport.cpp
+    SketchImport.hpp
     CadDocument.cpp
     CadDocument.hpp
     SLAPrint.cpp

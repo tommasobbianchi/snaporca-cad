@@ -5,6 +5,7 @@ add_executable(${_TEST_NAME}_tests
 	test_3mf.cpp
 	test_aabbindirect.cpp
 	test_caddocument.cpp
+	test_sketchimport.cpp
 	test_slvs_constraints.cpp
 	test_sketchinference.cpp
 	test_sketchconstraints.cpp
