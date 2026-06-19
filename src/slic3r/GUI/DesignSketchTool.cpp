@@ -7,6 +7,7 @@
 #include "GLShader.hpp"
 
 #include <GL/glew.h>
+#include <wx/gdicmn.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -18,6 +19,23 @@ namespace GUI {
 // Positioning helpers (defined lower down, used by the dimension methods above them).
 static bool entity_ref_point(const SketchEntity& e, Vec2d& out);
 static void translate_entity(SketchEntity& e, const Vec2d& d);
+
+// Project a world-space point to canvas screen pixels (device px, GL viewport units;
+// origin top-left after the GL y-flip). Mirrors GLCanvas3D's world->screen pattern:
+// projection * view, perspective divide, NDC -> viewport. Returns (-1,-1) if behind.
+// (Retained for auto-emitted dimensions in Phase B, which have no click to anchor to;
+// needs the design canvas's own camera/viewport, not the plater's.)
+[[maybe_unused]] static wxPoint world_to_screen_px(const Camera& cam, const Vec3d& world)
+{
+    const Eigen::Matrix4d m = (cam.get_projection_matrix() * cam.get_view_matrix()).matrix();
+    const Eigen::Vector4d clip = m * world.homogeneous();
+    if (std::abs(clip.w()) < 1e-9) return wxPoint(-1, -1);
+    const Vec3d ndc = clip.head<3>() / clip.w();
+    const std::array<int, 4>& vp = cam.get_viewport();
+    const double sx = vp[0] + (ndc.x() * 0.5 + 0.5) * vp[2];
+    const double sy = vp[1] + (1.0 - (ndc.y() * 0.5 + 0.5)) * vp[3];   // GL y-up -> wx y-down
+    return wxPoint(int(sx + 0.5), int(sy + 0.5));
+}
 
 void DesignSketchTool::begin(const SketchPlane& plane, Mode mode)
 {
@@ -364,6 +382,51 @@ void DesignSketchTool::resolve_live_drag(int dragged_ei, SketchPointRole dragged
     if (on_solve_state) on_solve_state(m_dof, m_solve_ok, has);
 }
 
+// ---- Onshape-style visual editing: feature grouping + handles -----------------
+
+// Open a Feature spanning the entities a single gesture is about to append. The
+// [begin,end) range is closed in end_feature() once the gesture's entities are in.
+void DesignSketchTool::begin_feature(FeatureKind kind)
+{
+    Feature f;
+    f.kind  = kind;
+    f.begin = int(m_entities.size());
+    f.end   = f.begin;
+    m_features.push_back(f);
+    m_open_feature = int(m_features.size()) - 1;
+}
+
+// Close the open Feature: record its entity span end + the gesture's parametric
+// anchors (centres / corners / half-width / sides) for later handle + dim rebuild.
+void DesignSketchTool::end_feature(const Vec2d& c0, const Vec2d& c1, double param, int sides)
+{
+    if (m_open_feature < 0 || m_open_feature >= int(m_features.size())) return;
+    Feature& f = m_features[m_open_feature];
+    f.end   = int(m_entities.size());
+    f.c0    = c0;
+    f.c1    = c1;
+    f.param = param;
+    f.sides = sides;
+    // Drop a degenerate feature (gesture appended nothing).
+    if (f.end <= f.begin) m_features.pop_back();
+    m_open_feature = -1;
+}
+
+// Phase A stubs (fleshed out in A3/A4): the handle set, picking, and editing.
+std::vector<DesignSketchTool::Handle> DesignSketchTool::build_handles() const
+{
+    return {};
+}
+
+bool DesignSketchTool::hit_test_handle(const Vec2d& /*p*/, double /*tol*/, Handle& /*out*/) const
+{
+    return false;
+}
+
+void DesignSketchTool::set_handle(const Handle& /*h*/, const Vec2d& /*target*/)
+{
+}
+
 // ---- Dimension tool (Mode::Dimension): click-to-place driving quotes ----------
 
 bool DesignSketchTool::point_at(int ei, SketchPointRole role, Vec2d& out) const
@@ -517,8 +580,7 @@ int DesignSketchTool::place_dimension(DimAnnot a)
     m_constraints.push_back(constraint_for(a));
     m_dimensions.push_back(a);
     resolve_live();
-    m_pending_dim = int(m_dimensions.size()) - 1;
-    if (on_dimension_pick_complete) on_dimension_pick_complete(a.value);
+    open_value_editor(int(m_dimensions.size()) - 1);
     return m_pending_dim;
 }
 
@@ -534,12 +596,48 @@ int DesignSketchTool::hit_test_dimension(const Vec2d& p, double tol) const
     return bi;
 }
 
-// Reopen the value card on an existing dimension (double-click its label).
+// Reopen the value editor on an existing dimension (click/double-click its label).
 void DesignSketchTool::edit_dimension(int di)
 {
     if (di < 0 || di >= int(m_dimensions.size())) return;
+    open_value_editor(di);
+}
+
+// Representative plane anchor for a dimension's value editor: the cached label centre
+// once render has computed it, otherwise a geometric midpoint (length/distance) or the
+// entity centre (radius/diameter).
+Vec2d DesignSketchTool::dim_anchor(const DimAnnot& a) const
+{
+    if (a.label_pos.squaredNorm() > 1e-12) return a.label_pos;
+    Vec2d pa, pb;
+    if ((a.kind == DimType::Radius || a.kind == DimType::Diameter) &&
+        point_at(a.ea, SketchPointRole::Center, pa))
+        return pa;
+    const bool ga = point_at(a.ea, a.ra, pa);
+    const bool gb = point_at(a.eb, a.rb, pb);
+    if (ga && gb) return 0.5 * (pa + pb);
+    if (ga)       return pa;
+    if (gb)       return pb;
+    return Vec2d(0, 0);
+}
+
+// Open the in-canvas value editor on dimension `di`. Projects the dimension's anchor
+// to screen pixels and hands the host (DesignCanvas) a commit/cancel pair that drive
+// the value through the existing set/cancel_dimension_value path. Falls back to the
+// modal pick-complete callback when no inline-edit host is wired.
+void DesignSketchTool::open_value_editor(int di)
+{
+    if (di < 0 || di >= int(m_dimensions.size())) return;
     m_pending_dim = di;
-    if (on_dimension_pick_complete) on_dimension_pick_complete(m_dimensions[di].value);
+    if (!on_inline_edit) {
+        if (on_dimension_pick_complete) on_dimension_pick_complete(m_dimensions[di].value);
+        return;
+    }
+    const DimAnnot& a = m_dimensions[di];
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);   // open at the click point
+    on_inline_edit(px, a.value,
+                   [this](double v) { set_dimension_value(v); },
+                   [this]()         { cancel_dimension_value(); });
 }
 
 DesignSketchTool::DimType DesignSketchTool::pending_dimension_type() const
@@ -2440,6 +2538,11 @@ std::vector<int> DesignSketchTool::connected_loop(int seed) const
 
 bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
 {
+    // Track the cursor in canvas client px so the in-canvas value editor can open right
+    // where the user clicked (Onshape places the field at the click, not via a camera
+    // projection — the design canvas's viewport isn't valid outside its own paint).
+    m_last_mouse_x = evt.GetX();
+    m_last_mouse_y = evt.GetY();
     // Constrain mode: pick a segment on click; let move/drag fall through so the
     // camera can still orbit while inspecting the sketch.
     if (m_mode == Mode::Constrain) {

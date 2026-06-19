@@ -12,6 +12,7 @@
 #include <utility>
 
 class wxMouseEvent;
+class wxPoint;
 
 namespace Slic3r {
 namespace GUI {
@@ -122,6 +123,14 @@ public:
     void    set_dimension_value(double v);   // apply the typed value to the placed dim
     void    cancel_dimension_value();        // keep the placed dim at its measured value
 
+    // Onshape-style in-canvas value editing: open a floating text editor at the given
+    // screen pixel, pre-filled with `current`; commit applies the value, cancel keeps
+    // it. The owner (DesignCanvas) hosts the wxTextCtrl over the GL canvas. This is the
+    // single numeric-entry path for all sketch dimensions (replaces the modal cards).
+    std::function<void(wxPoint screen_px, double current,
+                       std::function<void(double)> commit,
+                       std::function<void()> cancel)> on_inline_edit;
+
     // Driving dimension constraints accumulated during the session (the Dimension
     // tool records a SketchEntityConstraintDef per applied dimension); committed
     // alongside the entities on finish() so the kernel keeps enforcing them.
@@ -188,11 +197,59 @@ private:
         int             con{-1};     // slot in m_constraints driving this dimension
         Vec2d           label_pos{0, 0};  // cached label centre (plane coords), for picking
     };
+
+    // --- Onshape-style visual editing: handles + parametric feature grouping -----
+    // A draggable handle on a defining point of an entity (or a derived point of a
+    // feature group). GUI-only; recomputed from solved geometry every frame (never
+    // persisted), so handles always track the current solve. Derived roles (radius,
+    // slot width/centres, rect corners, polygon vertex, ellipse axes) let tools that
+    // decompose into raw Line/Arc entities still expose their parametric controls.
+    enum class HandleRole { P0, P1, Center, RadiusHandle,
+                            SlotCenter0, SlotCenter1, SlotWidth,
+                            RectCorner, PolygonVertex, MajorAxis, MinorAxis, BSplineCtrl };
+    struct Handle {
+        HandleRole role{HandleRole::P0};
+        int   ei{-1};          // primary entity index
+        int   group{-1};       // index into m_features, or -1 for a raw-entity handle
+        int   ctrl_index{-1};  // BSplineCtrl pole index
+        Vec2d pos{0, 0};       // current plane coords (recomputed each frame)
+        bool  hovered{false};
+    };
+    // A parametric grouping over a contiguous run of entities produced by one gesture.
+    // Slot/Rect/Polygon/etc. have no SketchEntity type of their own — they decompose
+    // into raw Line/Arc entities — so the Feature carries the gesture's anchors so
+    // derived handles + characteristic dimensions can be reconstructed.
+    enum class FeatureKind { Free, Line, Circle, Arc, CornerRect, CenterRect,
+                             Slot, ArcSlot, Polygon, Ellipse, RoundedRect, BSpline };
+    struct Feature {
+        FeatureKind kind{FeatureKind::Free};
+        int    begin{0}, end{0};   // [begin,end) into m_entities
+        Vec2d  c0{0, 0}, c1{0, 0}; // slot centres / rect corners / ellipse centre+major
+        double param{0.0};         // slot half-width / polygon circumradius / fillet radius
+        int    sides{0};           // polygon side count
+    };
+    // Build the live handle set for the current selection / just-drawn feature.
+    std::vector<Handle> build_handles() const;
+    // Nearest handle to plane-point p within tol; fills `out`. (Phase A: stub.)
+    bool hit_test_handle(const Vec2d& p, double tol, Handle& out) const;
+    // Move a handle to `target`, applying the role-specific geometry edit + re-solve.
+    void set_handle(const Handle& h, const Vec2d& target);
+    // Open/close a Feature record around the entities a single gesture appends.
+    void begin_feature(FeatureKind kind);
+    void end_feature(const Vec2d& c0 = Vec2d(0, 0), const Vec2d& c1 = Vec2d(0, 0),
+                     double param = 0.0, int sides = 0);
+
     bool point_at(int ei, SketchPointRole role, Vec2d& out) const;          // current coords
     void set_point(int ei, SketchPointRole role, const Vec2d& v);           // move an entity point
     bool hit_test_point(const Vec2d& p, double tol, int& ei, SketchPointRole& role) const;
     int  hit_test_dimension(const Vec2d& p, double tol) const;              // nearest dim label
     void edit_dimension(int di);                                            // reopen value card for di
+    // Representative plane-coords anchor of a dimension (label centre if known, else a
+    // geometric midpoint/centre) — where the in-canvas value editor is positioned.
+    Vec2d dim_anchor(const DimAnnot& a) const;
+    // Open the in-canvas value editor on dimension `di` (falls back to the modal
+    // pick-complete callback when no inline-edit host is wired).
+    void open_value_editor(int di);
     double measure_dim(const DimAnnot& a) const;                            // value from geometry
     SketchEntityConstraintDef constraint_for(const DimAnnot& a) const;      // driving def
     int  place_dimension(DimAnnot a);                                       // create+drive+notify
@@ -270,10 +327,19 @@ private:
     bool                m_awaiting_length{false}; // Line tool: length dialog is open
     std::vector<int>    m_selection;              // selected entity indices (Mode::Select)
     std::vector<std::pair<int, SketchPointRole>> m_point_sel;  // selected individual points
+    int                 m_last_mouse_x{0};        // last cursor pos (canvas client px), for
+    int                 m_last_mouse_y{0};        // anchoring the in-canvas value editor
     bool                m_dragging_point{false};  // a point grab is in progress (Mode::Select)
     int                 m_drag_ei{-1};            // entity whose point is being dragged
     SketchPointRole     m_drag_role{SketchPointRole::P0};
     std::vector<SketchEntityConstraintDef> m_constraints; // driving dims, committed on finish
+
+    // Onshape-style visual editing state.
+    bool                  m_show_handles{false};   // draw + interact with handles
+    bool                  m_dragging_handle{false};// a handle grab is in progress
+    Handle                m_drag_handle;           // the handle being dragged
+    std::vector<Feature>  m_features;              // parametric groups over m_entities
+    int                   m_open_feature{-1};      // index of the Feature being built, or -1
 
     // DoF feedback state, refreshed by resolve_live() from the libslvs solve result.
     int               m_dof{-1};          // remaining DoF; 0 = fully constrained, <0 = unknown

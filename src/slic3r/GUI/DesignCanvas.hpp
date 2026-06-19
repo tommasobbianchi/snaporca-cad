@@ -4,6 +4,7 @@
 #include <wx/panel.h>
 
 #include <functional>
+#include <memory>
 #include <string>
 
 #include "3DBed.hpp"
@@ -20,6 +21,7 @@ class TriangleMesh;
 namespace GUI {
 
 class GLCanvas3D;
+class SketchInlineEditor;
 
 class DesignCanvas : public wxPanel
 {
@@ -111,6 +113,7 @@ private:
     bool        m_body_selected{false};   // tree selected a body feature → tint the solid
 
     DesignSketchTool m_sketch_tool;
+    std::unique_ptr<SketchInlineEditor> m_inline_editor;  // floating in-canvas value editor
     std::function<void(const SketchProfile&, const SketchPlane&)> m_on_sketch_commit;
     std::function<void(const std::vector<SketchEntity>&,
                        const std::vector<SketchEntityConstraintDef>&,

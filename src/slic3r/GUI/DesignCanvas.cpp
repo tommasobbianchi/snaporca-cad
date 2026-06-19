@@ -1,5 +1,6 @@
 #include "DesignCanvas.hpp"
 
+#include "SketchInlineEditor.hpp"
 #include "GLCanvas3D.hpp"
 #include "OpenGLManager.hpp"
 #include "3DBed.hpp"
@@ -61,6 +62,30 @@ DesignCanvas::DesignCanvas(wxWindow* parent)
         if (m_on_sketch_entities_commit) m_on_sketch_entities_commit(ents, cons, pl);
         if (m_canvas) m_canvas->set_as_dirty();
         if (m_canvas_widget) m_canvas_widget->Refresh();
+    };
+
+    // Onshape-style in-canvas value editor, floating over the GL canvas. The tool hands
+    // us a screen pixel (device px) + a commit/cancel pair; we convert to logical client
+    // px and wrap the callbacks so each one re-solves and re-renders the viewport.
+    m_inline_editor = std::make_unique<SketchInlineEditor>(m_canvas_widget);
+    m_sketch_tool.on_inline_edit = [this](wxPoint screen_px, double current,
+                                          std::function<void(double)> commit,
+                                          std::function<void()> cancel) {
+        if (!m_inline_editor) { if (cancel) cancel(); return; }
+        // The tool hands us canvas device px; convert to logical client px, then to
+        // absolute screen coords for the floating editor frame.
+        const double s = m_canvas_widget ? m_canvas_widget->GetContentScaleFactor() : 1.0;
+        const wxPoint client_pt(int(screen_px.x / s), int(screen_px.y / s));
+        const wxPoint scr = m_canvas_widget ? m_canvas_widget->ClientToScreen(client_pt) : client_pt;
+        m_inline_editor->open(scr, current,
+            [this, commit](double v) {
+                if (commit) commit(v);
+                if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+            },
+            [this, cancel]() {
+                if (cancel) cancel();
+                if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+            });
     };
 
     const DynamicPrintConfig* config = wxGetApp().plater()->config();
