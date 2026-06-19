@@ -601,6 +601,65 @@ std::vector<SketchEntity> SketchEngine::array_entities(
     return out;
 }
 
+std::vector<SketchEntity> SketchEngine::transform_entities(
+    const std::vector<SketchEntity>& src,
+    const Vec2d& move, double angle, double scale, const Vec2d& pivot)
+{
+    std::vector<SketchEntity> out;
+    out.reserve(src.size());
+    const double ca = std::cos(angle), sa = std::sin(angle);
+    const double rs = std::abs(scale);   // radii are unsigned magnitudes
+    // Affine map: translate pivot to origin, scale, rotate, then translate by `move`.
+    auto xf = [&](const Vec2d& p) -> Vec2d {
+        const Vec2d d = scale * (p - pivot);
+        return Vec2d(pivot.x() + ca * d.x() - sa * d.y(),
+                     pivot.y() + sa * d.x() + ca * d.y()) + move;
+    };
+
+    for (const auto& e : src) {
+        SketchEntity m = e;   // carry construction flag, etc.
+        switch (e.type) {
+        case SketchEntity::Type::Line:
+            m.p0 = xf(e.p0); m.p1 = xf(e.p1);
+            break;
+        case SketchEntity::Type::Point:
+            m.p0 = xf(e.p0);
+            break;
+        case SketchEntity::Type::Circle:
+            m.center = xf(e.center); m.radius = e.radius * rs; m.p0 = m.center;
+            break;
+        case SketchEntity::Type::Arc: {
+            m.center      = xf(e.center);
+            m.radius      = e.radius * rs;
+            m.start_angle = e.start_angle + angle;
+            m.end_angle   = e.end_angle   + angle;   // rigid sweep, shifted by rotation
+            m.p0 = m.center + m.radius * Vec2d(std::cos(m.start_angle), std::sin(m.start_angle));
+            m.p1 = m.center + m.radius * Vec2d(std::cos(m.end_angle),   std::sin(m.end_angle));
+            break;
+        }
+        case SketchEntity::Type::Ellipse:
+        case SketchEntity::Type::EllipseArc:
+            m.center   = xf(e.center);
+            m.radius   = e.radius * rs;
+            m.rminor   = e.rminor * rs;
+            m.rotation = e.rotation + angle;          // major axis rotates with the body
+            if (e.type == SketchEntity::Type::Ellipse) {
+                m.p0 = m.center;
+            } else {
+                m.p0 = xf(e.p0); m.p1 = xf(e.p1);
+                // Parametric angles live in the (rotated) body frame -> unchanged.
+            }
+            break;
+        case SketchEntity::Type::BSpline:
+            for (auto& cp : m.ctrl) cp = xf(cp);
+            m.p0 = xf(e.p0); m.p1 = xf(e.p1);
+            break;
+        }
+        out.push_back(m);
+    }
+    return out;
+}
+
 bool SketchEngine::fillet_lines(const SketchEntity& a, const SketchEntity& b, double r,
                                 SketchEntity& a_out, SketchEntity& b_out, SketchEntity& arc_out)
 {

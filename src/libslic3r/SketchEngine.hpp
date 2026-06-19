@@ -187,6 +187,17 @@ public:
         const std::vector<SketchEntity>& src, int count,
         const Vec2d& step, double angle_step, const Vec2d& pivot);
 
+    // General affine transform (move / rotate / scale), applied IN PLACE: returns
+    // the SAME entities (same count and order), each mapped by
+    //   p -> pivot + scale * R(angle) * (p - pivot) + move
+    // (radii scale by |scale|; arc/ellipse parametric/rotation angles shift by
+    // `angle`). Unlike array_entities this mutates the subjects rather than adding
+    // copies. Move: angle=0, scale=1. Rotate-in-place: move=(0,0), scale=1,
+    // pivot=centroid. Scale: angle=0.
+    static std::vector<SketchEntity> transform_entities(
+        const std::vector<SketchEntity>& src,
+        const Vec2d& move, double angle, double scale, const Vec2d& pivot);
+
     static bool fillet_lines(const SketchEntity& a, const SketchEntity& b, double r,
                              SketchEntity& a_out, SketchEntity& b_out, SketchEntity& arc_out);
 

@@ -325,6 +325,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         ebtn("design_trim",       _L("Trim"),         EditOp::Trim);
         ebtn("design_extend",     _L("Extend"),       EditOp::Extend);
         ebtn("design_array",      _L("Linear array"), EditOp::Array);
+        ebtn("design_move",       _L("Move (translate)"), EditOp::Move);
         add_sep(m_tb_constrain);
         auto* b_done = icon_btn("design_check", _L("Done constraining"));
         b_done->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
@@ -1927,6 +1928,62 @@ void DesignPanel::apply_edit_op(EditOp op)
             });
         return;   // deferred: edit runs on the two Confirms
     }
+    case EditOp::Move: {
+        // C4.5 Transform (move). MUTATING op: the subject is translated in place
+        // (kernel transform_entities with angle=0, scale=1). Pure translation
+        // PRESERVES orientation and length, so intrinsic + orientation constraints
+        // survive (Horizontal/Vertical/Parallel/Perpendicular/EqualLength/Angle,
+        // self-length Distance, Radius/Diameter); it BREAKS position-coupling ones
+        // (Coincident/PointOn*/Concentric/Symmetric/Midpoint/Fix/LockX/LockY, and
+        // any Distance tying the subject to a *different* entity). Per the governing
+        // P4 insight, drop those before re-solving — otherwise the solver drags the
+        // subject straight back to satisfy them and the move never sticks.
+        const int a = e0;
+        request_value(_L("Move dX (mm)"), 20.0, -100000.0, 100000.0,
+            [this, a](double dx) {
+                request_value(_L("Move dY (mm)"), 0.0, -100000.0, 100000.0,
+                    [this, a, dx](double dy) {
+                        CadFeature& f = m_doc.features[m_constrain_feat];
+                        if (a >= int(f.entities.size())) return;
+                        auto out = SketchEngine::transform_entities(
+                            { f.entities[a] }, Vec2d(dx, dy), 0.0, 1.0, Vec2d(0, 0));
+                        if (out.empty()) {
+                            m_status->SetForegroundColour(wxColour(235, 110, 110));
+                            m_status->SetLabel(_L("Move produced nothing")); m_status->Refresh(); return;
+                        }
+                        f.entities[a] = out[0];
+
+                        using CT = SketchConstraintType;
+                        auto refs_a = [&](const SketchEntityConstraintDef& d) {
+                            return d.ea == a || d.eb == a || d.ec == a;
+                        };
+                        auto& cs = f.entity_constraints;
+                        cs.erase(std::remove_if(cs.begin(), cs.end(),
+                            [&](const SketchEntityConstraintDef& d) {
+                                if (!refs_a(d)) return false;
+                                switch (d.type) {
+                                case CT::Coincident: case CT::PointOnLine: case CT::PointOnObject:
+                                case CT::Concentric: case CT::Symmetric:   case CT::Midpoint:
+                                case CT::Fix:        case CT::LockX:        case CT::LockY:
+                                    return true;   // position-coupling: broken by translation
+                                case CT::Distance:
+                                    // self-length (ea==eb==a) survives translation; a
+                                    // distance to a *different* entity does not.
+                                    return !(d.ea == a && d.eb == a);
+                                default:
+                                    return false;  // orientation/length: preserved
+                                }
+                            }), cs.end());
+
+                        // The surviving constraints are satisfied by construction
+                        // (translation preserves them); re-solve to fold the new
+                        // position in, keep the geometry even if the solver balks.
+                        m_doc.solve_sketch_feature(m_constrain_feat);
+                        after_edit_op();
+                    });
+            });
+        return;   // deferred: edit runs on the two Confirms
+    }
     }
 
     after_edit_op();
@@ -1939,6 +1996,10 @@ void DesignPanel::after_edit_op()
     m_doc.recompute();
     m_viewport->set_constraint_highlight({});   // entity indices may have shifted
     m_viewport->update_constrain_entities(m_doc.features[m_constrain_feat].entities);
+    // Refresh the committed-sketch overlay too: it caches the entity list at
+    // constrain-entry, so a relocating edit (Move/Trim/Extend) would otherwise
+    // leave a stale ghost of the pre-edit geometry beside the new position.
+    sync_sketch_display();
     if (!m_doc.display_mesh.its.indices.empty())
         m_viewport->set_mesh(m_doc.display_mesh);
     m_status->SetForegroundColour(wxNullColour);

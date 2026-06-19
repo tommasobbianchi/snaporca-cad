@@ -62,7 +62,7 @@ private:
     void on_begin_constrain();
     void apply_constraint(SketchConstraintType type);
     void apply_entity_constraint(SketchConstraintType type);  // Fase 4.2 entity path
-    enum class EditOp { Mirror, Offset, Fillet, Trim, Extend, Array }; // Fase 4.4 sketch edit ops
+    enum class EditOp { Mirror, Offset, Fillet, Trim, Extend, Array, Move }; // Fase 4.4/4.5 sketch edit ops
     void apply_edit_op(EditOp op);                            // mutate selected sketch entities
     // Onshape-style docked value entry (replaces wxGetTextFromUser popups for
     // Angle/Radius/Diameter constraints + Offset/Fillet edit ops). request_value
