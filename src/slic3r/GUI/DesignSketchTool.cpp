@@ -785,9 +785,11 @@ void DesignSketchTool::open_polygon_angle_editor(int fi)
     if (fi < 0 || fi >= int(m_features.size()) || !on_inline_edit) return;
     const Feature& f = m_features[fi];
     if (f.begin < 0 || f.begin >= int(m_entities.size())) return;
-    DimAnnot a; a.kind = DimType::Angle; a.ea = f.begin;
+    const Vec2d sp = m_entities[f.begin].p0 - f.c0;          // centre -> vertex0 spoke
+    double deg = std::atan2(sp.y(), sp.x()) * 180.0 / M_PI;
+    if (deg < 0.0) deg += 360.0;
     const wxPoint px(m_last_mouse_x, m_last_mouse_y);
-    on_inline_edit(px, measure_dim(a),
+    on_inline_edit(px, deg,
                    [this, fi](double v) { set_polygon_angle(fi, v); },
                    []()                 {});
 }
@@ -802,17 +804,17 @@ void DesignSketchTool::set_polygon_side(int fi, double side)
     set_polygon_radius(fi, R);
 }
 
-// Rotate the whole loop about its centre so edge0 points at `deg` (degrees from +X).
+// Rotate the whole loop about its centre so the centre->vertex0 spoke points at `deg`
+// (degrees from +X).
 void DesignSketchTool::set_polygon_angle(int fi, double deg)
 {
     if (fi < 0 || fi >= int(m_features.size())) return;
     Feature& f = m_features[fi];
     if (f.begin < 0 || f.begin >= int(m_entities.size())) return;
     const Vec2d c = f.c0;
-    const SketchEntity& e0 = m_entities[f.begin];
-    const Vec2d d0 = e0.p1 - e0.p0;
-    if (d0.squaredNorm() < 1e-12) return;
-    const double cur = std::atan2(d0.y(), d0.x());
+    const Vec2d sp = m_entities[f.begin].p0 - c;          // centre -> vertex0
+    if (sp.squaredNorm() < 1e-12) return;
+    const double cur = std::atan2(sp.y(), sp.x());
     const double da  = deg * M_PI / 180.0 - cur;
     const double ca = std::cos(da), sa = std::sin(da);
     auto rot = [&](const Vec2d& pt) { const Vec2d r = pt - c;
@@ -2207,10 +2209,33 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
                 side.value = measure_dim(side);
                 Vec2d slbl;
                 if (draw_dim_quote(side, th, dc, slbl)) m_live_poly_side_label = slbl;
-                DimAnnot ang; ang.kind = DimType::Angle; ang.ea = f.begin;
-                ang.value = measure_dim(ang);
-                Vec2d albl;
-                if (draw_dim_quote(ang, th, dc, albl)) m_live_poly_angle_label = albl;
+
+                // Orientation = the angle of the centre->vertex0 spoke from +X (the
+                // intuitive "which way does the polygon point"), NOT the edge direction.
+                // Drawn as a wedge OUTSIDE the polygon (radius just past the circumradius)
+                // so its arc/label clear the fillable face.
+                const Vec2d sp = m_entities[f.begin].p0 - f.c0;   // centre -> vertex0
+                const double R = sp.norm();
+                if (R > 1e-6) {
+                    double av = std::atan2(sp.y(), sp.x());
+                    double avdeg = av * 180.0 / M_PI; if (avdeg < 0.0) avdeg += 360.0;
+                    const double rr = R + th * 2.5;               // wedge just outside the loop
+                    std::vector<std::pair<Vec2d, Vec2d>> asegs;
+                    asegs.emplace_back(f.c0, f.c0 + Vec2d(rr, 0.0));                       // +X leg
+                    asegs.emplace_back(f.c0, f.c0 + Vec2d(std::cos(av), std::sin(av)) * rr); // spoke leg
+                    const int N = 20; Vec2d prev = f.c0 + Vec2d(rr, 0.0);
+                    for (int i = 1; i <= N; ++i) {
+                        const double t = av * double(i) / N;
+                        const Vec2d cur = f.c0 + Vec2d(rr * std::cos(t), rr * std::sin(t));
+                        asegs.emplace_back(prev, cur); prev = cur;
+                    }
+                    const double mid = av * 0.5;
+                    const Vec2d albl = f.c0 + Vec2d(std::cos(mid), std::sin(mid)) * (rr + th * 1.2);
+                    DimAnnot at; at.kind = DimType::Angle; at.value = avdeg;   // "NN.N°"
+                    draw_strokes(m_highlight_model, asegs, 0.6, dc);
+                    draw_text(m_line_model, dim_text(at), albl, th, dc);
+                    m_live_poly_angle_label = albl;
+                }
                 m_live_poly_fi = fi;
             }
             break;
