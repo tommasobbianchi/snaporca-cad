@@ -761,6 +761,65 @@ bool SketchEngine::fillet_lines(const SketchEntity& a, const SketchEntity& b, do
     return true;
 }
 
+bool SketchEngine::chamfer_lines(const SketchEntity& a, const SketchEntity& b, double d,
+                                 SketchEntity& a_out, SketchEntity& b_out, SketchEntity& seg_out)
+{
+    if (a.type != SketchEntity::Type::Line || b.type != SketchEntity::Type::Line || d <= 1e-9)
+        return false;
+
+    Vec2d da = a.p1 - a.p0;
+    Vec2d db = b.p1 - b.p0;
+    double denom = da.x() * db.y() - da.y() * db.x();
+    if (std::abs(denom) < 1e-12)
+        return false;   // parallel: no corner to chamfer
+
+    // Shared corner = line/line intersection.
+    Vec2d diff = b.p0 - a.p0;
+    double s = (diff.x() * db.y() - diff.y() * db.x()) / denom;
+    Vec2d C = a.p0 + s * da;
+
+    // For each line, unit vector pointing from the corner toward its far endpoint
+    // (the endpoint that is kept); the near endpoint is the one trimmed back.
+    auto pick = [&](const SketchEntity& ln, int& near_idx, Vec2d& u) -> bool {
+        double d0 = (ln.p0 - C).norm();
+        double d1 = (ln.p1 - C).norm();
+        if (d0 <= d1) { near_idx = 0; u = ln.p1 - C; }
+        else          { near_idx = 1; u = ln.p0 - C; }
+        if (u.norm() < 1e-12) return false;
+        u.normalize();
+        return true;
+    };
+    int a_near_idx, b_near_idx;
+    Vec2d ua, ub;
+    if (!pick(a, a_near_idx, ua)) return false;
+    if (!pick(b, b_near_idx, ub)) return false;
+
+    // Reject collinear (no real corner) and ensure the setback fits both lines.
+    double cosT = std::max(-1.0, std::min(1.0, ua.dot(ub)));
+    if (cosT > 1.0 - 1e-9 || cosT < -1.0 + 1e-9)
+        return false;
+    {
+        Vec2d a_far = (a_near_idx == 0) ? a.p1 : a.p0;
+        Vec2d b_far = (b_near_idx == 0) ? b.p1 : b.p0;
+        if (d > (a_far - C).norm() || d > (b_far - C).norm())
+            return false;
+    }
+
+    Vec2d Ta = C + d * ua;
+    Vec2d Tb = C + d * ub;
+
+    a_out = a;
+    b_out = b;
+    if (a_near_idx == 0) a_out.p0 = Ta; else a_out.p1 = Ta;
+    if (b_near_idx == 0) b_out.p0 = Tb; else b_out.p1 = Tb;
+
+    seg_out = SketchEntity{};
+    seg_out.type = SketchEntity::Type::Line;
+    seg_out.p0   = Ta;
+    seg_out.p1   = Tb;
+    return true;
+}
+
 static std::vector<double> line_entity_hits(const Vec2d& a0, const Vec2d& adir,
                                             const SketchEntity& other)
 {

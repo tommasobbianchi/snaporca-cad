@@ -201,6 +201,14 @@ public:
     static bool fillet_lines(const SketchEntity& a, const SketchEntity& b, double r,
                              SketchEntity& a_out, SketchEntity& b_out, SketchEntity& arc_out);
 
+    // Symmetric chamfer between two lines meeting at a corner: trims each line back
+    // by setback distance `d` from the shared corner and returns the connecting
+    // straight segment (seg_out) in place of the corner. a_out/b_out are the trimmed
+    // lines; seg_out goes seg_out.p0 (on a) -> seg_out.p1 (on b). False if the lines
+    // are parallel or `d` overruns either line.
+    static bool chamfer_lines(const SketchEntity& a, const SketchEntity& b, double d,
+                              SketchEntity& a_out, SketchEntity& b_out, SketchEntity& seg_out);
+
     static bool trim_entity(SketchEntity& e, const std::vector<SketchEntity>& others,
                             const Vec2d& pick);
 

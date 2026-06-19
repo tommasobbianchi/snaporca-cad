@@ -322,6 +322,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         ebtn("design_mirror",     _L("Mirror"),       EditOp::Mirror);
         ebtn("design_offset",     _L("Offset"),       EditOp::Offset);
         ebtn("design_filletedge", _L("Sketch fillet"),EditOp::Fillet);
+        ebtn("design_chamfer",    _L("Sketch chamfer"),EditOp::Chamfer);
         ebtn("design_trim",       _L("Trim"),         EditOp::Trim);
         ebtn("design_extend",     _L("Extend"),       EditOp::Extend);
         ebtn("design_array",      _L("Linear array"), EditOp::Array);
@@ -1754,6 +1755,72 @@ void DesignPanel::apply_edit_op(EditOp op)
         });
         return;   // deferred: edit runs on Confirm
     }
+
+    case EditOp::Chamfer: {
+        if (e1 < 0 || e1 >= n) { fail(_L("Pick two lines to chamfer")); return; }
+        if (feat.entities[e0].type != Type::Line || feat.entities[e1].type != Type::Line) {
+            fail(_L("Chamfer needs two lines")); return;
+        }
+        const int a = e0, b = e1;
+        request_value(_L("Chamfer distance"), 1.0, 0.001, 100000.0, [this, a, b](double d) {
+            CadFeature& f = m_doc.features[m_constrain_feat];
+            if (a >= int(f.entities.size()) || b >= int(f.entities.size())) return;
+            SketchEntity a_out, b_out, seg_out;
+            if (!SketchEngine::chamfer_lines(f.entities[a], f.entities[b], d, a_out, b_out, seg_out)) {
+                m_status->SetForegroundColour(wxColour(235, 110, 110));
+                m_status->SetLabel(_L("Chamfer failed (parallel lines or distance too large)"));
+                m_status->Refresh(); return;
+            }
+            f.entities[a] = a_out;
+            f.entities[b] = b_out;
+            const int seg = int(f.entities.size());
+            f.entities.push_back(seg_out);
+
+            // C4.6: like fillet, chamfer trims both lines back from the shared corner
+            // and inserts a connecting segment. MUTATING op: drop the stale corner
+            // Coincident that joined the two trimmed endpoints and each line's own
+            // length Distance (lengths just changed), then pin the new segment's ends
+            // onto the trimmed line endpoints with Coincident so it survives re-solve.
+            {
+                using R  = SketchPointRole;
+                using CT = SketchConstraintType;
+                auto role_near = [](const SketchEntity& ln, const Vec2d& p) -> R {
+                    return ((ln.p0 - p).squaredNorm() <= (ln.p1 - p).squaredNorm()) ? R::P0 : R::P1;
+                };
+                const R ra = role_near(f.entities[a], seg_out.p0);
+                const R rb = role_near(f.entities[b], seg_out.p1);
+
+                auto refs = [](const SketchEntityConstraintDef& dd, int e, R r) {
+                    return (dd.ea == e && dd.ra == r) || (dd.eb == e && dd.rb == r);
+                };
+                auto self_len = [](const SketchEntityConstraintDef& dd, int e) {
+                    return dd.type == CT::Distance && dd.ea == e && dd.eb == e;
+                };
+                auto& cs = f.entity_constraints;
+                cs.erase(std::remove_if(cs.begin(), cs.end(),
+                    [&](const SketchEntityConstraintDef& dd) {
+                        return (dd.type == CT::Coincident && refs(dd, a, ra) && refs(dd, b, rb))
+                            || self_len(dd, a) || self_len(dd, b);
+                    }), cs.end());
+
+                auto coin = [&](R seg_role, int ln, R ln_role) {
+                    SketchEntityConstraintDef dd; dd.type = CT::Coincident;
+                    dd.ea = seg; dd.ra = seg_role; dd.eb = ln; dd.rb = ln_role; return dd;
+                };
+                const std::vector<SketchEntity> saved = f.entities;
+                const size_t cbefore = f.entity_constraints.size();
+                f.entity_constraints.push_back(coin(R::P0, a, ra));
+                f.entity_constraints.push_back(coin(R::P1, b, rb));
+                if (!m_doc.solve_sketch_feature(m_constrain_feat)) {
+                    f.entity_constraints.resize(cbefore);   // keep geometry, drop pins
+                    f.entities = saved;
+                }
+            }
+            after_edit_op();
+        });
+        return;   // deferred: edit runs on Confirm
+    }
+
     case EditOp::Trim:
     case EditOp::Extend: {
         // Trim accepts Line/Arc/Circle subjects; Extend accepts Line/Arc (a Circle
