@@ -351,6 +351,8 @@ private:
     Handle                m_drag_handle;           // the handle being dragged
     bool                  m_has_hover_handle{false};// cursor is near a handle (highlight it)
     Handle                m_hover_handle;          // the hovered handle (recomputed on move)
+    int                   m_live_radius_ei{-1};    // circle whose live (non-driving) radius
+    Vec2d                 m_live_radius_label{0,0}; // quote is shown; label centre for click-to-edit
     std::vector<Feature>  m_features;              // parametric groups over m_entities
     int                   m_open_feature{-1};      // index of the Feature being built, or -1
 

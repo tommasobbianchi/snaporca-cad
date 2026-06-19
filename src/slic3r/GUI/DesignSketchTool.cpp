@@ -1964,6 +1964,7 @@ void DesignSketchTool::render_dimensions(double unit_per_px)
 // it reports the current radius, it does not constrain it.
 void DesignSketchTool::render_live_radius_quote(double unit_per_px)
 {
+    m_live_radius_ei = -1;
     int ei = -1;
     if (m_dragging_handle && m_drag_handle.role == HandleRole::RadiusHandle)
         ei = m_drag_handle.ei;
@@ -1974,6 +1975,10 @@ void DesignSketchTool::render_live_radius_quote(double unit_per_px)
     if (e.type != SketchEntity::Type::Circle) return;
     const double r = e.radius;
     if (r < 1e-6) return;
+    // If this circle already carries a driving Radius/Diameter dimension, render_dimensions
+    // draws the (persistent, editable) quote — don't double it with the live readout.
+    for (const DimAnnot& d : m_dimensions)
+        if (d.ea == ei && (d.kind == DimType::Radius || d.kind == DimType::Diameter)) return;
 
     const ColorRGBA dimcol(0.30f, 0.88f, 0.66f, 1.0f);   // teal-green CAD quote
     const double th = std::max(15.0 * unit_per_px, 1e-4);
@@ -1989,6 +1994,10 @@ void DesignSketchTool::render_live_radius_quote(double unit_per_px)
     DimAnnot tmp; tmp.kind = DimType::Radius; tmp.ea = ei; tmp.value = r;
     draw_strokes(m_highlight_model, segs, 0.6, dimcol);
     draw_text(m_line_model, dim_text(tmp), label, th, dimcol);
+    // Cache the label centre so a single click promotes this readout to a driving
+    // Radius dimension and opens the in-canvas editor (click-to-set-precise-value).
+    m_live_radius_ei    = ei;
+    m_live_radius_label = label;
 }
 
 // Iconic constraint badges drawn near each constraint's primary entity (C3.4b).
@@ -2783,6 +2792,23 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             const Linef3 r2 = canvas.mouse_ray(Point(evt.GetX() + 8, evt.GetY()));
             const Vec2d p2 = m_plane.project(r2.a, r2.vector());
             const double tol = std::max(1e-3, (p2 - p).norm());
+
+            // Single-click a dimension quote label -> edit its value in place. A placed
+            // driving quote reopens its editor; the live (non-driving) radius readout is
+            // first promoted to a driving Radius dimension, then place_dimension opens the
+            // editor — so typing a value sets the precise radius. Uses a generous label
+            // tolerance (~24 px) since text labels are wider than a point grip.
+            if (evt.LeftDown()) {
+                const Linef3 rdl = canvas.mouse_ray(Point(evt.GetX() + 24, evt.GetY()));
+                const double ltol = std::max(tol, (m_plane.project(rdl.a, rdl.vector()) - p).norm());
+                const int di = hit_test_dimension(p, ltol);
+                if (di >= 0) { open_value_editor(di); return true; }
+                if (m_live_radius_ei >= 0 && (m_live_radius_label - p).norm() <= ltol) {
+                    DimAnnot a; a.kind = DimType::Radius; a.ea = m_live_radius_ei;
+                    place_dimension(a);   // append driving Radius dim + open inline editor
+                    return true;
+                }
+            }
 
             // A derived handle (the circle RadiusHandle — not an entity point, so
             // hit_test_point can't grab it) arms a handle drag that resizes on motion.
