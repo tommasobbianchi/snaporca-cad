@@ -96,6 +96,9 @@ public:
     // Constraint manager (C3.4): highlight the entities referenced by a selected
     // constraint (yellow tint in Constrain mode); empty clears the highlight.
     void set_constraint_highlight(std::vector<int> entities);
+    // Constraint glyph badges (C3.4b): the feature's constraints, drawn as iconic
+    // marks near their entities in Constrain mode; empty clears them.
+    void set_constraint_glyphs(std::vector<SketchEntityConstraintDef> cons);
 
 private:
     void reload(bool keep_view);

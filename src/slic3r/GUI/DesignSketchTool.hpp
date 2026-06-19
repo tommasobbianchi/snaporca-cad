@@ -74,6 +74,9 @@ public:
     // Constraint manager (C3.4): entity indices the panel asks to highlight (the
     // entities a selected constraint references); rendered yellow in Constrain mode.
     void set_constraint_highlight(std::vector<int> v) { m_constraint_hl = std::move(v); }
+    // The committed feature's constraints, supplied so Constrain-mode render can draw
+    // an iconic glyph badge per constraint near its primary entity (C3.4b).
+    void set_constraint_glyphs(std::vector<SketchEntityConstraintDef> v) { m_constrain_cons = std::move(v); }
 
     // Line tool: after a single segment is placed, the panel pops a length dialog
     // (length, angle_deg are the as-drawn values); it then resolves via
@@ -195,6 +198,10 @@ private:
     int  place_dimension(DimAnnot a);                                       // create+drive+notify
     std::string dim_text(const DimAnnot& a) const;                          // rendered label string
     void render_dimensions(double unit_per_px);                            // quote lines + labels
+    // Iconic constraint badges (C3.4b): for each m_constrain_cons entry, append a
+    // small screen-constant glyph (H, V, ∥, ⊥, =, ○, …) near its primary entity into
+    // `out`; glyphs touching the same entity stack so they don't overlap.
+    void build_constraint_glyphs(double unit_per_px, std::vector<std::pair<Vec2d, Vec2d>>& out) const;
     void draw_strokes(GLModel& model, const std::vector<std::pair<Vec2d, Vec2d>>& segs,
                       double hw, const ColorRGBA& color);
     void draw_text(GLModel& model, const std::string& s, const Vec2d& center,
@@ -286,6 +293,7 @@ private:
     int                 m_pick2{-1};   // third slot (Symmetric axis)
     Vec2d               m_pick0_pt{0,0}; // plane-coords of the slot-0 pick (trim/extend)
     std::vector<int>    m_constraint_hl; // entities highlighted by the constraint manager
+    std::vector<SketchEntityConstraintDef> m_constrain_cons; // for glyph badges (C3.4b)
     GLModel             m_line_model;
     GLModel             m_vertex_model;
     GLModel             m_highlight_model;

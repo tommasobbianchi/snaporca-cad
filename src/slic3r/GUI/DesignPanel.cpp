@@ -1518,6 +1518,10 @@ void DesignPanel::rebuild_constraint_list()
         m_constraint_rows->Add(row, 0, wxEXPAND | wxTOP, 2);
     }
 
+    // Feed the same list to the viewport for the on-sketch glyph badges (C3.4b).
+    if (m_viewport)
+        m_viewport->set_constraint_glyphs(cons);
+
     m_form->GetSizer()->Show(m_box_constraints, m_ui_mode == UiMode::Constrain, true);
     m_form->Layout();
     m_form->FitInside();

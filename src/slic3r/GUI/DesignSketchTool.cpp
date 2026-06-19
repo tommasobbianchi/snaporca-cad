@@ -31,6 +31,7 @@ void DesignSketchTool::begin(const SketchPlane& plane, Mode mode)
     m_constrain_entities = false;
     m_pick0 = m_pick1 = m_pick2 = -1;
     m_constraint_hl.clear();
+    m_constrain_cons.clear();
     m_awaiting_length = false;
     m_selection.clear();
     m_point_sel.clear();
@@ -62,6 +63,7 @@ void DesignSketchTool::cancel()
     m_constrain_entities = false;
     m_pick0 = m_pick1 = m_pick2 = -1;
     m_constraint_hl.clear();
+    m_constrain_cons.clear();
     m_awaiting_length = false;
     m_selection.clear();
     m_point_sel.clear();
@@ -1781,6 +1783,86 @@ void DesignSketchTool::render_dimensions(double unit_per_px)
     }
 }
 
+// Iconic constraint badges drawn near each constraint's primary entity (C3.4b).
+// Each glyph is authored in a unit cell [-0.5,0.5]^2 then scaled to a constant
+// on-screen size and translated to the anchor; badges on the same entity stack
+// upward so multiple constraints stay legible.
+void DesignSketchTool::build_constraint_glyphs(double unit_per_px,
+                                               std::vector<std::pair<Vec2d, Vec2d>>& out) const
+{
+    if (m_constrain_cons.empty() || m_entities.empty()) return;
+    using T = SketchConstraintType;
+    const double s = std::max(11.0 * unit_per_px, 1e-4);   // glyph cell size in plane units
+    const double step = s * 1.5;                           // vertical stacking step
+
+    // Representative anchor point on an entity (line midpoint, round-entity centre).
+    auto anchor_of = [&](int ei) -> Vec2d {
+        if (ei < 0 || ei >= int(m_entities.size())) return Vec2d(0, 0);
+        const SketchEntity& e = m_entities[ei];
+        switch (e.type) {
+        case SketchEntity::Type::Line:    return 0.5 * (e.p0 + e.p1);
+        case SketchEntity::Type::Circle:
+        case SketchEntity::Type::Ellipse:
+        case SketchEntity::Type::Arc:
+        case SketchEntity::Type::EllipseArc: return e.center;
+        case SketchEntity::Type::BSpline:  return 0.5 * (e.p0 + e.p1);
+        case SketchEntity::Type::Point:    return e.p0;
+        }
+        return e.p0;
+    };
+
+    // Unit-cell stroke authoring helpers (cell centred on origin).
+    auto seg = [&](std::vector<std::pair<Vec2d, Vec2d>>& v, Vec2d a, Vec2d b) { v.emplace_back(a, b); };
+    auto circ = [&](std::vector<std::pair<Vec2d, Vec2d>>& v, Vec2d c, double r) {
+        const int n = 12; Vec2d prev(c.x() + r, c.y());
+        for (int i = 1; i <= n; ++i) {
+            const double t = 2.0 * 3.14159265358979 * i / n;
+            Vec2d cur(c.x() + r * std::cos(t), c.y() + r * std::sin(t));
+            v.emplace_back(prev, cur); prev = cur;
+        }
+    };
+    // Author one glyph type into a unit-cell stroke list.
+    auto unit_glyph = [&](T type, std::vector<std::pair<Vec2d, Vec2d>>& v) {
+        switch (type) {
+        case T::Horizontal: seg(v, {-0.5, 0}, {0.5, 0}); break;
+        case T::Vertical:   seg(v, {0, -0.5}, {0, 0.5}); break;
+        case T::Parallel:   seg(v, {-0.35, -0.5}, {0.0, 0.5}); seg(v, {0.05, -0.5}, {0.4, 0.5}); break;
+        case T::Perpendicular: seg(v, {-0.4, 0.5}, {-0.4, -0.4}); seg(v, {-0.4, -0.4}, {0.5, -0.4}); break;
+        case T::Coincident: circ(v, {0, 0}, 0.42); break;
+        case T::Concentric: circ(v, {0, 0}, 0.5); circ(v, {0, 0}, 0.24); break;
+        case T::EqualLength:seg(v, {-0.4, 0.16}, {0.4, 0.16}); seg(v, {-0.4, -0.16}, {0.4, -0.16}); break;
+        case T::Tangent:    circ(v, {0, -0.1}, 0.35); seg(v, {-0.5, 0.42}, {0.5, 0.42}); break;
+        case T::Midpoint:   seg(v, {-0.4, 0}, {0.4, 0}); seg(v, {0, -0.18}, {0, 0.18}); break;
+        case T::Symmetric:  seg(v, {0, -0.5}, {0, 0.5});
+                            seg(v, {-0.5, 0.4}, {-0.15, 0}); seg(v, {-0.5, -0.4}, {-0.15, 0});
+                            seg(v, {0.5, 0.4}, {0.15, 0}); seg(v, {0.5, -0.4}, {0.15, 0}); break;
+        case T::Fix:        seg(v, {-0.4, -0.4}, {0.4, -0.4}); seg(v, {0.4, -0.4}, {0.4, 0.4});
+                            seg(v, {0.4, 0.4}, {-0.4, 0.4}); seg(v, {-0.4, 0.4}, {-0.4, -0.4}); break;
+        case T::Angle:      seg(v, {-0.4, -0.4}, {0.4, -0.4}); seg(v, {-0.4, -0.4}, {0.3, 0.4}); break;
+        case T::Radius:     circ(v, {0, 0}, 0.45); seg(v, {0, 0}, {0.45, 0}); break;
+        case T::Diameter:   circ(v, {0, 0}, 0.45); seg(v, {-0.45, 0}, {0.45, 0}); break;
+        case T::PointOnLine:
+        case T::PointOnObject: seg(v, {-0.5, -0.3}, {0.5, -0.3}); circ(v, {0, 0.05}, 0.16); break;
+        case T::Distance:
+        case T::LockX:
+        case T::LockY:      seg(v, {-0.4, 0}, {0.4, 0}); break;   // generic tick
+        }
+    };
+
+    // Stack count per entity so successive badges step upward.
+    std::vector<int> stack(m_entities.size(), 0);
+    const Vec2d up(0.0, 1.0);     // plane-space up; offset so badge sits off the geometry
+    for (const SketchEntityConstraintDef& d : m_constrain_cons) {
+        if (d.ea < 0 || d.ea >= int(m_entities.size())) continue;
+        const int k = stack[d.ea]++;
+        const Vec2d center = anchor_of(d.ea) + up * (step * (1.0 + k));
+        std::vector<std::pair<Vec2d, Vec2d>> cell;
+        unit_glyph(d.type, cell);
+        for (auto& sgp : cell)
+            out.emplace_back(center + sgp.first * s, center + sgp.second * s);
+    }
+}
+
 void DesignSketchTool::draw_entities_preview(const std::vector<SketchEntity>& ents, const ColorRGBA& color)
 {
     for (const SketchEntity& e : ents) {
@@ -1870,6 +1952,16 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
             }
             if (!markers.empty())
                 draw_vertices(m_vertex_model, markers, cyan);
+            // Constraint badges (C3.4b): iconic glyphs near each constraint's entity.
+            {
+                const double upp = 1.0 / std::max(camera.get_zoom(), 1e-6);
+                std::vector<std::pair<Vec2d, Vec2d>> glyphs;
+                build_constraint_glyphs(upp, glyphs);
+                if (!glyphs.empty()) {
+                    const ColorRGBA badge(0.45f, 0.95f, 0.70f, 1.0f);   // CAD teal-green
+                    draw_strokes(m_fill_model, glyphs, std::max(0.9 * upp, 1e-4), badge);
+                }
+            }
             shader->stop_using();
             glsafe(::glEnable(GL_CULL_FACE));
             glsafe(::glEnable(GL_DEPTH_TEST));

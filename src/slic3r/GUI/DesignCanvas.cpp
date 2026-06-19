@@ -415,4 +415,10 @@ void DesignCanvas::set_constraint_highlight(std::vector<int> entities)
     if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
 }
 
+void DesignCanvas::set_constraint_glyphs(std::vector<SketchEntityConstraintDef> cons)
+{
+    m_sketch_tool.set_constraint_glyphs(std::move(cons));
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
 }} // namespace Slic3r::GUI
