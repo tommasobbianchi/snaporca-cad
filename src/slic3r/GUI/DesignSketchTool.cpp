@@ -2085,7 +2085,29 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
             add_len(f.begin + 0,  1.0);   // Width
             add_len(f.begin + 1, -1.0);   // Height
             break;
-        default: break;                   // slot/polygon/etc.: later chunks
+        case FeatureKind::Slot: {
+            // make_slot order: [top line, cap@c1, bottom line, cap@c0]. Centre-distance =
+            // Distance between the two cap-arc centres; Width = cap Radius (half-width).
+            const int cap_c1 = f.begin + 1, cap_c0 = f.begin + 3;
+            if (cap_c0 < int(m_entities.size()) && cap_c1 < int(m_entities.size())) {
+                DimAnnot dst; dst.kind = DimType::Distance;
+                dst.ea = cap_c0; dst.ra = SketchPointRole::Center;
+                dst.eb = cap_c1; dst.rb = SketchPointRole::Center;
+                // Push the centre-distance label clear ABOVE the slot (past the cap
+                // half-width) so it sits outside the fillable face — otherwise clicking
+                // it would hit the interior and trigger face-select. a.side scales the
+                // quote offset (draw_dim_quote: off = side * max(L*0.18, 8)).
+                const double Lc   = (f.c1 - f.c0).norm();
+                const double unit = std::max(Lc * 0.18, 8.0);
+                const double th   = std::max(15.0 * unit_per_px, 1e-4);
+                dst.side = (f.param + th * 2.5) / unit;   // clear cap + label height
+                protos.push_back(dst);
+                DimAnnot rad; rad.kind = DimType::Radius; rad.ea = cap_c1;   // width
+                protos.push_back(rad);
+            }
+            break;
+        }
+        default: break;                   // polygon/etc.: later chunks
         }
     }
 
@@ -3373,8 +3395,10 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                     const Vec2d n(-u.y(), u.x());
                     const double w = std::abs(n.dot(p - m_points[0]));
                     const int base = int(m_entities.size());
+                    begin_feature(FeatureKind::Slot);
                     append_entities(make_slot(m_points[0], m_points[1], w));
                     infer_auto_constraints(base);
+                    end_feature(m_points[0], m_points[1], w);  // centres + half-width
                 }
                 m_points.clear();
             }
