@@ -1928,7 +1928,9 @@ void DesignPanel::apply_edit_op(EditOp op)
         // no stale constraints to drop. Collect count, then spacing; the array runs
         // along the subject line's own direction (or +X for non-lines). Copies are
         // pure translates, so for lines they are Parallel + EqualLength to the
-        // source by construction -> bind each copy to the source in a star web.
+        // source by construction -> bind each copy to the source in a star web; for
+        // arc/circle subjects the translate preserves radius (but not the centre),
+        // so the web is a per-copy Radius dimension instead (see below).
         const int a = e0;
         request_value(_L("Array count (incl. original)"), 3.0, 2.0, 200.0,
             [this, a](double cnt_d) {
@@ -1992,6 +1994,23 @@ void DesignPanel::apply_edit_op(EditOp op)
                                 if (!m_doc.solve_sketch_feature(m_constrain_feat))
                                     f.entity_constraints.resize(cb);
                             }
+                        } else if (src_type == Type::Arc || src_type == Type::Circle) {
+                            // Curved subject: translation preserves the radius but
+                            // marches the centres apart, so the copies are NOT
+                            // concentric. There is no EQUAL_RADIUS in the constraint
+                            // enum, so pin each copy's radius to the source value with
+                            // a per-copy Radius dimension (keeps the array equal-radius
+                            // and documents intent, mirroring the line web). Solve and
+                            // roll the whole web back if the solver rejects it.
+                            using CT = SketchConstraintType;
+                            const size_t cb = f.entity_constraints.size();
+                            for (int k = 0; k < int(copies.size()); ++k) {
+                                SketchEntityConstraintDef dr; dr.type = CT::Radius;
+                                dr.ea = base + k; dr.value = src.radius;
+                                f.entity_constraints.push_back(dr);
+                            }
+                            if (!m_doc.solve_sketch_feature(m_constrain_feat))
+                                f.entity_constraints.resize(cb);
                         }
                         after_edit_op();
                     });
@@ -2177,7 +2196,9 @@ void DesignPanel::apply_edit_op(EditOp op)
         // count-1 rotated copies appended) -> no stale constraints to drop. Copies
         // are rigid rotations of the source, so they preserve LENGTH but NOT
         // orientation: bind each copy to the source with EqualLength only (Parallel
-        // does NOT hold under rotation, unlike the linear-array web). Dialogs: count
+        // does NOT hold under rotation, unlike the linear-array web). Arc/circle
+        // subjects rotate about their own centre, so their copies stay Concentric +
+        // equal-radius instead (see below). Dialogs: count
         // then total sweep; angle_step = sweep/count spreads them evenly (last copy
         // lands just shy of the original on a full 360).
         const int a = e0;
@@ -2233,6 +2254,35 @@ void DesignPanel::apply_edit_op(EditOp op)
                             }
                             if (!m_doc.solve_sketch_feature(m_constrain_feat))
                                 f.entity_constraints.resize(cb);
+                        } else if (src_type == Type::Arc || src_type == Type::Circle) {
+                            // Curved subject: the polar pivot is the subject centroid,
+                            // which for an arc/circle IS its own centre. Rotating about
+                            // that centre keeps every copy CONCENTRIC with the source and
+                            // at the same radius (only the angular position shifts). Bind
+                            // each copy with Concentric + a per-copy Radius dimension;
+                            // degrade to Radius-only, then to bare geometry, keeping the
+                            // geometry regardless.
+                            using CT = SketchConstraintType;
+                            const size_t cb = f.entity_constraints.size();
+                            auto build_web = [&](bool with_concentric) {
+                                f.entity_constraints.resize(cb);
+                                for (int k = 0; k < int(copies.size()); ++k) {
+                                    if (with_concentric) {
+                                        SketchEntityConstraintDef dc; dc.type = CT::Concentric;
+                                        dc.ea = a; dc.eb = base + k;
+                                        f.entity_constraints.push_back(dc);
+                                    }
+                                    SketchEntityConstraintDef dr; dr.type = CT::Radius;
+                                    dr.ea = base + k; dr.value = src.radius;
+                                    f.entity_constraints.push_back(dr);
+                                }
+                            };
+                            build_web(true);
+                            if (!m_doc.solve_sketch_feature(m_constrain_feat)) {
+                                build_web(false);
+                                if (!m_doc.solve_sketch_feature(m_constrain_feat))
+                                    f.entity_constraints.resize(cb);
+                            }
                         }
                         after_edit_op();
                     });
