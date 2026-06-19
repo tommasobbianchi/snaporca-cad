@@ -225,6 +225,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
               _L("Click center, then a corner"));
         skbtn("design_rect_oblique", DesignSketchTool::Mode::ObliqueRect,   _L("Oblique rectangle"),
               _L("Click two corners of one edge, then a point for the width"));
+        skbtn("design_rect_rounded", DesignSketchTool::Mode::RoundedRect,   _L("Rounded rectangle"),
+              _L("Click two opposite corners, then a point for the corner radius"));
         skbtn("design_circle",    DesignSketchTool::Mode::CenterCircle,     _L("Center circle"),
               _L("Click center, then radius"));
         skbtn("design_circle2pt", DesignSketchTool::Mode::TwoPointCircle,   _L("2-point circle"),
@@ -241,18 +243,28 @@ DesignPanel::DesignPanel(wxWindow* parent)
               _L("Click center, then start, then a point for the end angle"));
         skbtn("design_slot",      DesignSketchTool::Mode::Slot,             _L("Slot"),
               _L("Click two centerline ends, then a point for width"));
+        skbtn("design_slot_arc",  DesignSketchTool::Mode::ArcSlot,          _L("Arc slot"),
+              _L("Click center, start, end, then a point for the width"));
 
         m_sides = new wxSpinCtrl(m_toolbar, wxID_ANY, "6", wxDefaultPosition, wxSize(50, -1));
         m_sides->SetRange(3, 64);
         m_sides->SetValue(6);
         auto* b_poly = icon_btn("design_polygon", _L("Polygon"));
         b_poly->Bind(wxEVT_BUTTON, [this, select_tool](wxCommandEvent&) {
-            if (m_viewport) m_viewport->set_sketch_polygon_sides(m_sides->GetValue());
+            if (m_viewport) {
+                m_viewport->set_sketch_polygon_sides(m_sides->GetValue());
+                m_viewport->set_sketch_polygon_circumscribed(m_poly_circ && m_poly_circ->GetValue());
+            }
             select_tool(DesignSketchTool::Mode::Polygon, _L("Click center then a vertex")); });
         m_sides->Bind(wxEVT_SPINCTRL, [this](wxSpinEvent&) {
             if (m_viewport) m_viewport->set_sketch_polygon_sides(m_sides->GetValue()); });
         sadd(b_poly);
         sadd(m_sides);
+        m_poly_circ = new wxCheckBox(m_toolbar, wxID_ANY, _L("Circumscribed"));
+        m_poly_circ->SetForegroundColour(wxColour(0xC8, 0xC8, 0xC8));
+        m_poly_circ->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
+            if (m_viewport) m_viewport->set_sketch_polygon_circumscribed(m_poly_circ->GetValue()); });
+        sadd(m_poly_circ);
         add_sep(m_tb_sketch);
         m_construction->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
             if (m_viewport && m_viewport->is_sketching())

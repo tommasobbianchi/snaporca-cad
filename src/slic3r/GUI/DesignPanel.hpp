@@ -123,6 +123,7 @@ private:
     wxSizer*  m_tb_constrain{nullptr};
     wxCheckBox*       m_construction{nullptr};   // sketch-mode construction toggle
     wxSpinCtrl*       m_sides{nullptr};          // polygon sides
+    wxCheckBox*       m_poly_circ{nullptr};      // polygon circumscribed toggle
 
     wxChoice*         m_draw_plane{nullptr};
     wxChoice*         m_shape{nullptr};

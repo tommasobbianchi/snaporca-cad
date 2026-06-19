@@ -212,6 +212,11 @@ void DesignCanvas::set_sketch_polygon_sides(int n)
     m_sketch_tool.set_polygon_sides(n);
 }
 
+void DesignCanvas::set_sketch_polygon_circumscribed(bool c)
+{
+    m_sketch_tool.set_polygon_circumscribed(c);
+}
+
 void DesignCanvas::finish_sketch()
 {
     m_sketch_tool.finish();

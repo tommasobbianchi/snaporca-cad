@@ -40,6 +40,7 @@ public:
     void set_sketch_tool(DesignSketchTool::Mode mode);
     void set_sketch_construction(bool c);
     void set_sketch_polygon_sides(int n);
+    void set_sketch_polygon_circumscribed(bool c);
     void finish_sketch();
     bool is_sketching() const;
     void cancel_sketch();

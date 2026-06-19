@@ -25,14 +25,15 @@ class GLCanvas3D;
 class DesignSketchTool {
 public:
     enum class Mode { Select, Dimension, Polyline, Line, CornerRect, CenterRect, ObliqueRect,
-                      CenterCircle, TwoPointCircle, Point,
-                      ThreePointCircle, ThreePointArc, TangentArc, CenterArc, Slot, Polygon,
+                      RoundedRect, CenterCircle, TwoPointCircle, Point,
+                      ThreePointCircle, ThreePointArc, TangentArc, CenterArc, Slot, ArcSlot, Polygon,
                       Constrain };
 
     void begin(const SketchPlane& plane, Mode mode = Mode::Polyline);
     void set_tool(Mode mode);                 // switch tool, keep accumulated entities
     void set_construction(bool c) { m_construction = c; }
     void set_polygon_sides(int n) { m_polygon_sides = (n < 3 ? 3 : n); }
+    void set_polygon_circumscribed(bool c) { m_polygon_circumscribed = c; }
     void finish();                            // emit accumulated entities, end session
     void cancel();
     bool is_active() const { return m_active; }
@@ -202,6 +203,9 @@ private:
     // point whose direction from the center sets the CCW end angle.
     std::vector<SketchEntity> make_center_arc(const Vec2d& center, const Vec2d& start, const Vec2d& end_dir) const;
     std::vector<SketchEntity> make_slot(const Vec2d& c0, const Vec2d& c1, double half_width) const;
+    std::vector<SketchEntity> make_arc_slot(const Vec2d& center, const Vec2d& start,
+                                            const Vec2d& end_dir, double half_width) const;
+    std::vector<SketchEntity> make_rounded_rect(const Vec2d& a, const Vec2d& b, const Vec2d& radius_pt) const;
     std::vector<SketchEntity> make_polygon(const Vec2d& center, const Vec2d& vertex, int sides) const;
     void append_entities(const std::vector<SketchEntity>& ents);
     void draw_entities_preview(const std::vector<SketchEntity>& ents, const ColorRGBA& color);
@@ -227,6 +231,7 @@ private:
     std::vector<SketchEntity> m_entities; // committed entities of this session
     bool                m_construction{false};
     int                 m_polygon_sides{6};
+    bool                m_polygon_circumscribed{false};
     Vec2d               m_cursor{0,0};
     bool                m_has_cursor{false};
     bool                m_snap_off{false};      // Shift held -> suppress angle snapping

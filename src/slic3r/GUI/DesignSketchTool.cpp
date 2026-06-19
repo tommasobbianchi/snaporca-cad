@@ -990,14 +990,88 @@ std::vector<SketchEntity> DesignSketchTool::make_slot(const Vec2d& c0, const Vec
     return out;
 }
 
+// Arc slot: a slot whose centerline is a circular arc (center, start, end_dir on
+// the same radius). Bounded by an outer arc (Rc+w), an inner arc (Rc-w) and two
+// semicircular end caps. CCW closed loop, mirroring make_slot's structure.
+std::vector<SketchEntity> DesignSketchTool::make_arc_slot(const Vec2d& center, const Vec2d& start,
+                                                          const Vec2d& end_dir, double half_width) const
+{
+    std::vector<SketchEntity> out;
+    const double Rc = (start - center).norm();
+    const double w  = half_width;
+    if (Rc < 1e-6 || w < 1e-6 || w >= Rc) return out;
+    const Vec2d dirS = (start - center) / Rc;
+    Vec2d de = end_dir - center;
+    if (de.squaredNorm() < 1e-12) return out;
+    const Vec2d dirE = de.normalized();
+    const double aS = std::atan2(dirS.y(), dirS.x());
+    const double aE = std::atan2(dirE.y(), dirE.x());
+    const double sweep = wrap_2pi(aE - aS);            // CCW start -> end
+    const double aMid  = aS + sweep * 0.5;
+    const Vec2d  uMid(std::cos(aMid), std::sin(aMid));
+    const Vec2d  Sc = center + Rc * dirS;              // centerline start point (cap centre)
+    const Vec2d  Ec = center + Rc * dirE;              // centerline end point   (cap centre)
+    const Vec2d  S_out = center + (Rc + w) * dirS, S_in = center + (Rc - w) * dirS;
+    const Vec2d  E_out = center + (Rc + w) * dirE, E_in = center + (Rc - w) * dirE;
+    const Vec2d  tE(-dirE.y(), dirE.x());              // CCW travel-forward tangent at E
+    const Vec2d  tS(-dirS.y(), dirS.x());              // CCW travel-forward tangent at S
+    out.push_back(make_arc_through(center, Rc + w, S_out, E_out, center + (Rc + w) * uMid, m_construction)); // outer
+    out.push_back(make_arc_through(Ec, w, E_out, E_in, Ec + w * tE, m_construction));                        // cap @E (forward)
+    out.push_back(make_arc_through(center, Rc - w, E_in, S_in, center + (Rc - w) * uMid, m_construction));   // inner
+    out.push_back(make_arc_through(Sc, w, S_in, S_out, Sc - w * tS, m_construction));                        // cap @S (backward)
+    return out;
+}
+
+// Rounded rectangle: axis-aligned box (a,b opposite corners) with filleted
+// corners. radius_pt's distance to the nearest corner sets the fillet radius.
+// 4 straight edges + 4 quarter arcs, CCW.
+std::vector<SketchEntity> DesignSketchTool::make_rounded_rect(const Vec2d& a, const Vec2d& b, const Vec2d& radius_pt) const
+{
+    std::vector<SketchEntity> out;
+    const double xmin = std::min(a.x(), b.x()), xmax = std::max(a.x(), b.x());
+    const double ymin = std::min(a.y(), b.y()), ymax = std::max(a.y(), b.y());
+    const double bw = xmax - xmin, bh = ymax - ymin;
+    if (bw < 1e-6 || bh < 1e-6) return out;
+    const Vec2d cs[4] = { {xmin,ymin}, {xmax,ymin}, {xmax,ymax}, {xmin,ymax} };
+    double r = 1e18;
+    for (const Vec2d& c : cs) r = std::min(r, (radius_pt - c).norm());
+    r = std::min(r, std::min(bw, bh) * 0.5);
+    auto line = [&](const Vec2d& p0, const Vec2d& p1) {
+        SketchEntity e; e.type = SketchEntity::Type::Line; e.p0 = p0; e.p1 = p1;
+        e.construction = m_construction; return e; };
+    if (r < 1e-6) {   // degenerate -> plain rectangle
+        for (int i = 0; i < 4; ++i) out.push_back(line(cs[i], cs[(i + 1) % 4]));
+        return out;
+    }
+    auto corner = [&](const Vec2d& O, const Vec2d& sharp, const Vec2d& start, const Vec2d& end) {
+        const Vec2d thr = O + r * (sharp - O).normalized();
+        return make_arc_through(O, r, start, end, thr, m_construction); };
+    out.push_back(line({xmin + r, ymin}, {xmax - r, ymin}));                                  // bottom
+    out.push_back(corner({xmax - r, ymin + r}, {xmax, ymin}, {xmax - r, ymin}, {xmax, ymin + r})); // BR
+    out.push_back(line({xmax, ymin + r}, {xmax, ymax - r}));                                  // right
+    out.push_back(corner({xmax - r, ymax - r}, {xmax, ymax}, {xmax, ymax - r}, {xmax - r, ymax})); // TR
+    out.push_back(line({xmax - r, ymax}, {xmin + r, ymax}));                                  // top
+    out.push_back(corner({xmin + r, ymax - r}, {xmin, ymax}, {xmin + r, ymax}, {xmin, ymax - r})); // TL
+    out.push_back(line({xmin, ymax - r}, {xmin, ymin + r}));                                  // left
+    out.push_back(corner({xmin + r, ymin + r}, {xmin, ymin}, {xmin, ymin + r}, {xmin + r, ymin})); // BL
+    return out;
+}
+
 std::vector<SketchEntity> DesignSketchTool::make_polygon(const Vec2d& center, const Vec2d& vertex, int sides) const
 {
     std::vector<SketchEntity> out;
     if (sides < 3) sides = 3;
     const Vec2d rv = vertex - center;
-    const double R = rv.norm();
-    if (R < 1e-6) return out;
-    const double a0 = std::atan2(rv.y(), rv.x());
+    const double d = rv.norm();
+    if (d < 1e-6) return out;
+    // Inscribed: cursor is a vertex (circumradius = d). Circumscribed: cursor is an
+    // edge midpoint (apothem = d) → circumradius R = d / cos(pi/n), rotated by half
+    // a step so an edge midpoint points at the cursor.
+    double R = d, a0 = std::atan2(rv.y(), rv.x());
+    if (m_polygon_circumscribed) {
+        R  = d / std::cos(M_PI / double(sides));
+        a0 = std::atan2(rv.y(), rv.x()) - M_PI / double(sides);
+    }
     std::vector<Vec2d> verts; verts.reserve(sides);
     for (int i = 0; i < sides; ++i) {
         const double a = a0 + 2.0 * M_PI * double(i) / double(sides);
@@ -1762,6 +1836,17 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         break;
     }
 
+    case Mode::RoundedRect: {
+        draw_vertices(m_vertex_model, m_points, yellow);
+        if (m_points.size() == 1 && m_has_cursor) {
+            const Vec2d A = m_points[0], B = m_cursor;   // box not yet fixed: plain rect
+            draw_quad_strip(m_highlight_model, { A, Vec2d(B.x(), A.y()), B, Vec2d(A.x(), B.y()) }, true, preview);
+        } else if (m_points.size() == 2 && m_has_cursor) {
+            draw_entities_preview(make_rounded_rect(m_points[0], m_points[1], m_cursor), preview);
+        }
+        break;
+    }
+
     case Mode::CenterCircle: {
         if (m_points.size() == 1 && m_has_cursor) {
             const Vec2d C = m_points[0];
@@ -1828,6 +1913,23 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
                 const double w = std::abs(n.dot(m_cursor - m_points[0]));
                 draw_entities_preview(make_slot(m_points[0], m_points[1], w), preview);
             }
+        }
+        break;
+    }
+
+    case Mode::ArcSlot: {
+        draw_vertices(m_vertex_model, m_points, yellow);
+        if (m_points.size() == 1 && m_has_cursor) {
+            // center placed: faint guide circle for the centerline radius
+            SketchEntity g; g.type = SketchEntity::Type::Circle; g.center = m_points[0];
+            g.p0 = m_points[0]; g.radius = (m_cursor - m_points[0]).norm(); g.construction = true;
+            draw_entities_preview({ g }, preview);
+        } else if (m_points.size() == 2 && m_has_cursor) {
+            draw_entities_preview(make_center_arc(m_points[0], m_points[1], m_cursor), preview); // centerline arc
+        } else if (m_points.size() == 3 && m_has_cursor) {
+            const double Rc = (m_points[1] - m_points[0]).norm();
+            const double w  = std::abs((m_cursor - m_points[0]).norm() - Rc);
+            draw_entities_preview(make_arc_slot(m_points[0], m_points[1], m_points[2], w), preview);
         }
         break;
     }
@@ -2340,6 +2442,25 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
         break;
     }
 
+    case Mode::RoundedRect: {
+        if (evt.LeftDown()) {
+            Vec2d p; screen_to_plane(canvas, evt, p);
+            bool vsnap = false;
+            if (m_points.size() < 2)                 // the two corners snap; 3rd sets radius
+                p = snap_vertex(canvas, evt, p, vsnap);
+            m_points.push_back(p);
+            if (m_points.size() == 3) {
+                const int base = int(m_entities.size());
+                append_entities(make_rounded_rect(m_points[0], m_points[1], m_points[2]));
+                infer_auto_constraints(base);
+                m_points.clear();
+            }
+            return true;
+        }
+        if (evt.RightDown()) { m_points.clear(); return true; }
+        break;
+    }
+
     case Mode::CenterCircle: {
         if (evt.LeftDown()) {
             Vec2d p;
@@ -2462,6 +2583,28 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                     append_entities(make_slot(m_points[0], m_points[1], w));
                     infer_auto_constraints(base);
                 }
+                m_points.clear();
+            }
+            return true;
+        }
+        if (evt.RightDown()) { m_points.clear(); return true; }
+        break;
+    }
+
+    case Mode::ArcSlot: {
+        if (evt.LeftDown()) {
+            Vec2d p; screen_to_plane(canvas, evt, p);
+            bool vsnap = false;
+            if (m_points.size() == 1)                // start snaps; center & end-dir are free
+                p = snap_vertex(canvas, evt, p, vsnap);
+            m_points.push_back(p);
+            if (m_points.size() == 4) {
+                // clicks: center, start, end-dir, width
+                const double Rc = (m_points[1] - m_points[0]).norm();
+                const double w  = std::abs((m_points[3] - m_points[0]).norm() - Rc);
+                const int base = int(m_entities.size());
+                append_entities(make_arc_slot(m_points[0], m_points[1], m_points[2], w));
+                infer_auto_constraints(base);
                 m_points.clear();
             }
             return true;
