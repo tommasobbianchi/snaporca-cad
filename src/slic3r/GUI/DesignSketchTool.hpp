@@ -258,6 +258,10 @@ private:
     int  place_dimension(DimAnnot a);                                       // create+drive+notify
     std::string dim_text(const DimAnnot& a) const;                          // rendered label string
     void render_dimensions(double unit_per_px);                            // quote lines + labels
+    // Live, non-driving radius quote for the circle being radius-dragged (or a lone
+    // selected circle) so resizing shows its value Onshape-style. Self-gates; no-op
+    // otherwise.
+    void render_live_radius_quote(double unit_per_px);
     // Iconic constraint badges (C3.4b): for each m_constrain_cons entry, append a
     // small screen-constant glyph (H, V, ∥, ⊥, =, ○, …) near its primary entity into
     // `out`; glyphs touching the same entity stack so they don't overlap.

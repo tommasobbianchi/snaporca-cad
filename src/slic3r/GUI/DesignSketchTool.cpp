@@ -1958,6 +1958,39 @@ void DesignSketchTool::render_dimensions(double unit_per_px)
     }
 }
 
+// Live radius quote (Onshape-style): while the circle's RadiusHandle is being dragged
+// — or when a lone circle is selected — draw a centre→edge quote line with an arrowhead
+// and the live "R<value>" label, reusing the teal CAD dimension styling. Non-driving:
+// it reports the current radius, it does not constrain it.
+void DesignSketchTool::render_live_radius_quote(double unit_per_px)
+{
+    int ei = -1;
+    if (m_dragging_handle && m_drag_handle.role == HandleRole::RadiusHandle)
+        ei = m_drag_handle.ei;
+    else if (m_selection.size() == 1)
+        ei = m_selection[0];
+    if (ei < 0 || ei >= int(m_entities.size())) return;
+    const SketchEntity& e = m_entities[ei];
+    if (e.type != SketchEntity::Type::Circle) return;
+    const double r = e.radius;
+    if (r < 1e-6) return;
+
+    const ColorRGBA dimcol(0.30f, 0.88f, 0.66f, 1.0f);   // teal-green CAD quote
+    const double th = std::max(15.0 * unit_per_px, 1e-4);
+    const Vec2d  c  = e.center;
+    const Vec2d  u(1.0, 0.0);                             // toward the +x radius handle
+    const double as = std::max(r * 0.12, 2.0);
+    const Vec2d  p2 = c + u * r;
+    std::vector<std::pair<Vec2d, Vec2d>> segs;
+    segs.emplace_back(c, p2);                             // radius line
+    segs.emplace_back(p2, p2 - u * as + Vec2d(0, 1) * (as * 0.5));   // arrowhead
+    segs.emplace_back(p2, p2 - u * as - Vec2d(0, 1) * (as * 0.5));
+    const Vec2d label = (c + p2) * 0.5 + Vec2d(0, 1) * (th * 0.8);
+    DimAnnot tmp; tmp.kind = DimType::Radius; tmp.ea = ei; tmp.value = r;
+    draw_strokes(m_highlight_model, segs, 0.6, dimcol);
+    draw_text(m_line_model, dim_text(tmp), label, th, dimcol);
+}
+
 // Iconic constraint badges drawn near each constraint's primary entity (C3.4b).
 // Each glyph is authored in a unit cell [-0.5,0.5]^2 then scaled to a constant
 // on-screen size and translated to the anchor; badges on the same entity stack
@@ -2258,6 +2291,7 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     // Placed dimension quotes (drawn in every mode so they persist while sketching).
     // Pass plane-units-per-pixel so labels keep a constant on-screen size.
     render_dimensions(1.0 / std::max(camera.get_zoom(), 1e-6));
+    render_live_radius_quote(1.0 / std::max(camera.get_zoom(), 1e-6));
 
     // In-progress entity preview for the active tool.
     const ColorRGBA preview = m_construction ? grey : orange;
