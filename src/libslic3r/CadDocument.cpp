@@ -632,8 +632,11 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body, const Cad
         const CadFeature& sk = (f.sketch_ref >= 0 && f.sketch_ref < int(features.size())
                                 && features[f.sketch_ref].type == CadFeatureType::Sketch)
                                ? features[f.sketch_ref] : f;
-        TopoDS_Wire  wire = build_sketch_wire(sk);
-        TopoDS_Shape tool = SketchEngine::make_extrude(wire, sk.plane, f.distance, f.symmetric, 0.0);
+        // Imported rigid art (Text/SVG) extrudes via the faces-with-holes path;
+        // otherwise build a single wire from entities/profile/shape.
+        TopoDS_Shape tool = !sk.imported_regions.empty()
+            ? SketchEngine::make_extrude_regions(sk.imported_regions, sk.plane, f.distance, f.symmetric)
+            : SketchEngine::make_extrude(build_sketch_wire(sk), sk.plane, f.distance, f.symmetric, 0.0);
         if (!have_body || f.mode == BooleanMode::New) {
             result = tool;
             have_body = true;

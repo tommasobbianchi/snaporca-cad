@@ -44,6 +44,15 @@ struct CadFeature {
     // vector applies only to the `profile` path).
     std::vector<SketchEntityConstraintDef> entity_constraints;
 
+    // Imported rigid 2D art (Text glyphs / SVG vector paths) as filled regions.
+    // Each region: contour[0] = outer loop, contour[1..] = holes; points in
+    // plane (u,v) millimetres. Rendered as a sketch overlay and extruded via a
+    // faces-with-holes path (SketchEngine::make_extrude_regions) — deliberately
+    // NOT solver entities, so imported art contributes zero DoF and never
+    // pollutes the constraint solver / DoF readout. When non-empty it takes
+    // precedence over the entities/profile/shape paths in the Extrude case.
+    std::vector<std::vector<std::vector<Vec2d>>> imported_regions;
+
     // Extrude params
     int         sketch_ref{-1};   // index into features[] of the consumed sketch
     double      distance{10};

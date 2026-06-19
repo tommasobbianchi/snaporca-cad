@@ -158,6 +158,14 @@ public:
     static TopoDS_Shape make_extrude_face(const TopoDS_Face& face, const SketchPlane& plane,
                                           double length, bool symmetric = false, double taper_deg = 0.0);
 
+    // Extrude a set of imported rigid regions (Text/SVG). Each region is
+    // contour[0]=outer loop + contour[1..]=hole loops, in plane (u,v) mm. Builds
+    // one planar face-with-holes per region, extrudes it, and fuses all region
+    // solids into a single shape. Empty/degenerate contours are skipped.
+    static TopoDS_Shape make_extrude_regions(
+        const std::vector<std::vector<std::vector<Vec2d>>>& regions,
+        const SketchPlane& plane, double length, bool symmetric = false);
+
     static TopoDS_Shape make_revolve(const TopoDS_Wire& wire, const SketchPlane& plane,
                                      double angle_deg = 360.0);
 

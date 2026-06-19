@@ -172,6 +172,58 @@ TopoDS_Shape SketchEngine::make_extrude_face(const TopoDS_Face& face, const Sket
     return extrude_face_internal(face, dir, length, symmetric);
 }
 
+TopoDS_Shape SketchEngine::make_extrude_regions(
+    const std::vector<std::vector<std::vector<Vec2d>>>& regions,
+    const SketchPlane& plane, double length, bool symmetric)
+{
+    // Build a closed planar wire from a contour of plane (u,v) points.
+    auto contour_wire = [&](const std::vector<Vec2d>& pts) -> TopoDS_Wire {
+        if (pts.size() < 3) return TopoDS_Wire{};
+        SketchProfile prof;
+        prof.points = pts;
+        prof.closed = true;
+        return prof.to_occt_wire(plane);
+    };
+
+    gp_Dir dir(plane.normal.x(), plane.normal.y(), plane.normal.z());
+    TopoDS_Shape acc;
+    bool have = false;
+
+    for (const auto& region : regions) {
+        if (region.empty()) continue;
+        TopoDS_Wire outer = contour_wire(region[0]);
+        if (outer.IsNull()) continue;
+
+        // Planar face from the outer loop, then subtract each hole loop. The hole
+        // wire is reversed so OCCT treats it as an interior boundary regardless of
+        // the source winding (Emboss/NSVG hole orientation varies).
+        BRepBuilderAPI_MakeFace fm(outer);
+        if (!fm.IsDone()) continue;
+        for (size_t h = 1; h < region.size(); ++h) {
+            TopoDS_Wire hole = contour_wire(region[h]);
+            if (hole.IsNull()) continue;
+            fm.Add(TopoDS::Wire(hole.Reversed()));
+        }
+        if (!fm.IsDone()) continue;
+
+        TopoDS_Shape solid;
+        try {
+            solid = extrude_face_internal(fm.Face(), dir, length, symmetric);
+        } catch (...) {
+            continue;   // skip a single bad glyph rather than fail the whole insert
+        }
+
+        if (!have) { acc = solid; have = true; }
+        else {
+            BRepAlgoAPI_Fuse fuse(acc, solid);
+            if (fuse.IsDone()) acc = fuse.Shape();
+        }
+    }
+
+    if (!have) throw std::runtime_error("imported regions produced no extrudable geometry");
+    return acc;
+}
+
 TopoDS_Shape SketchEngine::make_revolve(const TopoDS_Wire& wire, const SketchPlane& plane,
                                         double angle_deg)
 {

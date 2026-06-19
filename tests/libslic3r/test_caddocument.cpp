@@ -617,3 +617,65 @@ TEST_CASE("entity constraints: tangent/midpoint/symmetric/angle", "[CadDocument]
         REQUIRE((e[1].p0 - Vec2d(-2,3)).norm() < 1e-3);
     }
 }
+
+TEST_CASE("imported regions: faces-with-holes extrude (Text/SVG carrier)", "[CadDocument]")
+{
+    SECTION("square with a square hole -> tube volume") {
+        CadDocument doc;
+
+        CadFeature sk;
+        sk.type  = CadFeatureType::Sketch;
+        sk.name  = "art";
+        sk.plane = SketchPlane::XY();
+        // One region: outer 20x20 (CCW) + inner 8x8 hole (CW).
+        sk.imported_regions = {{
+            {Vec2d(-10,-10), Vec2d(10,-10), Vec2d(10,10), Vec2d(-10,10)},   // outer
+            {Vec2d(-4,-4),   Vec2d(-4,4),   Vec2d(4,4),   Vec2d(4,-4)},     // hole (reversed winding)
+        }};
+        doc.features.push_back(sk);
+
+        CadFeature ex;
+        ex.type       = CadFeatureType::Extrude;
+        ex.name       = "extrude";
+        ex.sketch_ref = 0;
+        ex.distance   = 5;
+        ex.mode       = BooleanMode::New;
+        doc.features.push_back(ex);
+
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        REQUIRE(doc.display_mesh.facets_count() > 0);
+
+        // (20*20 - 8*8) * 5 = 1680 mm^3
+        REQUIRE_THAT(double(doc.display_mesh.volume()), Catch::Matchers::WithinRel(1680.0, 0.02));
+
+        auto sz = doc.display_mesh.bounding_box().size();
+        REQUIRE(std::abs(sz.x() - 20.0) < 0.5);
+        REQUIRE(std::abs(sz.y() - 20.0) < 0.5);
+        REQUIRE(std::abs(sz.z() -  5.0) < 0.5);
+    }
+
+    SECTION("two disjoint regions fuse into one shape") {
+        CadDocument doc;
+
+        CadFeature sk;
+        sk.type  = CadFeatureType::Sketch;
+        sk.plane = SketchPlane::XY();
+        sk.imported_regions = {
+            {{Vec2d(0,0),  Vec2d(5,0),  Vec2d(5,5),  Vec2d(0,5)}},
+            {{Vec2d(10,0), Vec2d(15,0), Vec2d(15,5), Vec2d(10,5)}},
+        };
+        doc.features.push_back(sk);
+
+        CadFeature ex;
+        ex.type       = CadFeatureType::Extrude;
+        ex.sketch_ref = 0;
+        ex.distance   = 3;
+        doc.features.push_back(ex);
+
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        // 2 * (5*5*3) = 150 mm^3
+        REQUIRE_THAT(double(doc.display_mesh.volume()), Catch::Matchers::WithinRel(150.0, 0.02));
+    }
+}
