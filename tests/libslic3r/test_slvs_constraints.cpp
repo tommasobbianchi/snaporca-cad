@@ -81,6 +81,25 @@ TEST_CASE("slvs: degrees of freedom reported", "[slvs]")
     CHECK(res.dof == 2);
 }
 
+TEST_CASE("slvs: drag pulls a point while constraints hold", "[slvs]")
+{
+    // A vertical line of fixed length 10, P0 pinned at the origin. Dragging P1 toward
+    // (10,0) must keep the length (Distance constraint) but rotate the line so the end
+    // follows the cursor into positive x — the dragged param wins the under-constrained DoF.
+    std::vector<SketchEntity> ents = { line({0, 0}, {0, 10}) };
+    std::vector<SketchEntityConstraintDef> cons = {
+        con(CT::Fix,      0, R::P0, 0, R::P0),
+        con(CT::Distance, 0, R::P0, 0, R::P1, 10.0),
+    };
+    ents[0].p1 = Vec2d(10, 0);   // user dropped the endpoint here
+    auto res = sketch_solve_drag(ents, cons, 0, R::P1);
+    REQUIRE(res.ok);
+    CHECK((ents[0].p1 - ents[0].p0).norm() == Approx(10.0).margin(1e-6));  // length held
+    CHECK(ents[0].p0.x() == Approx(0.0).margin(1e-6));                     // P0 still pinned
+    CHECK(ents[0].p0.y() == Approx(0.0).margin(1e-6));
+    CHECK(ents[0].p1.x() > 1.0);   // end followed the drag toward +x (not stuck vertical)
+}
+
 TEST_CASE("slvs: over-constrained / inconsistent is detected", "[slvs]")
 {
     std::vector<SketchEntity> ents = { line({0, 0}, {5, 0}) };

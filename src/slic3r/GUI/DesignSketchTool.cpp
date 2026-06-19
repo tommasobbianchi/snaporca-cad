@@ -333,10 +333,17 @@ void DesignSketchTool::record_dimension_constraint(double v)
 // is the solver's initial guess, keeping convergence local and side-preserving.
 void DesignSketchTool::resolve_live()
 {
+    resolve_live_drag(-1, SketchPointRole::P0);
+}
+
+void DesignSketchTool::resolve_live_drag(int dragged_ei, SketchPointRole dragged_role)
+{
     const bool has = !m_constraints.empty();
     m_entity_conflict.assign(m_entities.size(), 0);
     if (has) {
-        const SketchSolveResult r = sketch_solve(m_entities, m_constraints);
+        const SketchSolveResult r = (dragged_ei >= 0)
+            ? sketch_solve_drag(m_entities, m_constraints, dragged_ei, dragged_role)
+            : sketch_solve(m_entities, m_constraints);
         m_dof      = r.dof;
         m_solve_ok = r.ok;
         // Flag every entity referenced by a conflicting constraint so render() can
@@ -2400,7 +2407,7 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             Vec2d p;
             screen_to_plane(canvas, evt, p);
             set_point(m_drag_ei, m_drag_role, p);
-            resolve_live();
+            resolve_live_drag(m_drag_ei, m_drag_role);
             return true;
         }
         if (evt.LeftUp()) {
@@ -2408,7 +2415,7 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 Vec2d p;
                 screen_to_plane(canvas, evt, p);
                 set_point(m_drag_ei, m_drag_role, p);
-                resolve_live();
+                resolve_live_drag(m_drag_ei, m_drag_role);
                 m_dragging_point = false;
                 m_drag_ei = -1;
                 return true;

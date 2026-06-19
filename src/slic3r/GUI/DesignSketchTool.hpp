@@ -166,6 +166,9 @@ private:
     bool selection_valid() const;                         // all selection indices in range
     void record_dimension_constraint(double v);           // append the driving def for the selection
     void resolve_live();                                  // solve accumulated constraints on m_entities now
+    // Drag-aware re-solve: pins the dragged point at its current coord and lets the
+    // solver move the rest (Slvs dragged[]). Used live while a point grab is active.
+    void resolve_live_drag(int dragged_ei, SketchPointRole dragged_role);
 
     // Placed dimension annotation. References entity points/entities (not cached
     // coords) so the quote follows the geometry as the kernel solves it. `value`

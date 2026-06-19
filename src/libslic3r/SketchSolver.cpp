@@ -53,8 +53,9 @@ inline int role_idx(Role r) { return int(r); }
 
 } // namespace
 
-SketchSolveResult sketch_solve(std::vector<SketchEntity>& entities,
-                               const std::vector<SketchEntityConstraintDef>& constraints)
+static SketchSolveResult solve_impl(std::vector<SketchEntity>& entities,
+                                    const std::vector<SketchEntityConstraintDef>& constraints,
+                                    int dragged_ei, Role dragged_role)
 {
     SketchSolveResult out;
     if (constraints.empty()) { out.ok = true; out.dof = -1; return out; }
@@ -244,6 +245,14 @@ SketchSolveResult sketch_solve(std::vector<SketchEntity>& entities,
     sys.faileds = int(failed.size());
     sys.calculateFaileds = 1;
 
+    // Drag pin: feed the dragged point's two params into sys.dragged[] so the solver
+    // favours keeping that point at the cursor and re-solves the rest around it.
+    if (dragged_ei >= 0) {
+        const Slvs_hEntity h = ptOf(dragged_ei, dragged_role);
+        for (const Slvs_Entity& en : b.ents)
+            if (en.h == h) { sys.dragged[0] = en.param[0]; sys.dragged[1] = en.param[1]; break; }
+    }
+
     Slvs_Solve(&sys, G_SK);
 
     out.result = sys.result;
@@ -309,6 +318,19 @@ SketchSolveResult sketch_solve(std::vector<SketchEntity>& entities,
     }
 
     return out;
+}
+
+SketchSolveResult sketch_solve(std::vector<SketchEntity>& entities,
+                               const std::vector<SketchEntityConstraintDef>& constraints)
+{
+    return solve_impl(entities, constraints, -1, Role::P0);
+}
+
+SketchSolveResult sketch_solve_drag(std::vector<SketchEntity>& entities,
+                                    const std::vector<SketchEntityConstraintDef>& constraints,
+                                    int dragged_ei, SketchPointRole dragged_role)
+{
+    return solve_impl(entities, constraints, dragged_ei, dragged_role);
 }
 
 } // namespace Slic3r

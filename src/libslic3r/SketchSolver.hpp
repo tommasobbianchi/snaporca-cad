@@ -24,6 +24,14 @@ struct SketchSolveResult {
 SketchSolveResult sketch_solve(std::vector<SketchEntity>& entities,
                                const std::vector<SketchEntityConstraintDef>& constraints);
 
+// Drag-aware solve: pins the (dragged_ei, dragged_role) point's parameters via the
+// solver's `dragged[]` priority list so the solver keeps that point where the cursor
+// placed it (caller must have moved it first) and moves the OTHER free geometry to
+// re-satisfy the constraints. dragged_ei < 0 behaves identically to sketch_solve.
+SketchSolveResult sketch_solve_drag(std::vector<SketchEntity>& entities,
+                                    const std::vector<SketchEntityConstraintDef>& constraints,
+                                    int dragged_ei, SketchPointRole dragged_role);
+
 } // namespace Slic3r
 
 #endif
