@@ -256,6 +256,11 @@ void DesignCanvas::set_on_cursor_metrics(std::function<void(double, double, bool
     m_sketch_tool.on_cursor_metrics = std::move(cb);
 }
 
+void DesignCanvas::set_on_solve_state(std::function<void(int, bool, bool)> cb)
+{
+    m_sketch_tool.on_solve_state = std::move(cb);
+}
+
 void DesignCanvas::apply_segment_length(double len)
 {
     m_sketch_tool.apply_segment_length(len);

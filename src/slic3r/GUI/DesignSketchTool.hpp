@@ -4,6 +4,7 @@
 #include "libslic3r/Point.hpp"
 #include "libslic3r/SketchEngine.hpp"
 #include "libslic3r/SketchInference.hpp"
+#include "libslic3r/SketchSolver.hpp"
 #include "GLModel.hpp"
 #include <functional>
 #include <vector>
@@ -80,6 +81,11 @@ public:
 
     // Live readout while drawing a Line/Polyline segment (anchor->cursor metrics).
     std::function<void(double length, double angle_deg, bool locked)> on_cursor_metrics;
+
+    // DoF feedback (P3): solver state after each live solve. dof>0 = under-constrained,
+    // dof==0 = fully constrained, ok==false = conflicting/inconsistent constraints.
+    // has_constraints is false while the sketch carries no driving constraints yet.
+    std::function<void(int dof, bool ok, bool has_constraints)> on_solve_state;
 
     // Selection (Mode::Select): pick points/lines/arcs/circles of the in-session
     // sketch; Shift/Ctrl extends, double-click grabs the whole connected loop.
@@ -255,6 +261,11 @@ private:
     int                 m_drag_ei{-1};            // entity whose point is being dragged
     SketchPointRole     m_drag_role{SketchPointRole::P0};
     std::vector<SketchEntityConstraintDef> m_constraints; // driving dims, committed on finish
+
+    // DoF feedback state, refreshed by resolve_live() from the libslvs solve result.
+    int               m_dof{-1};          // remaining DoF; 0 = fully constrained, <0 = unknown
+    bool              m_solve_ok{true};   // solver consistent (no conflicting constraints)
+    std::vector<char> m_entity_conflict;  // per-entity flag: touched by a conflicting constraint
     std::vector<DimAnnot> m_dimensions;           // placed dimension quotes (Mode::Dimension)
     int                 m_dim_e0{-1};             // first picked point's entity (Dimension)
     SketchPointRole     m_dim_r0{SketchPointRole::P0};

@@ -177,6 +177,7 @@ private:
     static int tree_icon_for(CadFeatureType t);
 
     wxStaticText*     m_status{nullptr};
+    wxStaticText*     m_dof_status{nullptr};   // DoF / constraint-state readout (P3)
     int               m_feature_counter{0};
 
     std::vector<wxButton*> m_confirm_btns;

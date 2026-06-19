@@ -37,6 +37,7 @@ void DesignSketchTool::begin(const SketchPlane& plane, Mode mode)
     m_dimensions.clear();
     m_dim_has0 = false;
     m_pending_dim = -1;
+    m_dof = -1; m_solve_ok = true; m_entity_conflict.clear();
     m_active = true;
 }
 
@@ -66,6 +67,7 @@ void DesignSketchTool::cancel()
     m_dimensions.clear();
     m_dim_has0 = false;
     m_pending_dim = -1;
+    m_dof = -1; m_solve_ok = true; m_entity_conflict.clear();
 }
 
 void DesignSketchTool::clear_selection()
@@ -331,8 +333,24 @@ void DesignSketchTool::record_dimension_constraint(double v)
 // is the solver's initial guess, keeping convergence local and side-preserving.
 void DesignSketchTool::resolve_live()
 {
-    if (!m_constraints.empty())
-        solve_sketch_entities(m_entities, m_constraints);
+    const bool has = !m_constraints.empty();
+    m_entity_conflict.assign(m_entities.size(), 0);
+    if (has) {
+        const SketchSolveResult r = sketch_solve(m_entities, m_constraints);
+        m_dof      = r.dof;
+        m_solve_ok = r.ok;
+        // Flag every entity referenced by a conflicting constraint so render() can
+        // tint it red (Onshape/SolveSpace over-constrained feedback).
+        for (int bi : r.bad) {
+            if (bi < 0 || bi >= int(m_constraints.size())) continue;
+            const SketchEntityConstraintDef& c = m_constraints[bi];
+            for (int e : {c.ea, c.eb, c.ec})
+                if (e >= 0 && e < int(m_entity_conflict.size())) m_entity_conflict[e] = 1;
+        }
+    } else {
+        m_dof = -1; m_solve_ok = true;
+    }
+    if (on_solve_state) on_solve_state(m_dof, m_solve_ok, has);
 }
 
 // ---- Dimension tool (Mode::Dimension): click-to-place driving quotes ----------
@@ -1871,14 +1889,25 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         }
     }
 
-    // Committed entities of this session (selected ones drawn white).
+    // Committed entities of this session. DoF feedback (P3): a fully-constrained
+    // sketch (dof==0, consistent) paints green; entities touched by a conflicting
+    // constraint paint red; otherwise the under-constrained default (orange / grey
+    // construction). Selected entities always override to white.
     const ColorRGBA white(1.0f, 1.0f, 1.0f, 1.0f);
+    const ColorRGBA green(0.30f, 0.85f, 0.42f, 1.0f);
+    const ColorRGBA conflict(1.0f, 0.22f, 0.22f, 1.0f);
+    const bool fully = (m_dof == 0 && m_solve_ok);
     std::vector<Vec2d> point_markers, sel_point_markers;
     for (size_t i = 0; i < m_entities.size(); ++i) {
         const SketchEntity& e = m_entities[i];
         const bool selected =
             std::find(m_selection.begin(), m_selection.end(), int(i)) != m_selection.end();
-        const ColorRGBA col = selected ? white : (e.construction ? grey : orange);
+        const bool bad = i < m_entity_conflict.size() && m_entity_conflict[i];
+        ColorRGBA col;
+        if (selected)            col = white;
+        else if (bad)            col = conflict;
+        else if (e.construction) col = grey;
+        else                     col = fully ? green : orange;
         if (e.type == SketchEntity::Type::Point) {
             (selected ? sel_point_markers : point_markers).push_back(e.p0);
             continue;

@@ -692,6 +692,16 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_status = new wxStaticText(m_form, wxID_ANY, "");
     root->Add(m_status, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
 
+    // DoF / constraint-state readout (P3). Dedicated line so it never clobbers the
+    // tool hint in m_status; updated by the on_solve_state callback after each solve.
+    m_dof_status = new wxStaticText(m_form, wxID_ANY, "");
+    {
+        wxFont f = m_dof_status->GetFont();
+        f.SetWeight(wxFONTWEIGHT_BOLD);
+        m_dof_status->SetFont(f);
+    }
+    root->Add(m_dof_status, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
+
     auto* commit = new wxButton(m_form, wxID_ANY, _L("Commit to Plate"));
     commit->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_commit(); });
     root->Add(commit, 0, wxALL, 12);
@@ -764,6 +774,28 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_status->SetLabel(wxString::Format(L"L %.2f mm   %.1f°%s",
                                             len, a, locked ? L"  (locked)" : L""));
         m_status->Refresh();
+    });
+
+    // DoF feedback (P3): after each live solve, report constraint state on its own
+    // line. Green = fully constrained, red = conflicting, neutral = N remaining DoF.
+    m_viewport->set_on_solve_state([this](int dof, bool ok, bool has_constraints) {
+        if (!m_dof_status) return;
+        if (!has_constraints) {
+            m_dof_status->SetLabel(wxString());
+        } else if (!ok) {
+            m_dof_status->SetForegroundColour(wxColour(235, 80, 80));
+            m_dof_status->SetLabel(_L("✗ Conflicting constraints"));
+        } else if (dof == 0) {
+            m_dof_status->SetForegroundColour(wxColour(80, 200, 110));
+            m_dof_status->SetLabel(_L("✓ Fully constrained"));
+        } else if (dof > 0) {
+            m_dof_status->SetForegroundColour(wxColour(0xC8, 0xC8, 0xC8));
+            m_dof_status->SetLabel(wxString::Format(_L("%d degrees of freedom"), dof));
+        } else {
+            m_dof_status->SetLabel(wxString());
+        }
+        m_dof_status->Refresh();
+        m_form->Layout();
     });
 
     // Selection (Select tool): reflect the count in the status line.
