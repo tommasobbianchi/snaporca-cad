@@ -234,6 +234,9 @@ private:
     bool hit_test_handle(const Vec2d& p, double tol, Handle& out) const;
     // Move a handle to `target`, applying the role-specific geometry edit + re-solve.
     void set_handle(const Handle& h, const Vec2d& target);
+    // On a no-button move, recompute the hovered handle; returns true iff it changed
+    // (so the caller forces exactly one repaint). No-op for non-Moving events.
+    bool update_hover(GLCanvas3D& canvas, wxMouseEvent& evt);
     // Open/close a Feature record around the entities a single gesture appends.
     void begin_feature(FeatureKind kind);
     void end_feature(const Vec2d& c0 = Vec2d(0, 0), const Vec2d& c1 = Vec2d(0, 0),
@@ -309,7 +312,11 @@ private:
     int region_at(const Vec2d& p) const;
 
     void draw_quad_strip(GLModel& model, const std::vector<Vec2d>& pts, bool closed, const ColorRGBA& color);
-    void draw_vertices(GLModel& model, const std::vector<Vec2d>& pts, const ColorRGBA& color);
+    // half_size is the square marker half-extent in PLANE units. Callers pass a
+    // zoom-scaled value (k / zoom) for screen-constant handles; the default keeps
+    // legacy point markers exactly as before.
+    void draw_vertices(GLModel& model, const std::vector<Vec2d>& pts, const ColorRGBA& color,
+                       double half_size = 1.3);
     void draw_fill(GLModel& model, const std::vector<Vec2d>& poly, const ColorRGBA& color);
 
     bool                m_active{false};
@@ -338,6 +345,8 @@ private:
     bool                  m_show_handles{false};   // draw + interact with handles
     bool                  m_dragging_handle{false};// a handle grab is in progress
     Handle                m_drag_handle;           // the handle being dragged
+    bool                  m_has_hover_handle{false};// cursor is near a handle (highlight it)
+    Handle                m_hover_handle;          // the hovered handle (recomputed on move)
     std::vector<Feature>  m_features;              // parametric groups over m_entities
     int                   m_open_feature{-1};      // index of the Feature being built, or -1
 

@@ -40,3 +40,8 @@ resources/profiles/user/default
 *.code-workspace
 deps_src/build/
 .claude/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key

@@ -412,19 +412,95 @@ void DesignSketchTool::end_feature(const Vec2d& c0, const Vec2d& c1, double para
     m_open_feature = -1;
 }
 
-// Phase A stubs (fleshed out in A3/A4): the handle set, picking, and editing.
+// Live handle set (A3: Line + Circle). Recomputed from solved geometry every frame,
+// never persisted — so handles always track the current solve. Derived roles (here
+// the circle RadiusHandle, which is NOT a serialized SketchPointRole) are what let a
+// tool expose a parametric control its raw entity points don't carry. A4 routes a
+// Select-mode drag through hit_test_handle + set_handle; later phases add the
+// slot/rect/polygon/ellipse roles off the Feature groups.
 std::vector<DesignSketchTool::Handle> DesignSketchTool::build_handles() const
 {
-    return {};
+    std::vector<Handle> hs;
+    hs.reserve(m_entities.size() * 2);
+    for (size_t i = 0; i < m_entities.size(); ++i) {
+        const SketchEntity& e = m_entities[i];
+        switch (e.type) {
+        case SketchEntity::Type::Line: {
+            Handle a; a.role = HandleRole::P0; a.ei = int(i); a.pos = e.p0; hs.push_back(a);
+            Handle b; b.role = HandleRole::P1; b.ei = int(i); b.pos = e.p1; hs.push_back(b);
+            break;
+        }
+        case SketchEntity::Type::Circle: {
+            Handle c; c.role = HandleRole::Center; c.ei = int(i); c.pos = e.center; hs.push_back(c);
+            // RadiusHandle sits on the circle to the +x side of its centre; dragging it
+            // (A4) edits the radius. Pure geometry, no constraint of its own.
+            Handle r; r.role = HandleRole::RadiusHandle; r.ei = int(i);
+            r.pos = e.center + Vec2d(e.radius, 0.0); hs.push_back(r);
+            break;
+        }
+        default: break;   // Arc/Ellipse/BSpline handles land in later A3/C chunks
+        }
+    }
+    return hs;
 }
 
-bool DesignSketchTool::hit_test_handle(const Vec2d& /*p*/, double /*tol*/, Handle& /*out*/) const
+// Nearest handle to plane-point p within tol. Ties broken by smallest distance.
+bool DesignSketchTool::hit_test_handle(const Vec2d& p, double tol, Handle& out) const
 {
-    return false;
+    bool found = false;
+    double best = tol;
+    for (const Handle& h : build_handles()) {
+        const double d = (h.pos - p).norm();
+        if (d <= best) { best = d; out = h; out.hovered = true; found = true; }
+    }
+    return found;
 }
 
-void DesignSketchTool::set_handle(const Handle& /*h*/, const Vec2d& /*target*/)
+// Recompute the hovered handle on a plain (no-button) move. Returns true ONLY when the
+// hovered handle changes, so on_mouse forces a single repaint per transition rather than
+// re-rendering on every motion event. A no-op (false) for non-Moving events.
+bool DesignSketchTool::update_hover(GLCanvas3D& canvas, wxMouseEvent& evt)
 {
+    if (!evt.Moving()) return false;
+    Vec2d p;
+    screen_to_plane(canvas, evt, p);
+    // Zoom-aware pick tolerance: project a point a few px away and measure in plane units.
+    const Linef3 r2 = canvas.mouse_ray(Point(evt.GetX() + 6, evt.GetY()));
+    const double tol = std::max(1e-3, (m_plane.project(r2.a, r2.vector()) - p).norm());
+    const bool   had  = m_has_hover_handle;
+    const Handle prev = m_hover_handle;
+    Handle h;
+    m_has_hover_handle = hit_test_handle(p, tol, h);
+    if (m_has_hover_handle) m_hover_handle = h;
+    return (had != m_has_hover_handle) ||
+           (m_has_hover_handle && (prev.ei != h.ei || prev.role != h.role));
+}
+
+// Apply a handle drag (A4). Point handles (P0/P1/Center) move the entity point and
+// pin it in the drag-solve so constraints settle around the cursor. The derived
+// RadiusHandle isn't a solver point — it edits the circle radius directly, then a
+// full re-solve lets any driving Radius/Diameter constraint reassert (an unconstrained
+// radius is a free DoF, so the solver keeps the new value). Slot/rect/polygon/ellipse
+// roles land in later phases (they rebuild their Feature group).
+void DesignSketchTool::set_handle(const Handle& h, const Vec2d& target)
+{
+    if (h.ei < 0 || h.ei >= int(m_entities.size())) return;
+    SketchEntity& e = m_entities[h.ei];
+    switch (h.role) {
+    case HandleRole::P0:
+        set_point(h.ei, SketchPointRole::P0, target);     resolve_live_drag(h.ei, SketchPointRole::P0);     break;
+    case HandleRole::P1:
+        set_point(h.ei, SketchPointRole::P1, target);     resolve_live_drag(h.ei, SketchPointRole::P1);     break;
+    case HandleRole::Center:
+        set_point(h.ei, SketchPointRole::Center, target); resolve_live_drag(h.ei, SketchPointRole::Center); break;
+    case HandleRole::RadiusHandle: {
+        const double r = (target - e.center).norm();
+        if (r > 1e-6) e.radius = r;
+        resolve_live();
+        break;
+    }
+    default: break;
+    }
 }
 
 // ---- Dimension tool (Mode::Dimension): click-to-place driving quotes ----------
@@ -1603,12 +1679,13 @@ void DesignSketchTool::draw_fill(GLModel& model, const std::vector<Vec2d>& poly,
     model.render();
 }
 
-void DesignSketchTool::draw_vertices(GLModel& model, const std::vector<Vec2d>& pts, const ColorRGBA& color)
+void DesignSketchTool::draw_vertices(GLModel& model, const std::vector<Vec2d>& pts, const ColorRGBA& color,
+                                     double half_size)
 {
     if (pts.empty())
         return;
 
-    const double hs = 1.3;
+    const double hs = half_size;
     GLModel::Geometry g;
     g.format = { GLModel::Geometry::EPrimitiveType::Triangles, GLModel::Geometry::EVertexLayout::P3 };
     unsigned int base = 0;
@@ -2126,7 +2203,8 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
 
     // Endpoint / centre handles so individual points are visible and pickable in the
     // Select and Dimension tools (a line = a segment + 2 points). Selected ones white.
-    if (m_mode == Mode::Select || m_mode == Mode::Dimension) {
+    m_show_handles = (m_mode == Mode::Select || m_mode == Mode::Dimension);
+    if (m_show_handles) {
         std::vector<Vec2d> handles, sel_handles;
         auto add_h = [&](int ei, SketchPointRole r, const Vec2d& q) {
             const bool s = std::find(m_point_sel.begin(), m_point_sel.end(),
@@ -2160,6 +2238,21 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         }
         if (!handles.empty())     draw_vertices(m_vertex_model, handles, ColorRGBA(0.65f, 0.65f, 0.30f, 1.0f));
         if (!sel_handles.empty()) draw_vertices(m_highlight_model, sel_handles, white);
+
+        // Derived feature handles (A3): the circle RadiusHandle is not a SketchPointRole,
+        // so the per-point pass above doesn't draw it. Render it (cyan) + the hovered
+        // handle (white, larger) at a screen-constant size so they stay grabbable at any
+        // zoom. A4 makes these draggable; later phases add slot/rect/polygon handles.
+        const double upp = 1.0 / std::max(camera.get_zoom(), 1e-6);
+        std::vector<Vec2d> radius_h;
+        for (const Handle& h : build_handles())
+            if (h.role == HandleRole::RadiusHandle) radius_h.push_back(h.pos);
+        if (!radius_h.empty())
+            draw_vertices(m_vertex_model, radius_h, ColorRGBA(0.30f, 0.75f, 0.95f, 1.0f),
+                          std::max(4.0 * upp, 1e-4));
+        if (m_has_hover_handle)
+            draw_vertices(m_highlight_model, { m_hover_handle.pos }, white,
+                          std::max(5.5 * upp, 1e-4));
     }
 
     // Placed dimension quotes (drawn in every mode so they persist while sketching).
@@ -2599,6 +2692,7 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     // Selection mode: click to pick an entity, Shift/Ctrl to extend, double-click
     // to grab the whole connected loop. Drag falls through so the camera can orbit.
     if (m_mode == Mode::Select) {
+        if (update_hover(canvas, evt)) return true;   // repaint when the hovered handle changes
         const bool extend = evt.ShiftDown() || evt.ControlDown();
 
         // Live point drag: once an endpoint/centre was grabbed on LeftDown, dragging
@@ -2611,6 +2705,15 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             resolve_live_drag(m_drag_ei, m_drag_role);
             return true;
         }
+        // Derived-handle drag (A4): the circle RadiusHandle (and later slot/rect/etc.)
+        // isn't an entity point, so it rides set_handle, which applies the role-specific
+        // geometry edit + re-solve.
+        if (m_dragging_handle && evt.Dragging() && evt.LeftIsDown()) {
+            Vec2d p;
+            screen_to_plane(canvas, evt, p);
+            set_handle(m_drag_handle, p);
+            return true;
+        }
         if (evt.LeftUp()) {
             if (m_dragging_point) {
                 Vec2d p;
@@ -2621,11 +2724,19 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 m_drag_ei = -1;
                 return true;
             }
+            if (m_dragging_handle) {
+                Vec2d p;
+                screen_to_plane(canvas, evt, p);
+                set_handle(m_drag_handle, p);
+                m_dragging_handle = false;
+                return true;
+            }
             return false;
         }
 
         if (evt.LeftDown() || evt.LeftDClick()) {
             m_dragging_point = false;           // a fresh press disarms any stale grab
+            m_dragging_handle = false;
             Vec2d p;
             screen_to_plane(canvas, evt, p);
             if (evt.LeftDClick()) {                // double-click a quote label -> edit it
@@ -2638,6 +2749,24 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             const Linef3 r2 = canvas.mouse_ray(Point(evt.GetX() + 8, evt.GetY()));
             const Vec2d p2 = m_plane.project(r2.a, r2.vector());
             const double tol = std::max(1e-3, (p2 - p).norm());
+
+            // A derived handle (the circle RadiusHandle — not an entity point, so
+            // hit_test_point can't grab it) arms a handle drag that resizes on motion.
+            // Checked before the point/entity hit-tests so the radius grip wins near
+            // the circle edge.
+            if (evt.LeftDown()) {
+                Handle hh;
+                if (hit_test_handle(p, tol, hh) && hh.role == HandleRole::RadiusHandle) {
+                    m_dragging_handle = true;
+                    m_drag_handle     = hh;
+                    m_selection.clear();
+                    m_point_sel.clear();
+                    m_selection.push_back(hh.ei);   // highlight the circle being resized
+                    if (on_selection_changed)
+                        on_selection_changed(int(m_selection.size()));
+                    return true;
+                }
+            }
 
             // A nearby endpoint/centre selects that POINT (a line = a segment + 2
             // points); a click on the bare segment selects the whole entity.
@@ -2708,6 +2837,7 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     // a circle -> Diameter, an arc -> Radius, a point then a line -> DistanceToLine.
     // Each resolved pick places a driving quote and pops the value card.
     if (m_mode == Mode::Dimension) {
+        if (update_hover(canvas, evt)) return true;   // repaint when the hovered handle changes
         if (evt.LeftDClick()) {                    // double-click a quote label -> edit it
             Vec2d p;
             screen_to_plane(canvas, evt, p);
