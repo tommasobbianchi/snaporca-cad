@@ -1666,7 +1666,65 @@ void DesignPanel::apply_edit_op(EditOp op)
             }
             f.entities[a] = a_out;
             f.entities[b] = b_out;
+            const int arc = int(f.entities.size());
             f.entities.push_back(arc_out);
+
+            // C4b: glue the fillet arc to the two trimmed lines so it survives a
+            // re-solve instead of floating free. arc.p0 sits on line a's moved
+            // endpoint, arc.p1 on line b's; recover the exact endpoint roles by
+            // nearest match, then emit Coincident (essential — keeps the corner
+            // joined) + Tangent (smoothness). The full set can be redundant for the
+            // arc, so try it first and drop tangents progressively until the solver
+            // accepts it; the Coincident pins survive even if tangency is rejected.
+            {
+                using R  = SketchPointRole;
+                using CT = SketchConstraintType;
+                auto role_near = [](const SketchEntity& ln, const Vec2d& p) -> R {
+                    return ((ln.p0 - p).squaredNorm() <= (ln.p1 - p).squaredNorm()) ? R::P0 : R::P1;
+                };
+                const R ra = role_near(f.entities[a], arc_out.p0);
+                const R rb = role_near(f.entities[b], arc_out.p1);
+
+                // Fillet trims both lines back from the shared corner, so any
+                // constraint anchored to a trimmed endpoint is now stale: the corner
+                // Coincident that joined (a,ra)·(b,rb), and each line's own length
+                // Distance (its length just changed). Drop them before re-binding —
+                // leaving them would fight the new arc geometry and reject every
+                // binding below.
+                auto refs = [](const SketchEntityConstraintDef& d, int e, R r) {
+                    return (d.ea == e && d.ra == r) || (d.eb == e && d.rb == r);
+                };
+                auto self_len = [](const SketchEntityConstraintDef& d, int e) {
+                    return d.type == CT::Distance && d.ea == e && d.eb == e;
+                };
+                auto& cs = f.entity_constraints;
+                cs.erase(std::remove_if(cs.begin(), cs.end(),
+                    [&](const SketchEntityConstraintDef& d) {
+                        return (d.type == CT::Coincident && refs(d, a, ra) && refs(d, b, rb))
+                            || self_len(d, a) || self_len(d, b);
+                    }), cs.end());
+
+                auto coin = [&](R arc_role, int ln, R ln_role) {
+                    SketchEntityConstraintDef d; d.type = CT::Coincident;
+                    d.ea = arc; d.ra = arc_role; d.eb = ln; d.rb = ln_role; return d;
+                };
+                auto tang = [&](int ln) {
+                    SketchEntityConstraintDef d; d.type = CT::Tangent; d.ea = arc; d.eb = ln; return d;
+                };
+                const std::vector<std::vector<SketchEntityConstraintDef>> ladder = {
+                    { coin(R::P0, a, ra), coin(R::P1, b, rb), tang(a), tang(b) },
+                    { coin(R::P0, a, ra), coin(R::P1, b, rb), tang(a) },
+                    { coin(R::P0, a, ra), coin(R::P1, b, rb) },
+                };
+                const std::vector<SketchEntity> saved = f.entities;
+                const size_t cbefore = f.entity_constraints.size();
+                for (const auto& set : ladder) {
+                    for (const auto& d : set) f.entity_constraints.push_back(d);
+                    if (m_doc.solve_sketch_feature(m_constrain_feat)) break;   // accepted
+                    f.entity_constraints.resize(cbefore);
+                    f.entities = saved;
+                }
+            }
             after_edit_op();
         });
         return;   // deferred: edit runs on Confirm
