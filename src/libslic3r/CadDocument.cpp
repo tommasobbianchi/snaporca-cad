@@ -1,6 +1,7 @@
 #include "CadDocument.hpp"
 #include "SketchConstraints.hpp"
 #include "SketchSolver.hpp"
+#include "SketchImport.hpp"   // transform_regions for imported art
 
 #include <array>
 
@@ -632,10 +633,14 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body, const Cad
         const CadFeature& sk = (f.sketch_ref >= 0 && f.sketch_ref < int(features.size())
                                 && features[f.sketch_ref].type == CadFeatureType::Sketch)
                                ? features[f.sketch_ref] : f;
-        // Imported rigid art (Text/SVG) extrudes via the faces-with-holes path;
-        // otherwise build a single wire from entities/profile/shape.
+        // Imported rigid art (Text/SVG) extrudes via the faces-with-holes path
+        // (with its placement transform applied); otherwise build a single wire
+        // from entities/profile/shape.
         TopoDS_Shape tool = !sk.imported_regions.empty()
-            ? SketchEngine::make_extrude_regions(sk.imported_regions, sk.plane, f.distance, f.symmetric)
+            ? SketchEngine::make_extrude_regions(
+                  transform_regions(sk.imported_regions, sk.import_offset,
+                                    sk.import_scale_x, sk.import_scale_y),
+                  sk.plane, f.distance, f.symmetric)
             : SketchEngine::make_extrude(build_sketch_wire(sk), sk.plane, f.distance, f.symmetric, 0.0);
         if (!have_body || f.mode == BooleanMode::New) {
             result = tool;

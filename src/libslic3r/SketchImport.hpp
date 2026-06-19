@@ -25,6 +25,13 @@ ImportRegions text_to_regions(const std::string& utf8, double size_mm,
 // vector on any failure.
 ImportRegions svg_to_regions(const std::string& svg_path, double scale = 1.0);
 
+// Apply an axis-aligned placement transform to regions:
+//   p -> ( p.x * scale_x + offset.x,  p.y * scale_y + offset.y )
+// Used to move / enlarge / stretch imported art non-destructively (the
+// feature keeps the centred source regions + this transform).
+ImportRegions transform_regions(const ImportRegions& src, const Vec2d& offset,
+                                double scale_x, double scale_y);
+
 } // namespace Slic3r
 
 #endif // slic3r_SketchImport_hpp_

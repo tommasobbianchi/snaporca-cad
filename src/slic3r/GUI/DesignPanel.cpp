@@ -15,6 +15,7 @@
 #include <wx/font.h>
 #include <wx/textdlg.h>
 #include <wx/filedlg.h>
+#include <wx/dialog.h>
 
 #include <string>
 #include <cmath>
@@ -987,8 +988,12 @@ void DesignPanel::sync_sketch_display()
             // Imported art (Text/SVG) carries no solver entities; synthesize
             // closed line loops from each region contour so it shows as an
             // outline overlay (display only — never stored on the feature).
+            // Apply the feature's placement transform so the overlay tracks
+            // moves / scales.
+            const auto regions = transform_regions(f.imported_regions, f.import_offset,
+                                                    f.import_scale_x, f.import_scale_y);
             std::vector<SketchEntity> lines;
-            for (const auto& region : f.imported_regions)
+            for (const auto& region : regions)
                 for (const auto& contour : region) {
                     const int m = int(contour.size());
                     for (int k = 0; k < m; ++k) {
@@ -1058,6 +1063,50 @@ void DesignPanel::add_imported_sketch(
     sync_sketch_display();
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(base_name + _L(" added — select it and Extrude"));
+    m_status->Refresh();
+}
+
+void DesignPanel::on_transform_imported(int feat_idx)
+{
+    if (feat_idx < 0 || feat_idx >= int(m_doc.features.size()))
+        return;
+    CadFeature& f = m_doc.features[feat_idx];
+    if (f.imported_regions.empty())
+        return;
+
+    wxDialog dlg(this, wxID_ANY, _L("Move / Scale imported art"),
+                 wxDefaultPosition, wxDefaultSize, wxDEFAULT_DIALOG_STYLE);
+    auto* grid = new wxFlexGridSizer(4, 2, 6, 8);
+    auto field = [&](const wxString& label, double val, double lo, double hi, double inc) {
+        grid->Add(new wxStaticText(&dlg, wxID_ANY, label), 0, wxALIGN_CENTER_VERTICAL);
+        auto* sc = new wxSpinCtrlDouble(&dlg, wxID_ANY, wxEmptyString,
+                                        wxDefaultPosition, wxSize(110, -1),
+                                        wxSP_ARROW_KEYS, lo, hi, val, inc);
+        sc->SetDigits(2);
+        grid->Add(sc);
+        return sc;
+    };
+    auto* off_x = field(_L("Offset X (mm)"), f.import_offset.x(), -5000, 5000, 1.0);
+    auto* off_y = field(_L("Offset Y (mm)"), f.import_offset.y(), -5000, 5000, 1.0);
+    auto* sx    = field(_L("Scale X"),       f.import_scale_x,    0.01, 1000, 0.1);
+    auto* sy    = field(_L("Scale Y"),       f.import_scale_y,    0.01, 1000, 0.1);
+
+    auto* top = new wxBoxSizer(wxVERTICAL);
+    top->Add(grid, 0, wxALL, 12);
+    top->Add(dlg.CreateButtonSizer(wxOK | wxCANCEL), 0, wxALIGN_RIGHT | wxALL, 8);
+    dlg.SetSizerAndFit(top);
+
+    if (dlg.ShowModal() != wxID_OK)
+        return;
+
+    f.import_offset   = Vec2d(off_x->GetValue(), off_y->GetValue());
+    f.import_scale_x  = sx->GetValue();
+    f.import_scale_y  = sy->GetValue();
+    m_doc.recompute();
+    refresh_tree();
+    sync_sketch_display();
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(_L("Imported art transformed"));
     m_status->Refresh();
 }
 
@@ -2579,6 +2628,12 @@ void DesignPanel::on_edit_feature()
 
     switch (f.type) {
     case CadFeatureType::Sketch:
+        // Imported Text/SVG art has no editable sketch dialog — edit means
+        // move / scale its placement instead.
+        if (!f.imported_regions.empty()) {
+            on_transform_imported(sel);
+            break;
+        }
         m_edit_index = sel;
         load_feature_into_dialog(f);
         open_tool(Tool::Sketch);

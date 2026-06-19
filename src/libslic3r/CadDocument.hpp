@@ -53,6 +53,15 @@ struct CadFeature {
     // precedence over the entities/profile/shape paths in the Extrude case.
     std::vector<std::vector<std::vector<Vec2d>>> imported_regions;
 
+    // Non-destructive placement transform for imported_regions (Text/SVG),
+    // applied at display + extrude time as
+    //   p -> (p.x*import_scale_x + import_offset.x, p.y*import_scale_y + import_offset.y).
+    // Lets the art be moved / enlarged / stretched (independent X/Y) repeatedly
+    // without re-vectorising. Identity = no change.
+    Vec2d  import_offset{0, 0};
+    double import_scale_x{1.0};
+    double import_scale_y{1.0};
+
     // Extrude params
     int         sketch_ref{-1};   // index into features[] of the consumed sketch
     double      distance{10};

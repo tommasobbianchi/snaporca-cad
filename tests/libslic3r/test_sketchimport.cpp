@@ -43,6 +43,23 @@ TEST_CASE("svg_to_regions rejects bad input gracefully", "[SketchImport]")
     REQUIRE(svg_to_regions("/tmp/snaporca_test_square.svg", 0.0).empty()); // scale<=0
 }
 
+TEST_CASE("transform_regions moves and scales independently", "[SketchImport]")
+{
+    ImportRegions r = {{ {Vec2d(-1,-1), Vec2d(1,-1), Vec2d(1,1), Vec2d(-1,1)} }};
+    ImportRegions t = transform_regions(r, Vec2d(10, 20), 2.0, 3.0);
+    REQUIRE(t.size() == 1);
+    REQUIRE(t[0][0].size() == 4);
+    // (-1,-1) -> (-1*2+10, -1*3+20) = (8, 17)
+    REQUIRE_THAT(t[0][0][0].x(), Catch::Matchers::WithinAbs(8.0, 1e-9));
+    REQUIRE_THAT(t[0][0][0].y(), Catch::Matchers::WithinAbs(17.0, 1e-9));
+    // (1,1) -> (1*2+10, 1*3+20) = (12, 23)
+    REQUIRE_THAT(t[0][0][2].x(), Catch::Matchers::WithinAbs(12.0, 1e-9));
+    REQUIRE_THAT(t[0][0][2].y(), Catch::Matchers::WithinAbs(23.0, 1e-9));
+    // identity is a no-op
+    ImportRegions id = transform_regions(r, Vec2d(0,0), 1.0, 1.0);
+    REQUIRE_THAT(id[0][0][1].x(), Catch::Matchers::WithinAbs(1.0, 1e-9));
+}
+
 TEST_CASE("text_to_regions vectorizes glyphs with counters", "[SketchImport]")
 {
     // Locate the bundled font; resources_dir() may be unset under ctest, so
