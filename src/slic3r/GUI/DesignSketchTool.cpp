@@ -616,6 +616,18 @@ double DesignSketchTool::measure_dim(const DimAnnot& a) const
         return (a.ea >= 0 && a.ea < int(m_entities.size())) ? 2.0 * m_entities[a.ea].radius : 0.0;
     case DimType::Radius:
         return (a.ea >= 0 && a.ea < int(m_entities.size())) ? m_entities[a.ea].radius : 0.0;
+    case DimType::Angle: {
+        // Single line: angle to the +X axis, normalised to [0,360). (Line-to-line angle
+        // dimensions use the legacy dialog path.)
+        if (a.ea < 0 || a.ea >= int(m_entities.size())) return 0.0;
+        const SketchEntity& e = m_entities[a.ea];
+        if (e.type != SketchEntity::Type::Line) return 0.0;
+        const Vec2d d = e.p1 - e.p0;
+        if (d.squaredNorm() < 1e-18) return 0.0;
+        double deg = std::atan2(d.y(), d.x()) * 180.0 / M_PI;
+        if (deg < 0.0) deg += 360.0;
+        return deg;
+    }
     case DimType::Distance:
         return (point_at(a.ea, a.ra, pa) && point_at(a.eb, a.rb, pb)) ? (pb - pa).norm() : 0.0;
     case DimType::DistanceToLine: {
@@ -725,6 +737,35 @@ void DesignSketchTool::open_value_editor(int di)
                    [this]()         { cancel_dimension_value(); });
 }
 
+// In-canvas editor for a line's angle-to-horizontal. Unlike length/radius, a single
+// line's angle has no libslvs constraint here (SLVS_C_ANGLE is line-to-line), so the
+// commit rotates the segment GEOMETRICALLY about P0 to the typed degrees, then re-solves
+// — the angle is a free DoF, so the solver keeps the new orientation (mirrors the radius
+// handle). Length-constrained lines keep their length.
+void DesignSketchTool::open_angle_editor(int ei)
+{
+    if (ei < 0 || ei >= int(m_entities.size())) return;
+    if (m_entities[ei].type != SketchEntity::Type::Line) return;
+    if (!on_inline_edit) return;
+    DimAnnot a; a.kind = DimType::Angle; a.ea = ei;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    on_inline_edit(px, measure_dim(a),
+                   [this, ei](double deg) { set_line_angle(ei, deg); },
+                   []()                   {});
+}
+
+void DesignSketchTool::set_line_angle(int ei, double deg)
+{
+    if (ei < 0 || ei >= int(m_entities.size())) return;
+    SketchEntity& e = m_entities[ei];
+    if (e.type != SketchEntity::Type::Line) return;
+    const double L = (e.p1 - e.p0).norm();
+    if (L < 1e-9) return;
+    const double r = deg * M_PI / 180.0;
+    e.p1 = e.p0 + Vec2d(std::cos(r), std::sin(r)) * L;   // rotate about P0, keep length
+    resolve_live();
+}
+
 DesignSketchTool::DimType DesignSketchTool::pending_dimension_type() const
 {
     return (m_pending_dim >= 0 && m_pending_dim < int(m_dimensions.size()))
@@ -752,7 +793,8 @@ std::string DesignSketchTool::dim_text(const DimAnnot& a) const
     char buf[32];
     const char* prefix = (a.kind == DimType::Diameter) ? "\xC3\x98"   // 'Ø'
                        : (a.kind == DimType::Radius)   ? "R" : "";
-    std::snprintf(buf, sizeof(buf), "%s%.1f", prefix, a.value);
+    const char* suffix = (a.kind == DimType::Angle) ? "\xC2\xB0" : ""; // '°'
+    std::snprintf(buf, sizeof(buf), "%s%.1f%s", prefix, a.value, suffix);
     // Force the international (en) decimal point: wx sets LC_NUMERIC to the user
     // locale at startup, so snprintf("%.1f") can emit a comma. Normalise it.
     for (char& ch : buf)
@@ -1858,6 +1900,18 @@ void DesignSketchTool::draw_text(GLModel& model, const std::string& s, const Vec
             glyph_strokes('0', gs, adv);                          // 'Ø' = '0' + slash
             gs.emplace_back(Vec2d(0.0, 0.0), Vec2d(0.6, 1.0));
             ++i;
+        } else if ((unsigned char)s[i] == 0xC2 && i + 1 < s.size() && (unsigned char)s[i + 1] == 0xB0) {
+            // '°' degree sign: a small open ring high in the cell, approximated by a
+            // short polyline loop (the stroke font has no curves primitive here).
+            const Vec2d c(0.18, 0.85); const double r = 0.16;
+            const int N = 8; Vec2d prev = c + Vec2d(r, 0);
+            for (int k = 1; k <= N; ++k) {
+                const double t = 2.0 * 3.14159265358979 * k / N;
+                const Vec2d cur = c + Vec2d(r * std::cos(t), r * std::sin(t));
+                gs.emplace_back(prev, cur); prev = cur;
+            }
+            adv = 0.42;
+            ++i;
         } else {
             glyph_strokes(s[i], gs, adv);
         }
@@ -1953,6 +2007,25 @@ bool DesignSketchTool::draw_dim_quote(const DimAnnot& a, double th, const ColorR
         const Vec2d foot = Ln.p0 + u * t;       // perpendicular foot on the line
         segs.emplace_back(pa, foot);
         out_label = (pa + foot) * 0.5 + u * (th * 0.7 + 1.5);
+    } else if (a.kind == DimType::Angle) {
+        if (a.ea < 0 || a.ea >= int(m_entities.size())) return false;
+        const SketchEntity& e = m_entities[a.ea];
+        if (e.type != SketchEntity::Type::Line) return false;
+        const Vec2d d = e.p1 - e.p0;
+        const double L = d.norm();
+        if (L < 1e-6) return false;
+        double ang = std::atan2(d.y(), d.x());            // signed, matches measure_dim sweep
+        const double rr = std::max(std::min(L * 0.35, 40.0), th * 1.6);  // arc radius
+        segs.emplace_back(e.p0, e.p0 + Vec2d(rr * 1.15, 0.0));  // horizontal reference leg
+        const int N = 20;                                  // arc 0 -> ang about p0
+        Vec2d prev = e.p0 + Vec2d(rr, 0.0);
+        for (int i = 1; i <= N; ++i) {
+            const double t = ang * double(i) / N;
+            const Vec2d cur = e.p0 + Vec2d(rr * std::cos(t), rr * std::sin(t));
+            segs.emplace_back(prev, cur); prev = cur;
+        }
+        const double mid = ang * 0.5;
+        out_label = e.p0 + Vec2d(std::cos(mid), std::sin(mid)) * (rr + th * 1.1);
     } else {
         return false;
     }
@@ -2017,10 +2090,15 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
     }
 
     if (protos.empty()) {                 // ungrouped single entity
-        DimAnnot a; a.ea = ei; a.side = 1.0;
         switch (e.type) {
-        case SketchEntity::Type::Line:   a.kind = DimType::Length; protos.push_back(a); break;
-        case SketchEntity::Type::Circle: a.kind = DimType::Radius; protos.push_back(a); break;
+        case SketchEntity::Type::Line: {
+            DimAnnot len; len.kind = DimType::Length; len.ea = ei; len.side = 1.0; protos.push_back(len);
+            DimAnnot ang; ang.kind = DimType::Angle;  ang.ea = ei; ang.eb = -1;    protos.push_back(ang);
+            break;                        // segment length + angle-to-horizontal
+        }
+        case SketchEntity::Type::Circle: {
+            DimAnnot a; a.kind = DimType::Radius; a.ea = ei; protos.push_back(a); break;
+        }
         default: break;                   // arc/ellipse/etc.: later
         }
     }
@@ -2847,7 +2925,10 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 if (di >= 0) { open_value_editor(di); return true; }
                 for (const DimAnnot& q : m_live_quotes) {
                     if ((q.label_pos - p).norm() <= ltol) {
-                        place_dimension(q);   // promote live quote -> driving dim + open editor
+                        if (q.kind == DimType::Angle)
+                            open_angle_editor(q.ea);   // geometric rotate to a typed angle
+                        else
+                            place_dimension(q);        // promote -> driving dim + open editor
                         return true;
                     }
                 }

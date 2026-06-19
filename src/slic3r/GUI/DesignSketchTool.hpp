@@ -255,6 +255,10 @@ private:
     // Open the in-canvas value editor on dimension `di` (falls back to the modal
     // pick-complete callback when no inline-edit host is wired).
     void open_value_editor(int di);
+    // In-canvas editor for a line's angle-to-horizontal; commit rotates the segment
+    // geometrically about P0 (no single-line angle constraint in libslvs).
+    void open_angle_editor(int ei);
+    void set_line_angle(int ei, double deg);
     double measure_dim(const DimAnnot& a) const;                            // value from geometry
     SketchEntityConstraintDef constraint_for(const DimAnnot& a) const;      // driving def
     int  place_dimension(DimAnnot a);                                       // create+drive+notify
