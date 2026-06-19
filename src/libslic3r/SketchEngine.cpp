@@ -27,6 +27,9 @@
 #include <Poly_Triangulation.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
+#include <TopoDS_Compound.hxx>
+#include <BRep_Builder.hxx>
+#include <ShapeFix_Face.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Wire.hxx>
 #include <GeomAPI_IntCS.hxx>
@@ -176,52 +179,83 @@ TopoDS_Shape SketchEngine::make_extrude_regions(
     const std::vector<std::vector<std::vector<Vec2d>>>& regions,
     const SketchPlane& plane, double length, bool symmetric)
 {
-    // Build a closed planar wire from a contour of plane (u,v) points.
-    auto contour_wire = [&](const std::vector<Vec2d>& pts) -> TopoDS_Wire {
+    // Drop consecutive coincident points and the closing duplicate. FreeType /
+    // SVG flattening routinely emits repeated points which would build a
+    // degenerate OCCT edge and make the wire builder throw — sanitising keeps a
+    // single bad glyph from killing the whole extrude.
+    auto clean = [](const std::vector<Vec2d>& pts) {
+        const double eps2 = 1e-12;   // ~1e-6 mm
+        std::vector<Vec2d> out;
+        out.reserve(pts.size());
+        for (const Vec2d& p : pts)
+            if (out.empty() || (p - out.back()).squaredNorm() > eps2)
+                out.push_back(p);
+        while (out.size() >= 2 && (out.front() - out.back()).squaredNorm() <= eps2)
+            out.pop_back();
+        return out;
+    };
+
+    // Build a closed planar wire from a contour. Never throws — returns a null
+    // wire on any failure so the caller can skip just that contour. Winding is
+    // NOT normalised here: ShapeFix_Face::FixOrientation() below classifies outer
+    // vs hole by geometry and fixes orientations, which is robust to the
+    // inconsistent winding Emboss/NSVG glyph contours arrive with (manual
+    // winding guesses extrude holed glyphs (P, e, o, 8) inverted or solid).
+    auto contour_wire = [&](const std::vector<Vec2d>& raw) -> TopoDS_Wire {
+        std::vector<Vec2d> pts = clean(raw);
         if (pts.size() < 3) return TopoDS_Wire{};
         SketchProfile prof;
-        prof.points = pts;
+        prof.points = std::move(pts);
         prof.closed = true;
-        return prof.to_occt_wire(plane);
+        try { return prof.to_occt_wire(plane); }
+        catch (...) { return TopoDS_Wire{}; }
     };
 
     gp_Dir dir(plane.normal.x(), plane.normal.y(), plane.normal.z());
-    TopoDS_Shape acc;
-    bool have = false;
+
+    // Accumulate each region's solid into a compound rather than boolean-fusing:
+    // glyphs are independent profiles, so a compound avoids every boolean-failure
+    // mode (and is faster). Holes are still handled per region by MakeFace.
+    BRep_Builder bb;
+    TopoDS_Compound comp;
+    bb.MakeCompound(comp);
+    int count = 0;
+    TopoDS_Shape last;
 
     for (const auto& region : regions) {
         if (region.empty()) continue;
-        TopoDS_Wire outer = contour_wire(region[0]);
-        if (outer.IsNull()) continue;
-
-        // Planar face from the outer loop, then subtract each hole loop. The hole
-        // wire is reversed so OCCT treats it as an interior boundary regardless of
-        // the source winding (Emboss/NSVG hole orientation varies).
-        BRepBuilderAPI_MakeFace fm(outer);
-        if (!fm.IsDone()) continue;
-        for (size_t h = 1; h < region.size(); ++h) {
-            TopoDS_Wire hole = contour_wire(region[h]);
-            if (hole.IsNull()) continue;
-            fm.Add(TopoDS::Wire(hole.Reversed()));
-        }
-        if (!fm.IsDone()) continue;
-
-        TopoDS_Shape solid;
         try {
-            solid = extrude_face_internal(fm.Face(), dir, length, symmetric);
-        } catch (...) {
-            continue;   // skip a single bad glyph rather than fail the whole insert
-        }
+            TopoDS_Wire outer = contour_wire(region[0]);
+            if (outer.IsNull()) continue;
 
-        if (!have) { acc = solid; have = true; }
-        else {
-            BRepAlgoAPI_Fuse fuse(acc, solid);
-            if (fuse.IsDone()) acc = fuse.Shape();
+            // Add the outer loop + every hole loop as-is, then let ShapeFix_Face
+            // classify outer vs holes by area/containment and set correct wire
+            // orientations. This is winding-independent, so holed glyphs extrude
+            // with a solid body and empty counters regardless of source winding.
+            BRepBuilderAPI_MakeFace fm(outer);
+            if (!fm.IsDone()) continue;
+            for (size_t h = 1; h < region.size(); ++h) {
+                TopoDS_Wire hole = contour_wire(region[h]);
+                if (hole.IsNull()) continue;
+                fm.Add(hole);
+            }
+            if (!fm.IsDone()) continue;
+
+            ShapeFix_Face sff(fm.Face());
+            sff.FixOrientation();
+            const TopoDS_Face face = sff.Face();
+
+            TopoDS_Shape solid = extrude_face_internal(face, dir, length, symmetric);
+            bb.Add(comp, solid);
+            last = solid;
+            ++count;
+        } catch (...) {
+            continue;   // skip one bad glyph rather than fail the whole insert
         }
     }
 
-    if (!have) throw std::runtime_error("imported regions produced no extrudable geometry");
-    return acc;
+    if (count == 0) throw std::runtime_error("imported regions produced no extrudable geometry");
+    return count == 1 ? last : TopoDS_Shape(comp);   // avoid a compound-of-one
 }
 
 TopoDS_Shape SketchEngine::make_revolve(const TopoDS_Wire& wire, const SketchPlane& plane,

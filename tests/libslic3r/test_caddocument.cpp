@@ -2,8 +2,11 @@
 
 #include "libslic3r/CadDocument.hpp"
 #include "libslic3r/SketchEngine.hpp"
+#include "libslic3r/SketchImport.hpp"
+#include "libslic3r/Utils.hpp"
 
 #include <cmath>
+#include <fstream>
 
 using namespace Slic3r;
 
@@ -618,6 +621,68 @@ TEST_CASE("entity constraints: tangent/midpoint/symmetric/angle", "[CadDocument]
     }
 }
 
+TEST_CASE("imported text glyphs all extrude without failing (charset sweep)", "[CadDocument]")
+{
+    std::string font = resources_dir().empty()
+        ? std::string("resources/fonts/HarmonyOS_Sans_SC_Regular.ttf")
+        : resources_dir() + "/fonts/HarmonyOS_Sans_SC_Regular.ttf";
+    {
+        std::ifstream probe(font);
+        if (!probe.good()) {
+            SUCCEED("bundled font not reachable in this environment; covered live on :10");
+            return;
+        }
+    }
+
+    const std::string charset =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz"
+        "0123456789"
+        "@#$%&*()[]{}<>?/+-=.,;:!"
+        "\xC3\xA0\xC3\xA8\xC3\xA9\xC3\xAC\xC3\xB2\xC3\xB9";   // à è é ì ò ù (UTF-8)
+
+    std::string failures;
+    for (char c : charset) {
+        ImportRegions regs = text_to_regions(std::string(1, c), 12.0, font);
+        if (regs.empty()) continue;
+        CadDocument doc;
+        CadFeature sk;
+        sk.type  = CadFeatureType::Sketch;
+        sk.plane = SketchPlane::XY();
+        sk.imported_regions = regs;
+        doc.features.push_back(sk);
+        CadFeature ex;
+        ex.type       = CadFeatureType::Extrude;
+        ex.sketch_ref = 0;
+        ex.distance   = 3;
+        doc.features.push_back(ex);
+        if (!doc.recompute() || !doc.error.empty())
+            failures += c;
+    }
+    INFO("glyphs that failed to extrude: [" << failures << "]");
+    CHECK(failures.empty());
+
+    // A realistic multi-glyph word must extrude too.
+    {
+        ImportRegions regs = text_to_regions("Snapmaker", 12.0, font);
+        REQUIRE_FALSE(regs.empty());
+        CadDocument doc;
+        CadFeature sk;
+        sk.type  = CadFeatureType::Sketch;
+        sk.plane = SketchPlane::XY();
+        sk.imported_regions = regs;
+        doc.features.push_back(sk);
+        CadFeature ex;
+        ex.type       = CadFeatureType::Extrude;
+        ex.sketch_ref = 0;
+        ex.distance   = 3;
+        doc.features.push_back(ex);
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        REQUIRE(doc.display_mesh.facets_count() > 0);
+    }
+}
+
 TEST_CASE("imported regions: faces-with-holes extrude (Text/SVG carrier)", "[CadDocument]")
 {
     SECTION("square with a square hole -> tube volume") {
@@ -655,7 +720,80 @@ TEST_CASE("imported regions: faces-with-holes extrude (Text/SVG carrier)", "[Cad
         REQUIRE(std::abs(sz.z() -  5.0) < 0.5);
     }
 
-    SECTION("two disjoint regions fuse into one shape") {
+    SECTION("inverted winding (CW outer, CCW hole) keeps body solid, counter empty") {
+        // Real glyph contours (P, e, o, 8) arrive with outer CW + hole CCW. The
+        // extrude must NORMALISE winding so the letter BODY is solid and the
+        // counter is the hole — not the inverse (the reported bug). 20x20 outer
+        // CW with an 8x8 hole CCW -> volume (400-64)*5 = 1680, NOT the inverse.
+        CadDocument doc;
+        CadFeature sk;
+        sk.type  = CadFeatureType::Sketch;
+        sk.plane = SketchPlane::XY();
+        sk.imported_regions = {{
+            {Vec2d(-10,-10), Vec2d(-10,10), Vec2d(10,10), Vec2d(10,-10)},  // outer CW
+            {Vec2d(-4,-4),   Vec2d(4,-4),   Vec2d(4,4),   Vec2d(-4,4)},    // hole CCW
+        }};
+        doc.features.push_back(sk);
+
+        CadFeature ex;
+        ex.type       = CadFeatureType::Extrude;
+        ex.sketch_ref = 0;
+        ex.distance   = 5;
+        doc.features.push_back(ex);
+
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        REQUIRE_THAT(double(doc.display_mesh.volume()), Catch::Matchers::WithinRel(1680.0, 0.02));
+    }
+
+    SECTION("degenerate / duplicate points are sanitised, not fatal") {
+        // FreeType/SVG flattening can emit repeated points; the extrude must
+        // survive them (previously to_occt_wire threw and failed the whole op).
+        CadDocument doc;
+        CadFeature sk;
+        sk.type  = CadFeatureType::Sketch;
+        sk.plane = SketchPlane::XY();
+        sk.imported_regions = {{
+            // 20x20 outer square with consecutive dups + an explicit closing dup
+            {Vec2d(-10,-10), Vec2d(-10,-10), Vec2d(10,-10), Vec2d(10,-10),
+             Vec2d(10,10),   Vec2d(-10,10),  Vec2d(-10,-10)},
+        }};
+        doc.features.push_back(sk);
+
+        CadFeature ex;
+        ex.type       = CadFeatureType::Extrude;
+        ex.sketch_ref = 0;
+        ex.distance   = 5;
+        doc.features.push_back(ex);
+
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        REQUIRE_THAT(double(doc.display_mesh.volume()), Catch::Matchers::WithinRel(2000.0, 0.02));
+    }
+
+    SECTION("a degenerate region is skipped, valid ones still extrude") {
+        CadDocument doc;
+        CadFeature sk;
+        sk.type  = CadFeatureType::Sketch;
+        sk.plane = SketchPlane::XY();
+        sk.imported_regions = {
+            { {Vec2d(0,0), Vec2d(0,0), Vec2d(0,0)} },              // collapses to nothing
+            { {Vec2d(0,0), Vec2d(5,0), Vec2d(5,5), Vec2d(0,5)} },  // valid 5x5
+        };
+        doc.features.push_back(sk);
+
+        CadFeature ex;
+        ex.type       = CadFeatureType::Extrude;
+        ex.sketch_ref = 0;
+        ex.distance   = 4;
+        doc.features.push_back(ex);
+
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        REQUIRE_THAT(double(doc.display_mesh.volume()), Catch::Matchers::WithinRel(100.0, 0.02));
+    }
+
+    SECTION("two disjoint regions form one shape") {
         CadDocument doc;
 
         CadFeature sk;
