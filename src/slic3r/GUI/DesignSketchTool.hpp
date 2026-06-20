@@ -286,6 +286,10 @@ private:
     // arc start point + radius fixed and moves the end point to span `deg` degrees.
     void open_arc_angle_editor(int ei);
     void set_arc_sweep(int ei, double deg);
+    // Arc handle drag (3 grips): Center rigidly translates; the START point changes the
+    // radius (keeps both sweep angles); the END point changes the sweep angle (keeps the
+    // radius). Geometric — no solver (SLVS has no arc radius/angle handle concept here).
+    void drag_arc_handle(int ei, SketchPointRole role, const Vec2d& target);
     // Drop orientation constraints (H/V/Parallel/Perp/Angle/LockX/LockY) on entities in
     // [begin,end). A ROTATION makes inferred per-edge H/V inconsistent, so re-solving
     // against them collapses the shape — drop them first (fixes up DimAnnot.con indices).

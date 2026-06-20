@@ -1040,6 +1040,37 @@ void DesignSketchTool::set_arc_sweep(int ei, double deg)
     resolve_live();
 }
 
+// Drag one of the arc's three handles. Roles are split so each grip changes ONE property
+// (Onshape-like): Center -> translate; START point (P0) -> radius only; END point (P1) ->
+// sweep angle only. Geometric (mutates the entity directly), then re-solve for any
+// coincident constraints on the arc endpoints.
+void DesignSketchTool::drag_arc_handle(int ei, SketchPointRole role, const Vec2d& target)
+{
+    if (ei < 0 || ei >= int(m_entities.size())) return;
+    SketchEntity& e = m_entities[ei];
+    if (e.type != SketchEntity::Type::Arc) return;
+    if (role == SketchPointRole::Center) {
+        const Vec2d d = target - e.center;            // rigid translate, keep R + angles
+        e.center = target; e.p0 += d; e.p1 += d;
+    } else if (role == SketchPointRole::P0) {         // start = RADIUS handle (keep angles)
+        const double R = (target - e.center).norm();
+        if (R < 1e-6) return;
+        e.radius = R;
+        e.p0 = e.center + R * Vec2d(std::cos(e.start_angle), std::sin(e.start_angle));
+        e.p1 = e.center + R * Vec2d(std::cos(e.end_angle),   std::sin(e.end_angle));
+    } else if (role == SketchPointRole::P1) {         // end = ANGLE handle (keep radius)
+        const Vec2d d = target - e.center;
+        if (d.squaredNorm() < 1e-12) return;
+        // Keep the CCW sweep continuous (0,2pi) so the arc never flips to its complement.
+        double da = std::atan2(d.y(), d.x()) - e.start_angle;
+        while (da < 0.0)            da += 2.0 * M_PI;
+        while (da >= 2.0 * M_PI)    da -= 2.0 * M_PI;
+        e.end_angle = e.start_angle + da;
+        e.p1 = e.center + e.radius * Vec2d(std::cos(e.end_angle), std::sin(e.end_angle));
+    }
+    resolve_live();
+}
+
 DesignSketchTool::DimType DesignSketchTool::pending_dimension_type() const
 {
     return (m_pending_dim >= 0 && m_pending_dim < int(m_dimensions.size()))
@@ -3255,6 +3286,9 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             screen_to_plane(canvas, evt, p);
             if (m_drag_poly_fi >= 0)
                 drag_polygon_vertex(m_drag_poly_fi, m_drag_ei, m_drag_role, p);  // keep regular
+            else if (m_drag_ei >= 0 && m_drag_ei < int(m_entities.size()) &&
+                     m_entities[m_drag_ei].type == SketchEntity::Type::Arc)
+                drag_arc_handle(m_drag_ei, m_drag_role, p);   // center/radius/angle grips
             else {
                 set_point(m_drag_ei, m_drag_role, p);
                 resolve_live_drag(m_drag_ei, m_drag_role);
@@ -3276,6 +3310,9 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 screen_to_plane(canvas, evt, p);
                 if (m_drag_poly_fi >= 0)
                     drag_polygon_vertex(m_drag_poly_fi, m_drag_ei, m_drag_role, p);
+                else if (m_drag_ei >= 0 && m_drag_ei < int(m_entities.size()) &&
+                         m_entities[m_drag_ei].type == SketchEntity::Type::Arc)
+                    drag_arc_handle(m_drag_ei, m_drag_role, p);
                 else {
                     set_point(m_drag_ei, m_drag_role, p);
                     resolve_live_drag(m_drag_ei, m_drag_role);
