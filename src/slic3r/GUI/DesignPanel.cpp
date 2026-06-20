@@ -1162,12 +1162,33 @@ void DesignPanel::on_add_sketch()
     refresh_tree();
 }
 
+// Extrude should consume only the clicked loop when a specific region of the resolved
+// sketch is selected and that loop actually has entities.
+bool DesignPanel::extrude_uses_loop() const
+{
+    return m_viewport != nullptr
+        && m_sel_sketch_region >= 0
+        && m_extrude_sketch_ref >= 0
+        && m_extrude_sketch_ref == m_sel_sketch_feat
+        && m_extrude_sketch_ref < int(m_doc.features.size())
+        && !m_viewport->selected_loop_entities().empty();
+}
+
 void DesignPanel::on_add_extrude()
 {
     BooleanMode mode = static_cast<BooleanMode>(m_mode->GetSelection());
     m_feature_counter++;
-    m_doc.add_extrude(m_extrude_sketch_ref, m_distance->GetValue(), false, mode,
-                      "Extrude" + std::to_string(m_feature_counter));
+    const std::string name = "Extrude" + std::to_string(m_feature_counter);
+    if (extrude_uses_loop()) {
+        // Extrude just the selected loop (its entity subset), leaving the source sketch's
+        // other loops intact and still selectable.
+        m_doc.add_extrude_entities(m_viewport->selected_loop_entities(),
+                                   m_doc.features[m_extrude_sketch_ref].plane,
+                                   m_distance->GetValue(), false, mode, name);
+        m_sel_sketch_region = -1;   // consume the loop selection
+    } else {
+        m_doc.add_extrude(m_extrude_sketch_ref, m_distance->GetValue(), false, mode, name);
+    }
     if (!m_doc.recompute())
         m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
     else
@@ -2803,12 +2824,20 @@ CadFeature DesignPanel::build_candidate(Tool t) const
         break;
     case Tool::Extrude:
         f.type       = CadFeatureType::Extrude;
-        f.sketch_ref = m_extrude_sketch_ref;
         f.distance   = m_distance->GetValue();
         f.symmetric  = false;
         f.mode       = (m_mode->GetSelection() == 0) ? BooleanMode::New
                      : (m_mode->GetSelection() == 1) ? BooleanMode::Add
                                                      : BooleanMode::Cut;
+        if (extrude_uses_loop()) {
+            // Preview just the click-selected loop: carry its entity subset on the
+            // feature (sketch_ref = -1 -> build_sketch_wire uses f.entities).
+            f.sketch_ref = -1;
+            f.entities   = m_viewport->selected_loop_entities();
+            f.plane      = m_doc.features[m_extrude_sketch_ref].plane;
+        } else {
+            f.sketch_ref = m_extrude_sketch_ref;
+        }
         break;
     case Tool::Dressup:
         f.type         = (m_dressup_type->GetSelection() == 0) ? CadFeatureType::Fillet

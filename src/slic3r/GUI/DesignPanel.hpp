@@ -110,6 +110,9 @@ private:
     void       cancel_tool();
     CadFeature build_candidate(Tool t) const;
     int        resolve_extrude_sketch() const;
+    // True when Extrude should build only the click-selected loop (a region of the
+    // resolved sketch is selected and it carries entities).
+    bool       extrude_uses_loop() const;
     void       sync_sketch_display();   // push un-consumed committed sketches to the viewport
 
     CadDocument m_doc;

@@ -386,6 +386,26 @@ int CadDocument::add_extrude(int sketch_ref, double distance, bool symmetric,
     return int(features.size()) - 1;
 }
 
+int CadDocument::add_extrude_entities(const std::vector<SketchEntity>& entities,
+                                      const SketchPlane& plane, double distance,
+                                      bool symmetric, BooleanMode mode, const std::string& name)
+{
+    // Self-contained extrude of a single loop: the entity subset lives on the feature
+    // itself (sketch_ref = -1), so build_sketch_wire(f) uses f.entities directly. The
+    // source sketch stays a separate feature, so its other loops remain selectable.
+    CadFeature f;
+    f.type       = CadFeatureType::Extrude;
+    f.name       = name;
+    f.sketch_ref = -1;
+    f.entities   = entities;
+    f.plane      = plane;
+    f.distance   = distance;
+    f.symmetric  = symmetric;
+    f.mode       = mode;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
 int CadDocument::add_fillet(double radius, FaceGroup faces, const std::string& name)
 {
     CadFeature f;

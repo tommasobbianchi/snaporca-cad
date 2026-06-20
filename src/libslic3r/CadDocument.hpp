@@ -117,6 +117,10 @@ public:
     bool solve_sketch_feature(int index);
     int  add_extrude(int sketch_ref, double distance, bool symmetric,
                      BooleanMode mode, const std::string& name);
+    // Extrude a single loop given directly as entities (sketch_ref = -1, plane carried).
+    int  add_extrude_entities(const std::vector<SketchEntity>& entities,
+                              const SketchPlane& plane, double distance, bool symmetric,
+                              BooleanMode mode, const std::string& name);
     int  add_fillet(double radius, FaceGroup faces, const std::string& name);
     int  add_chamfer(double distance, FaceGroup faces, const std::string& name);
     int  add_hole(double diameter, double depth, bool through,

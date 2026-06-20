@@ -70,6 +70,9 @@ public:
     // Click a committed sketch overlay (no live session) -> select that loop: the Sketch
     // feature index + the clicked closed-region index within it (-1 = no specific loop).
     std::function<void(int feature, int region)> on_display_sketch_selected;
+    // Entities forming the currently click-selected loop (for a per-loop extrude); empty
+    // if no loop is selected.
+    std::vector<SketchEntity> selected_loop_entities() const;
 
     // Constrain mode: load an already-committed profile for entity picking +
     // constraint application (the geometry is solved in the kernel, not here).

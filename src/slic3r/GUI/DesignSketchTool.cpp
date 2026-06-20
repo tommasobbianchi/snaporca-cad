@@ -2159,6 +2159,21 @@ std::vector<std::vector<Vec2d>> DesignSketchTool::closed_regions(const std::vect
     return out;
 }
 
+std::vector<SketchEntity> DesignSketchTool::selected_loop_entities() const
+{
+    if (m_display_pick < 0 || m_display_pick_region < 0) return {};
+    for (const DisplaySketch& d : m_display_sketches) {
+        if (d.feature != m_display_pick) continue;
+        const std::vector<RegionLoop> loops = region_loops(d.entities);
+        if (m_display_pick_region >= int(loops.size())) return {};
+        std::vector<SketchEntity> out;
+        for (int ei : loops[m_display_pick_region].ents)
+            if (ei >= 0 && ei < int(d.entities.size())) out.push_back(d.entities[ei]);
+        return out;
+    }
+    return {};
+}
+
 // Closed loops + the entity indices that form each one. A circle/ellipse is its own loop;
 // line/arc chains are walked endpoint-to-endpoint. Entity membership lets a single loop be
 // highlighted and extruded on its own.
