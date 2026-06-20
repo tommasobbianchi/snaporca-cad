@@ -916,3 +916,33 @@ TEST_CASE("multi-body: target_body routes Add to the chosen body only", "[design
     REQUIRE_THAT(z_extent(doc.bodies[0].shape), Catch::Matchers::WithinAbs(30.0, 0.1)); // grew
     REQUIRE_THAT(z_extent(doc.bodies[1].shape), Catch::Matchers::WithinAbs(10.0, 0.1)); // untouched
 }
+
+TEST_CASE("multi-body: display_tri_body tags every triangle with its source body", "[design][multibody]")
+{
+    Slic3r::CadDocument doc;
+    int s1 = doc.add_sketch(Slic3r::SketchShape::Rectangle, Slic3r::SketchPlane::XY(), 20, 20, 0, "S1");
+    doc.add_extrude(s1, 10, false, Slic3r::BooleanMode::New, "E1");
+    int s2 = doc.add_sketch(Slic3r::SketchShape::Rectangle, Slic3r::SketchPlane::XY(), 10, 10, 0, "S2");
+    doc.add_extrude(s2, 8, false, Slic3r::BooleanMode::New, "E2");
+    REQUIRE(doc.recompute());
+    REQUIRE(doc.bodies.size() == 2);
+
+    // tri_body / tri_face are parallel to the merged mesh triangles.
+    REQUIRE(doc.display_tri_body.size() == doc.display_tri_face.size());
+    REQUIRE(doc.display_tri_body.size() == doc.display_mesh.its.indices.size());
+
+    // Both bodies contributed triangles.
+    bool has0 = false, has1 = false;
+    for (int b : doc.display_tri_body) { has0 = has0 || b == 0; has1 = has1 || b == 1; }
+    REQUIRE(has0);
+    REQUIRE(has1);
+
+    // Every per-triangle face id is valid WITHIN its tagged body.
+    for (size_t i = 0; i < doc.display_tri_body.size(); ++i) {
+        const int b = doc.display_tri_body[i];
+        REQUIRE(b >= 0);
+        REQUIRE(b < int(doc.bodies.size()));
+        REQUIRE(doc.display_tri_face[i] >= 0);
+        REQUIRE(doc.display_tri_face[i] < GeometryEngine::face_count(doc.bodies[b].shape));
+    }
+}

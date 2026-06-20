@@ -532,6 +532,7 @@ static bool commit_or_rollback(CadDocument& doc, std::vector<CadFeature>& snapsh
         doc.body         = TopoDS_Shape();
         doc.display_mesh = TriangleMesh{};
         doc.display_tri_face.clear();
+        doc.display_tri_body.clear();
         doc.error.clear();
         return true;
     }
@@ -884,6 +885,28 @@ static TopoDS_Shape compound_of(const std::vector<CadBody>& bodies)
     return comp;
 }
 
+// Tessellate every body separately and concatenate into one mesh, recording per-triangle
+// (body index, face id WITHIN that body). Single-body => byte-identical to tessellate(body).
+static TriangleMesh tessellate_bodies(const std::vector<CadBody>& bodies,
+                                      std::vector<int>& tri_face, std::vector<int>& tri_body,
+                                      double lin, double ang)
+{
+    tri_face.clear();
+    tri_body.clear();
+    indexed_triangle_set merged;
+    for (int bi = 0; bi < int(bodies.size()); ++bi) {
+        std::vector<int> tf;
+        TriangleMesh bm = SketchEngine::tessellate(bodies[bi].shape, tf, lin, ang);
+        const indexed_triangle_set& its = bm.its;
+        const int voff = int(merged.vertices.size());
+        for (const auto& v : its.vertices) merged.vertices.push_back(v);
+        for (const auto& t : its.indices)
+            merged.indices.emplace_back(t[0] + voff, t[1] + voff, t[2] + voff);
+        for (int fid : tf) { tri_face.push_back(fid); tri_body.push_back(bi); }
+    }
+    return TriangleMesh(merged);
+}
+
 void CadDocument::route_feature(std::vector<CadBody>& bodies, const CadFeature& f) const
 {
     // Resolve the target body: explicit target_body when valid, else the last body.
@@ -936,7 +959,8 @@ bool CadDocument::recompute()
 
     bodies = std::move(built);
     body = compound_of(bodies);
-    display_mesh = SketchEngine::tessellate(body, display_tri_face, linear_deflection, angular_deflection);
+    display_mesh = tessellate_bodies(bodies, display_tri_face, display_tri_body,
+                                     linear_deflection, angular_deflection);
     if (display_mesh.its.indices.empty()) {
         error = "tessellation produced an empty mesh";
         return false;

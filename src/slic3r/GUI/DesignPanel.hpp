@@ -172,6 +172,7 @@ private:
     int               m_sel_sketch_feat{-1};
     int               m_sel_sketch_region{-1};
     // Click-selected solid topology (whole/face/edge cycle): face id for up-to-face / dress-up.
+    int               m_sel_solid_body{-1};   // which body the face/edge selection is on
     int               m_sel_solid_face{-1};
     int               m_sel_solid_edge{-1};
     // Face-as-profile extrude (Onshape): when Extrude is opened on a picked solid face with

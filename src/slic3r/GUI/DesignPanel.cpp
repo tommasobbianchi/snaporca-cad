@@ -957,19 +957,20 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_status->Refresh();
     });
 
-    // Clicking the solid body cycles whole -> face -> edge. The whole-solid level lights the
-    // body cyan via set_body_highlight; face/edge draw their own cyan overlay in the tool.
-    m_viewport->set_on_solid_selection_changed([this](int level, int face, int edge) {
-        if (m_viewport) m_viewport->set_body_highlight(level == 1 /*Whole*/);
-        // Remember the picked face/edge so Extrude (up-to-face) and dress-up ops can target them.
+    // Clicking a solid cycles whole -> face -> edge. The tool draws the cyan overlay for ALL
+    // levels now (per-body, so other bodies stay untinted) — no whole-compound set_body_highlight.
+    m_viewport->set_on_solid_selection_changed([this](int level, int body, int face, int edge) {
+        // Remember which body + face/edge so Extrude / dress-up target the RIGHT body.
+        m_sel_solid_body = (level >= 1) ? body : -1;
         m_sel_solid_face = (level >= 2) ? face : -1;
         m_sel_solid_edge = (level == 3) ? edge : -1;
         m_status->SetForegroundColour(wxNullColour);
-        m_status->SetLabel(level == 1 ? _L("Solid selected (whole) — click again for a face")
-                         : level == 2 ? wxString::Format(_L("Face %d selected — Extrude to push/pull it, or click again for an edge"), face)
-                         : level == 3 ? wxString::Format(_L("Edge %d selected — open Fillet/Chamfer to dress it, or click again to reset"), edge)
+        const int nb = int(m_doc.bodies.size());
+        const wxString bodytag = (nb > 1) ? wxString::Format(_L("Body %d "), body + 1) : wxString();
+        m_status->SetLabel(level == 1 ? bodytag + _L("selected (whole) — click again for a face")
+                         : level == 2 ? bodytag + wxString::Format(_L("face %d selected — Extrude to push/pull it, or click again for an edge"), face)
+                         : level == 3 ? bodytag + wxString::Format(_L("edge %d selected — open Fillet/Chamfer to dress it, or click again to reset"), edge)
                                       : _L("Nothing selected"));
-        (void)edge;
         m_status->Refresh();
     });
 
@@ -1090,7 +1091,8 @@ void DesignPanel::set_status_ok()
         m_viewport->set_mesh(m_doc.display_mesh);
         // Point the solid-pick at the fresh body + tessellation (resets the whole/face/edge
         // selection, whose ids invalidate on every recompute). Null body is handled inside.
-        m_viewport->set_solid_pick(&m_doc.body, &m_doc.display_mesh, &m_doc.display_tri_face);
+        m_viewport->set_solid_pick(&m_doc.bodies, &m_doc.display_mesh,
+                                   &m_doc.display_tri_face, &m_doc.display_tri_body);
     }
     sync_sketch_display();
 }
@@ -1303,6 +1305,7 @@ void DesignPanel::on_add_extrude()
         f.taper_deg   = m_taper->GetValue();
         f.flip        = m_flip->GetValue();
         f.up_to_face  = (f.extrude_end == ExtrudeEnd::UpToFace) ? m_sel_solid_face : -1;
+        f.target_body = m_sel_solid_body;   // multi-body: act on the picked body (-1 = last)
     }
     if (!m_doc.recompute())
         m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
@@ -1323,15 +1326,19 @@ void DesignPanel::on_add_dressup()
 
     m_feature_counter++;
     // A click-selected solid edge targets THAT edge; otherwise dress the whole face-group.
+    int didx = -1;
     if (m_sel_solid_edge >= 0) {
         if (fillet)
-            m_doc.add_fillet(sz, m_sel_solid_edge, "Fillet" + std::to_string(m_feature_counter));
+            didx = m_doc.add_fillet(sz, m_sel_solid_edge, "Fillet" + std::to_string(m_feature_counter));
         else
-            m_doc.add_chamfer(sz, m_sel_solid_edge, "Chamfer" + std::to_string(m_feature_counter));
+            didx = m_doc.add_chamfer(sz, m_sel_solid_edge, "Chamfer" + std::to_string(m_feature_counter));
     } else if (fillet)
-        m_doc.add_fillet(sz, fg, "Fillet" + std::to_string(m_feature_counter));
+        didx = m_doc.add_fillet(sz, fg, "Fillet" + std::to_string(m_feature_counter));
     else
-        m_doc.add_chamfer(sz, fg, "Chamfer" + std::to_string(m_feature_counter));
+        didx = m_doc.add_chamfer(sz, fg, "Chamfer" + std::to_string(m_feature_counter));
+    // Dress the picked body (its face/edge ids are body-local). -1 = last body.
+    if (didx >= 0 && didx < int(m_doc.features.size()))
+        m_doc.features[didx].target_body = m_sel_solid_body;
 
     if (!m_doc.recompute())
         m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
@@ -2820,6 +2827,7 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
         m_taper->SetValue(f.taper_deg);
         m_flip->SetValue(f.flip);
         m_extrude_sketch_ref = f.sketch_ref;
+        m_sel_solid_body = f.target_body;    // preserve which body on re-edit
         if (m_extrude_sketch_ref >= 0 && m_extrude_sketch_ref < int(m_doc.features.size()))
             m_extrude_sketch_label->SetLabel(_L("Sketch: ") +
                 wxString::FromUTF8(m_doc.features[m_extrude_sketch_ref].name));
@@ -2830,6 +2838,7 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
         m_dressup_size->SetValue(f.dressup_size);
         m_face_group->SetSelection(static_cast<int>(f.face_group));
         m_sel_solid_edge = f.dressup_edge;   // preserve edge-targeting on re-edit
+        m_sel_solid_body = f.target_body;    // preserve which body on re-edit
         break;
     case CadFeatureType::Hole:
         m_hole_plane->SetSelection(index_from_plane(f.plane));
@@ -3006,6 +3015,9 @@ CadFeature DesignPanel::build_candidate(Tool t) const
     case Tool::None:
         break;
     }
+    // Multi-body: target the picked body (face-extrude reads its source face there, dress-up /
+    // hole / Add-Cut-Intersect mutate it). -1 when nothing is picked => auto (last body).
+    f.target_body = m_sel_solid_body;
     return f;
 }
 

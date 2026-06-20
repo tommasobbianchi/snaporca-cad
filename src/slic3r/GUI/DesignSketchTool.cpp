@@ -2189,14 +2189,14 @@ std::vector<SketchEntity> DesignSketchTool::selected_loop_entities() const
 
 // ---- Solid topology selection (whole -> face -> edge cycle) ----
 
-void DesignSketchTool::set_solid_pick(const TopoDS_Shape* body, const TriangleMesh* mesh,
-                                      const std::vector<int>* tri_face)
+void DesignSketchTool::set_solid_pick(const std::vector<CadBody>* bodies, const TriangleMesh* mesh,
+                                      const std::vector<int>* tri_face, const std::vector<int>* tri_body)
 {
-    // Treat a null/empty body or empty mesh as "no solid" so has_display()/picking stay off.
-    if (body == nullptr || body->IsNull() || mesh == nullptr || mesh->its.indices.empty()) {
-        m_solid_body = nullptr; m_solid_mesh = nullptr; m_solid_tri_face = nullptr;
+    // Treat no bodies or an empty mesh as "no solid" so has_display()/picking stay off.
+    if (bodies == nullptr || bodies->empty() || mesh == nullptr || mesh->its.indices.empty()) {
+        m_solid_bodies = nullptr; m_solid_mesh = nullptr; m_solid_tri_face = nullptr; m_solid_tri_body = nullptr;
     } else {
-        m_solid_body = body; m_solid_mesh = mesh; m_solid_tri_face = tri_face;
+        m_solid_bodies = bodies; m_solid_mesh = mesh; m_solid_tri_face = tri_face; m_solid_tri_body = tri_body;
     }
     clear_solid_selection();
 }
@@ -2204,7 +2204,7 @@ void DesignSketchTool::set_solid_pick(const TopoDS_Shape* body, const TriangleMe
 void DesignSketchTool::clear_solid_selection()
 {
     m_solid_sel = SolidSel::None;
-    m_sel_face = m_sel_edge = -1;
+    m_sel_body = m_sel_face = m_sel_edge = -1;
     m_sel_edge_pts.clear();
 }
 
@@ -2212,13 +2212,14 @@ void DesignSketchTool::clear_solid_selection()
 // (consumed); false otherwise so the caller can try committed-sketch loop picking.
 bool DesignSketchTool::handle_solid_click(GLCanvas3D& canvas, const wxMouseEvent& evt)
 {
-    if (m_solid_body == nullptr || m_solid_mesh == nullptr) return false;
+    if (m_solid_bodies == nullptr || m_solid_mesh == nullptr) return false;
     const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
     const Vec3d ro = r.a, rd = r.b - r.a;
 
-    // 1) nearest solid face under the cursor (ray vs display-mesh triangles).
+    // 1) nearest solid face under the cursor (ray vs display-mesh triangles). Resolve WHICH
+    //    body and which face-within-that-body via the per-triangle (tri_body, tri_face) tags.
     const indexed_triangle_set& its = m_solid_mesh->its;
-    int best_face = -1; double best_t = 1e30;
+    int best_face = -1, best_body = -1; double best_t = 1e30;
     for (size_t i = 0; i < its.indices.size(); ++i) {
         const auto& idx = its.indices[i];
         const Vec3d v0 = its.vertices[idx(0)].cast<double>();
@@ -2228,19 +2229,22 @@ bool DesignSketchTool::handle_solid_click(GLCanvas3D& canvas, const wxMouseEvent
         if (ray_triangle(ro, rd, v0, v1, v2, t) && t < best_t) {
             best_t = t;
             best_face = (m_solid_tri_face && i < m_solid_tri_face->size()) ? (*m_solid_tri_face)[i] : -1;
+            best_body = (m_solid_tri_body && i < m_solid_tri_body->size()) ? (*m_solid_tri_body)[i] : -1;
         }
     }
-    if (best_face < 0) return false;   // missed the solid
+    if (best_face < 0 || best_body < 0 || best_body >= int(m_solid_bodies->size()))
+        return false;   // missed the solid
 
-    if (best_face != m_sel_face) {
-        // First click on a (new) face selects the WHOLE solid; refine on repeat clicks.
-        m_sel_face = best_face; m_sel_edge = -1; m_sel_edge_pts.clear();
+    if (best_body != m_sel_body || best_face != m_sel_face) {
+        // First click on a (new) body/face selects the WHOLE solid; refine on repeat clicks.
+        m_sel_body = best_body; m_sel_face = best_face; m_sel_edge = -1; m_sel_edge_pts.clear();
         m_solid_sel = SolidSel::Whole;
     } else if (m_solid_sel == SolidSel::Whole) {
         m_solid_sel = SolidSel::Face;
     } else if (m_solid_sel == SolidSel::Face) {
         // Advance to the face's edge nearest the click (deterministic cycle step).
-        const TopoDS_Face face = GeometryEngine::face_by_index(*m_solid_body, m_sel_face);
+        const TopoDS_Shape& bshape = (*m_solid_bodies)[m_sel_body].shape;
+        const TopoDS_Face face = GeometryEngine::face_by_index(bshape, m_sel_face);
         int eid = -1; double best_ed = 1e30; std::vector<Vec3d> best_pts; TopoDS_Edge best_edge;
         if (!face.IsNull()) {
             const std::vector<TopoDS_Edge> edges = GeometryEngine::edges_of_face(face);
@@ -2255,7 +2259,7 @@ bool DesignSketchTool::handle_solid_click(GLCanvas3D& canvas, const wxMouseEvent
         if (eid >= 0) {
             // Promote the face-relative pick to a STABLE GLOBAL edge id so dress-up ops
             // (fillet/chamfer) can target this exact edge across recomputes.
-            m_sel_edge     = GeometryEngine::edge_index_of(*m_solid_body, best_edge);
+            m_sel_edge     = GeometryEngine::edge_index_of(bshape, best_edge);
             m_sel_edge_pts = std::move(best_pts);
             m_solid_sel    = SolidSel::Edge;
         } else { m_solid_sel = SolidSel::Whole; m_sel_edge = -1; m_sel_edge_pts.clear(); }
@@ -2263,7 +2267,7 @@ bool DesignSketchTool::handle_solid_click(GLCanvas3D& canvas, const wxMouseEvent
         m_solid_sel = SolidSel::Whole; m_sel_edge = -1; m_sel_edge_pts.clear();
     }
     if (on_solid_selection_changed)
-        on_solid_selection_changed(int(m_solid_sel), m_sel_face, m_sel_edge);
+        on_solid_selection_changed(int(m_solid_sel), m_sel_body, m_sel_face, m_sel_edge);
     return true;
 }
 
@@ -2276,12 +2280,18 @@ void DesignSketchTool::render_solid_highlight()
     using EVL = GLModel::Geometry::EVertexLayout;
     const ColorRGBA cyan(0.20f, 0.85f, 1.0f, 1.0f);
 
-    if (m_solid_sel == SolidSel::Face && m_solid_mesh != nullptr && m_solid_tri_face != nullptr) {
+    // Whole tints the picked BODY (all its triangles, lighter alpha); Face tints just the
+    // picked face on that body. Both filter by m_sel_body so other bodies stay untinted.
+    if ((m_solid_sel == SolidSel::Face || m_solid_sel == SolidSel::Whole)
+        && m_solid_mesh != nullptr && m_solid_tri_body != nullptr && m_sel_body >= 0) {
+        const bool face_only = (m_solid_sel == SolidSel::Face);
         const indexed_triangle_set& its = m_solid_mesh->its;
         GLModel::Geometry g; g.format = { EPT::Triangles, EVL::P3 };
         unsigned int base = 0;
         for (size_t i = 0; i < its.indices.size(); ++i) {
-            if (i >= m_solid_tri_face->size() || (*m_solid_tri_face)[i] != m_sel_face) continue;
+            if (i >= m_solid_tri_body->size() || (*m_solid_tri_body)[i] != m_sel_body) continue;
+            if (face_only && (m_solid_tri_face == nullptr || i >= m_solid_tri_face->size()
+                              || (*m_solid_tri_face)[i] != m_sel_face)) continue;
             const auto& idx = its.indices[i];
             for (int j = 0; j < 3; ++j) g.add_vertex(its.vertices[idx(j)]);
             g.add_triangle(base, base + 1, base + 2); base += 3;
@@ -2294,7 +2304,7 @@ void DesignSketchTool::render_solid_highlight()
             glsafe(::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
             m_solid_face_model.reset();
             m_solid_face_model.init_from(std::move(g));
-            m_solid_face_model.set_color(ColorRGBA(0.20f, 0.85f, 1.0f, 0.40f));
+            m_solid_face_model.set_color(ColorRGBA(0.20f, 0.85f, 1.0f, face_only ? 0.40f : 0.22f));
             m_solid_face_model.render();
             glsafe(::glDisable(GL_BLEND));
             glsafe(::glDisable(GL_POLYGON_OFFSET_FILL));

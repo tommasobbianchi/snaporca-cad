@@ -337,13 +337,13 @@ void DesignCanvas::clear_loop_pick()
     m_sketch_tool.clear_display_pick();
 }
 
-void DesignCanvas::set_solid_pick(const TopoDS_Shape* body, const TriangleMesh* mesh,
-                                  const std::vector<int>* tri_face)
+void DesignCanvas::set_solid_pick(const std::vector<CadBody>* bodies, const TriangleMesh* mesh,
+                                  const std::vector<int>* tri_face, const std::vector<int>* tri_body)
 {
-    m_sketch_tool.set_solid_pick(body, mesh, tri_face);
+    m_sketch_tool.set_solid_pick(bodies, mesh, tri_face, tri_body);
 }
 
-void DesignCanvas::set_on_solid_selection_changed(std::function<void(int, int, int)> cb)
+void DesignCanvas::set_on_solid_selection_changed(std::function<void(int, int, int, int)> cb)
 {
     m_sketch_tool.on_solid_selection_changed = std::move(cb);
 }

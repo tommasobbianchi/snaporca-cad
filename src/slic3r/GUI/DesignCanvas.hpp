@@ -71,11 +71,12 @@ public:
     std::vector<SketchEntity> selected_loop_entities() const;  // entities of the click-selected loop
     std::vector<std::vector<int>> region_entity_indices(const std::vector<SketchEntity>& ents) const;
     void clear_loop_pick();  // drop the click-selected loop highlight (e.g. after extrude)
-    // Solid whole/face/edge selection: point the tool at the body + tessellation, and a
-    // callback fired on each whole->face->edge cycle (level, face id, edge index).
-    void set_solid_pick(const TopoDS_Shape* body, const TriangleMesh* mesh,
-                        const std::vector<int>* tri_face);
-    void set_on_solid_selection_changed(std::function<void(int, int, int)> cb);
+    // Solid whole/face/edge selection: point the tool at the bodies + concatenated
+    // tessellation (with per-triangle face & body ids), and a callback fired on each
+    // whole->face->edge cycle (level, body index, face id, edge id).
+    void set_solid_pick(const std::vector<CadBody>* bodies, const TriangleMesh* mesh,
+                        const std::vector<int>* tri_face, const std::vector<int>* tri_body);
+    void set_on_solid_selection_changed(std::function<void(int, int, int, int)> cb);
     // Visual Extrude depth-arrow gizmo (C5b): the panel feeds the profile plane + centroid +
     // live depths/flags while its Extrude card is open; drag/edit fire the depth callback.
     void set_extrude_gizmo(const SketchPlane& plane, const Vec2d& centroid,

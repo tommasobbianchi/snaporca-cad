@@ -3,6 +3,7 @@
 
 #include "libslic3r/Point.hpp"
 #include "libslic3r/SketchEngine.hpp"
+#include "libslic3r/CadDocument.hpp"   // CadBody for per-body solid picking
 #include "libslic3r/SketchInference.hpp"
 #include "libslic3r/SketchSolver.hpp"
 #include "GLModel.hpp"
@@ -69,18 +70,21 @@ public:
     // own plane. render() draws these as translucent faces + outlines.
     struct DisplaySketch { std::vector<SketchEntity> entities; SketchPlane plane; int feature{-1}; };
     void set_display_sketches(std::vector<DisplaySketch> ds) { m_display_sketches = std::move(ds); }
-    bool has_display() const { return m_active || !m_display_sketches.empty() || m_solid_body != nullptr || m_ex_active; }
+    bool has_display() const { return m_active || !m_display_sketches.empty()
+                                      || (m_solid_bodies != nullptr && !m_solid_bodies->empty()) || m_ex_active; }
 
-    // Solid topology selection on the committed body: clicking the solid cycles
-    // whole-solid -> face -> edge (Onshape-style) to target fillet/chamfer/extrude.
+    // Solid topology selection on the committed bodies: clicking a solid cycles
+    // whole-solid -> face -> edge (Onshape-style) to target fillet/chamfer/extrude. With
+    // multiple bodies the pick resolves WHICH body was hit (per-triangle body id).
     enum class SolidSel { None, Whole, Face, Edge };
-    // Point the tool at the current body + its tessellation (non-owning; pass nullptrs to
-    // clear). Call after each recompute — the selection is reset (face/edge ids invalidate).
-    void set_solid_pick(const TopoDS_Shape* body, const TriangleMesh* mesh,
-                        const std::vector<int>* tri_face);
+    // Point the tool at the current bodies + their concatenated tessellation (non-owning;
+    // pass nullptr to clear). Call after each recompute — selection resets (ids invalidate).
+    // tri_face = per-triangle face id within its body; tri_body = per-triangle body index.
+    void set_solid_pick(const std::vector<CadBody>* bodies, const TriangleMesh* mesh,
+                        const std::vector<int>* tri_face, const std::vector<int>* tri_body);
     void clear_solid_selection();
-    // Fired on each cycle change: (level 0=None/1=Whole/2=Face/3=Edge, face id, edge index).
-    std::function<void(int level, int face, int edge)> on_solid_selection_changed;
+    // Fired on each cycle change: (level 0=None/1=Whole/2=Face/3=Edge, body index, face id, edge id).
+    std::function<void(int level, int body, int face, int edge)> on_solid_selection_changed;
     // Click a committed sketch overlay (no live session) -> select that loop: the Sketch
     // feature index + the clicked closed-region index within it (-1 = no specific loop).
     std::function<void(int feature, int region)> on_display_sketch_selected;
@@ -612,13 +616,15 @@ private:
     std::vector<DisplaySketch> m_display_sketches;  // committed sketches drawn persistently
     int m_display_pick{-1};        // FEATURE index of the click-selected display sketch (-1 none)
 
-    // Solid (whole/face/edge) selection on the committed body. Pointers are non-owning,
-    // into CadDocument (body + display_mesh + per-triangle face ids), refreshed each
+    // Solid (whole/face/edge) selection on the committed bodies. Pointers are non-owning,
+    // into CadDocument (bodies + display_mesh + per-triangle face/body ids), refreshed each
     // recompute via set_solid_pick. m_sel_edge_pts caches the picked edge's world polyline.
-    const TopoDS_Shape*     m_solid_body{nullptr};
+    const std::vector<CadBody>* m_solid_bodies{nullptr};
     const TriangleMesh*     m_solid_mesh{nullptr};
     const std::vector<int>* m_solid_tri_face{nullptr};
+    const std::vector<int>* m_solid_tri_body{nullptr};
     SolidSel                m_solid_sel{SolidSel::None};
+    int                     m_sel_body{-1};   // which body the face/edge selection is on
     int                     m_sel_face{-1};
     int                     m_sel_edge{-1};
     std::vector<Vec3d>      m_sel_edge_pts;
