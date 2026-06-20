@@ -454,13 +454,36 @@ DesignPanel::DesignPanel(wxWindow* parent)
         eform->Add(new wxStaticText(m_form, wxID_ANY, _L("Extrude dist")), 0, wxALIGN_CENTER_VERTICAL);
         eform->Add(m_distance);
 
+        // End condition (order MUST match ExtrudeEnd: Blind/Symmetric/TwoSided/ThroughAll/
+        // UpToFace/UpToVertex). Up-to-face uses the currently click-selected solid face.
+        m_extrude_end = new wxChoice(m_form, wxID_ANY);
+        for (const char* s : { "Blind", "Symmetric", "Two-sided", "Through all",
+                               "Up to face", "Up to vertex" })
+            m_extrude_end->Append(s);
+        m_extrude_end->SetSelection(0);
+        eform->Add(new wxStaticText(m_form, wxID_ANY, _L("End")), 0, wxALIGN_CENTER_VERTICAL);
+        eform->Add(m_extrude_end);
+
+        m_distance2 = make_spin(m_form, 5, 0.0, 100000.0);   // second-side depth (Two-sided)
+        eform->Add(new wxStaticText(m_form, wxID_ANY, _L("2nd dist")), 0, wxALIGN_CENTER_VERTICAL);
+        eform->Add(m_distance2);
+
+        m_taper = make_spin(m_form, 0.0, -89.0, 89.0);       // draft angle (deg)
+        eform->Add(new wxStaticText(m_form, wxID_ANY, _L("Taper °")), 0, wxALIGN_CENTER_VERTICAL);
+        eform->Add(m_taper);
+
         m_mode = new wxChoice(m_form, wxID_ANY);
         m_mode->Append("New");
         m_mode->Append("Add");
         m_mode->Append("Cut");
+        m_mode->Append("Intersect");
         m_mode->SetSelection(0);
         eform->Add(new wxStaticText(m_form, wxID_ANY, _L("Mode")), 0, wxALIGN_CENTER_VERTICAL);
         eform->Add(m_mode);
+
+        m_flip = new wxCheckBox(m_form, wxID_ANY, _L("Flip direction"));
+        eform->Add(new wxStaticText(m_form, wxID_ANY, wxEmptyString));
+        eform->Add(m_flip);
 
         m_box_extrude->Add(eform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
     }
@@ -927,6 +950,9 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // body cyan via set_body_highlight; face/edge draw their own cyan overlay in the tool.
     m_viewport->set_on_solid_selection_changed([this](int level, int face, int edge) {
         if (m_viewport) m_viewport->set_body_highlight(level == 1 /*Whole*/);
+        // Remember the picked face/edge so Extrude (up-to-face) and dress-up ops can target them.
+        m_sel_solid_face = (level >= 2) ? face : -1;
+        m_sel_solid_edge = (level == 3) ? edge : -1;
         m_status->SetForegroundColour(wxNullColour);
         m_status->SetLabel(level == 1 ? _L("Solid selected (whole) — click again for a face")
                          : level == 2 ? wxString::Format(_L("Face %d selected — click again for an edge"), face)
@@ -1230,19 +1256,30 @@ bool DesignPanel::extrude_uses_loop() const
 
 void DesignPanel::on_add_extrude()
 {
-    BooleanMode mode = static_cast<BooleanMode>(m_mode->GetSelection());
+    BooleanMode mode = static_cast<BooleanMode>(m_mode->GetSelection());  // New/Add/Cut/Intersect
     m_feature_counter++;
     const std::string name = "Extrude" + std::to_string(m_feature_counter);
+    int idx = -1;
     if (extrude_uses_loop()) {
         // Extrude just the selected loop (its entity subset), leaving the source sketch's
         // other loops intact and still selectable.
-        m_doc.add_extrude_entities(m_viewport->selected_loop_entities(),
-                                   m_doc.features[m_extrude_sketch_ref].plane,
-                                   m_distance->GetValue(), false, mode, name);
+        idx = m_doc.add_extrude_entities(m_viewport->selected_loop_entities(),
+                                         m_doc.features[m_extrude_sketch_ref].plane,
+                                         m_distance->GetValue(), false, mode, name);
         m_sel_sketch_region = -1;        // consume the loop selection
         m_viewport->clear_loop_pick();   // drop the now-stale loop highlight
     } else {
-        m_doc.add_extrude(m_extrude_sketch_ref, m_distance->GetValue(), false, mode, name);
+        idx = m_doc.add_extrude(m_extrude_sketch_ref, m_distance->GetValue(), false, mode, name);
+    }
+    // Carry the Onshape end-condition / taper / flip / up-to-face onto the new feature so the
+    // committed solid matches the preview (build_candidate sets the same fields).
+    if (idx >= 0 && idx < int(m_doc.features.size())) {
+        CadFeature& f = m_doc.features[idx];
+        f.extrude_end = static_cast<ExtrudeEnd>(m_extrude_end->GetSelection());
+        f.distance2   = m_distance2->GetValue();
+        f.taper_deg   = m_taper->GetValue();
+        f.flip        = m_flip->GetValue();
+        f.up_to_face  = (f.extrude_end == ExtrudeEnd::UpToFace) ? m_sel_solid_face : -1;
     }
     if (!m_doc.recompute())
         m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
@@ -2748,7 +2785,11 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
         break;
     case CadFeatureType::Extrude:
         m_distance->SetValue(f.distance);
-        m_mode->SetSelection(static_cast<int>(f.mode)); // New=0,Add=1,Cut=2
+        m_mode->SetSelection(static_cast<int>(f.mode)); // New=0,Add=1,Cut=2,Intersect=3
+        m_extrude_end->SetSelection(static_cast<int>(f.extrude_end));
+        m_distance2->SetValue(f.distance2);
+        m_taper->SetValue(f.taper_deg);
+        m_flip->SetValue(f.flip);
         m_extrude_sketch_ref = f.sketch_ref;
         if (m_extrude_sketch_ref >= 0 && m_extrude_sketch_ref < int(m_doc.features.size()))
             m_extrude_sketch_label->SetLabel(_L("Sketch: ") +
@@ -2878,12 +2919,18 @@ CadFeature DesignPanel::build_candidate(Tool t) const
         f.radius = m_radius->GetValue();
         break;
     case Tool::Extrude:
-        f.type       = CadFeatureType::Extrude;
-        f.distance   = m_distance->GetValue();
-        f.symmetric  = false;
+        f.type        = CadFeatureType::Extrude;
+        f.distance    = m_distance->GetValue();
+        f.symmetric   = false;
+        f.extrude_end = static_cast<ExtrudeEnd>(m_extrude_end->GetSelection());
+        f.distance2   = m_distance2->GetValue();
+        f.taper_deg   = m_taper->GetValue();
+        f.flip        = m_flip->GetValue();
+        f.up_to_face  = (f.extrude_end == ExtrudeEnd::UpToFace) ? m_sel_solid_face : -1;
         f.mode       = (m_mode->GetSelection() == 0) ? BooleanMode::New
                      : (m_mode->GetSelection() == 1) ? BooleanMode::Add
-                                                     : BooleanMode::Cut;
+                     : (m_mode->GetSelection() == 2) ? BooleanMode::Cut
+                                                     : BooleanMode::Intersect;
         if (extrude_uses_loop()) {
             // Preview just the click-selected loop: carry its entity subset on the
             // feature (sketch_ref = -1 -> build_sketch_wire uses f.entities).

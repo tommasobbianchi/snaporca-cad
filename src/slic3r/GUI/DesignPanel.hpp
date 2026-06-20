@@ -157,6 +157,10 @@ private:
     wxSpinCtrlDouble* m_height{nullptr};
     wxSpinCtrlDouble* m_radius{nullptr};
     wxSpinCtrlDouble* m_distance{nullptr};
+    wxChoice*         m_extrude_end{nullptr};   // Blind/Symmetric/TwoSided/ThroughAll/UpTo*
+    wxSpinCtrlDouble* m_distance2{nullptr};     // second-side depth (Two-sided)
+    wxSpinCtrlDouble* m_taper{nullptr};         // draft angle (deg)
+    wxCheckBox*       m_flip{nullptr};          // reverse extrude direction
 
     wxStaticText*     m_extrude_sketch_label{nullptr};
     int               m_extrude_sketch_ref{-1};
@@ -164,6 +168,9 @@ private:
     // clicked closed-region index, so Extrude builds just that one loop. -1 = none.
     int               m_sel_sketch_feat{-1};
     int               m_sel_sketch_region{-1};
+    // Click-selected solid topology (whole/face/edge cycle): face id for up-to-face / dress-up.
+    int               m_sel_solid_face{-1};
+    int               m_sel_solid_edge{-1};
 
     wxChoice*         m_dressup_type{nullptr};
     wxChoice*         m_face_group{nullptr};
