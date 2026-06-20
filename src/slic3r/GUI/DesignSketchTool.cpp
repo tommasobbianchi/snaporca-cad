@@ -1012,6 +1012,34 @@ void DesignSketchTool::set_polygon_radius(int fi, double R)
     // the loop if its H/V anchors were already dropped by a prior rotation.
 }
 
+void DesignSketchTool::open_arc_angle_editor(int ei)
+{
+    if (ei < 0 || ei >= int(m_entities.size()) || !on_inline_edit) return;
+    const SketchEntity& e = m_entities[ei];
+    if (e.type != SketchEntity::Type::Arc) return;
+    double swdeg = std::abs(e.end_angle - e.start_angle) * 180.0 / M_PI;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    on_inline_edit(px, swdeg,
+                   [this, ei](double v) { set_arc_sweep(ei, v); },
+                   []()                 {});
+}
+
+// Set the arc's included (sweep) angle to `deg`, keeping the start point and radius fixed
+// and rotating the end point about the centre. Geometric (SLVS angle is line-to-line), so
+// no re-solve; the mutated entity renders directly. Direction (CCW/CW) of the original
+// sweep is preserved.
+void DesignSketchTool::set_arc_sweep(int ei, double deg)
+{
+    if (ei < 0 || ei >= int(m_entities.size())) return;
+    SketchEntity& e = m_entities[ei];
+    if (e.type != SketchEntity::Type::Arc || e.radius < 1e-6) return;
+    double sweep = std::max(1e-3, std::min(deg, 359.999)) * M_PI / 180.0;
+    const double sign = (e.end_angle >= e.start_angle) ? 1.0 : -1.0;
+    e.end_angle = e.start_angle + sign * sweep;
+    e.p1 = e.center + e.radius * Vec2d(std::cos(e.end_angle), std::sin(e.end_angle));
+    resolve_live();
+}
+
 DesignSketchTool::DimType DesignSketchTool::pending_dimension_type() const
 {
     return (m_pending_dim >= 0 && m_pending_dim < int(m_dimensions.size()))
@@ -2307,6 +2335,8 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
     m_live_quotes.clear();
     m_live_poly_fi = -1;
     m_live_poly_side_label = m_live_poly_angle_label = Vec2d(1e18, 1e18);
+    m_live_arc_ei = -1;
+    m_live_arc_angle_label = Vec2d(1e18, 1e18);
     int ei = -1;
     if (m_dragging_point && m_drag_ei >= 0)  ei = m_drag_ei;
     else if (m_dragging_handle)              ei = m_drag_handle.ei;
@@ -2422,8 +2452,44 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
         case SketchEntity::Type::Circle: {
             DimAnnot a; a.kind = DimType::Radius; a.ea = ei; protos.push_back(a); break;
         }
-        default: break;                   // arc/ellipse/etc.: later
+        case SketchEntity::Type::Arc: {
+            // Arc radius is its single defining dimension (sweep angles edit via the end
+            // handles). radius lives in the same .radius field measure_dim/constraint_for
+            // read, so the Radius promotion path is identical to Circle.
+            DimAnnot a; a.kind = DimType::Radius; a.ea = ei; protos.push_back(a); break;
         }
+        default: break;                   // ellipse/bspline: later
+        }
+    }
+
+    // Arc sweep-angle wedge: drawn inline (like the polygon orientation) because it is a
+    // GEOMETRIC edit (SLVS angle constraints are line-to-line). A wedge spans the arc's
+    // start->end angles just OUTSIDE the radius; its label shows the included angle and is
+    // clickable to type a new sweep. The radius quote is still emitted via `protos`.
+    if (m_live_poly_fi < 0 && e.type == SketchEntity::Type::Arc && e.radius > 1e-6) {
+        const ColorRGBA dc(0.30f, 0.88f, 0.66f, 1.0f);
+        const double th = std::max(15.0 * unit_per_px, 1e-4);
+        const Vec2d  c  = e.center;
+        const double a0 = e.start_angle, a1 = e.end_angle;
+        const double sweep = a1 - a0;                       // signed (CCW>0); |sweep| shown
+        double swdeg = std::abs(sweep) * 180.0 / M_PI;
+        const double rr = e.radius + th * 2.5;              // wedge just outside the arc
+        std::vector<std::pair<Vec2d, Vec2d>> asegs;
+        asegs.emplace_back(c, c + Vec2d(std::cos(a0), std::sin(a0)) * rr);   // start leg
+        asegs.emplace_back(c, c + Vec2d(std::cos(a1), std::sin(a1)) * rr);   // end leg
+        const int N = 24; Vec2d prev = c + Vec2d(std::cos(a0), std::sin(a0)) * rr;
+        for (int i = 1; i <= N; ++i) {
+            const double t = a0 + sweep * double(i) / N;
+            const Vec2d cur = c + Vec2d(rr * std::cos(t), rr * std::sin(t));
+            asegs.emplace_back(prev, cur); prev = cur;
+        }
+        const double mid = a0 + sweep * 0.5;
+        const Vec2d albl = c + Vec2d(std::cos(mid), std::sin(mid)) * (rr + th * 1.2);
+        DimAnnot at; at.kind = DimType::Angle; at.value = swdeg;             // "NN.N°"
+        draw_strokes(m_highlight_model, asegs, 0.6, dc);
+        draw_text(m_line_model, dim_text(at), albl, th, dc);
+        m_live_arc_angle_label = albl;
+        m_live_arc_ei = ei;
     }
     if (protos.empty()) return;
 
@@ -3274,6 +3340,10 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                         open_polygon_angle_editor(m_live_poly_fi);  // geometric rotate
                         return true;
                     }
+                }
+                if (m_live_arc_ei >= 0 && (m_live_arc_angle_label - p).norm() <= ltol) {
+                    open_arc_angle_editor(m_live_arc_ei);           // geometric sweep change
+                    return true;
                 }
             }
 

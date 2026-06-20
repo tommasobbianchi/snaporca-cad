@@ -282,6 +282,10 @@ private:
     void set_polygon_side(int fi, double side);
     void set_polygon_angle(int fi, double deg);
     void set_polygon_radius(int fi, double R);
+    // Arc sweep-angle quote: geometric edit (SLVS angle is line-to-line only). Keeps the
+    // arc start point + radius fixed and moves the end point to span `deg` degrees.
+    void open_arc_angle_editor(int ei);
+    void set_arc_sweep(int ei, double deg);
     // Drop orientation constraints (H/V/Parallel/Perp/Angle/LockX/LockY) on entities in
     // [begin,end). A ROTATION makes inferred per-edge H/V inconsistent, so re-solving
     // against them collapses the shape — drop them first (fixes up DimAnnot.con indices).
@@ -400,6 +404,8 @@ private:
     Vec2d                 m_live_poly_side_label{0,0};  // polygon side-length quote label
     Vec2d                 m_live_poly_angle_label{0,0}; // polygon orientation quote label
     int                   m_live_poly_fi{-1};           // their Feature (geometric edits)
+    Vec2d                 m_live_arc_angle_label{0,0};  // arc sweep-angle quote label
+    int                   m_live_arc_ei{-1};            // the arc it belongs to (geometric edit)
     std::vector<Feature>  m_features;              // parametric groups over m_entities
     int                   m_open_feature{-1};      // index of the Feature being built, or -1
 
