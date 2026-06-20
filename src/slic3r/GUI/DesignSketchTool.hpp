@@ -290,6 +290,9 @@ private:
     // radius (keeps both sweep angles); the END point changes the sweep angle (keeps the
     // radius). Geometric — no solver (SLVS has no arc radius/angle handle concept here).
     void drag_arc_handle(int ei, SketchPointRole role, const Vec2d& target);
+    // Ellipse axis labels (geometric edit of the semi-axes a/b; phi via the major grip).
+    void open_ellipse_axis_editor(int ei, bool major);
+    void set_ellipse_axis(int ei, bool major, double v);
     // Drop orientation constraints (H/V/Parallel/Perp/Angle/LockX/LockY) on entities in
     // [begin,end). A ROTATION makes inferred per-edge H/V inconsistent, so re-solving
     // against them collapses the shape — drop them first (fixes up DimAnnot.con indices).
@@ -410,6 +413,9 @@ private:
     int                   m_live_poly_fi{-1};           // their Feature (geometric edits)
     Vec2d                 m_live_arc_angle_label{0,0};  // arc sweep-angle quote label
     int                   m_live_arc_ei{-1};            // the arc it belongs to (geometric edit)
+    Vec2d                 m_live_ellipse_major_label{0,0}; // ellipse semi-major quote label
+    Vec2d                 m_live_ellipse_minor_label{0,0}; // ellipse semi-minor quote label
+    int                   m_live_ellipse_ei{-1};        // the ellipse the labels belong to
     std::vector<Feature>  m_features;              // parametric groups over m_entities
     int                   m_open_feature{-1};      // index of the Feature being built, or -1
 

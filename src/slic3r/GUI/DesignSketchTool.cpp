@@ -543,7 +543,19 @@ std::vector<DesignSketchTool::Handle> DesignSketchTool::build_handles() const
             r.pos = e.center + Vec2d(e.radius, 0.0); hs.push_back(r);
             break;
         }
-        default: break;   // Arc/Ellipse/BSpline handles land in later A3/C chunks
+        case SketchEntity::Type::Ellipse: {
+            // 3 grips: centre (translate), major-axis end (semi-major a + orientation phi),
+            // minor-axis end (semi-minor b). a=e.radius, b=e.rminor, phi=e.rotation.
+            const Vec2d um(std::cos(e.rotation), std::sin(e.rotation));   // major dir
+            const Vec2d un(-um.y(), um.x());                              // minor dir
+            Handle c; c.role = HandleRole::Center; c.ei = int(i); c.pos = e.center; hs.push_back(c);
+            Handle ma; ma.role = HandleRole::MajorAxis; ma.ei = int(i);
+            ma.pos = e.center + um * e.radius; hs.push_back(ma);
+            Handle mi; mi.role = HandleRole::MinorAxis; mi.ei = int(i);
+            mi.pos = e.center + un * e.rminor; hs.push_back(mi);
+            break;
+        }
+        default: break;   // Arc/BSpline derived handles land in later chunks
         }
     }
     return hs;
@@ -601,6 +613,26 @@ void DesignSketchTool::set_handle(const Handle& h, const Vec2d& target)
     case HandleRole::RadiusHandle: {
         const double r = (target - e.center).norm();
         if (r > 1e-6) e.radius = r;
+        resolve_live();
+        break;
+    }
+    case HandleRole::MajorAxis: {
+        // The major grip defines the major-axis vector: sets semi-major a + orientation phi.
+        const Vec2d d = target - e.center;
+        const double a = d.norm();
+        if (a > 1e-6) {
+            e.rotation = std::atan2(d.y(), d.x());
+            e.radius   = std::max(a, e.rminor);   // keep OCCT invariant a >= b
+        }
+        resolve_live();
+        break;
+    }
+    case HandleRole::MinorAxis: {
+        // The minor grip sets semi-minor b = perpendicular distance to the major axis.
+        const Vec2d um(std::cos(e.rotation), std::sin(e.rotation));
+        const Vec2d un(-um.y(), um.x());
+        const double b = std::abs((target - e.center).dot(un));
+        if (b > 1e-6) e.rminor = std::min(b, e.radius);
         resolve_live();
         break;
     }
@@ -1068,6 +1100,29 @@ void DesignSketchTool::drag_arc_handle(int ei, SketchPointRole role, const Vec2d
         e.end_angle = e.start_angle + da;
         e.p1 = e.center + e.radius * Vec2d(std::cos(e.end_angle), std::sin(e.end_angle));
     }
+    resolve_live();
+}
+
+void DesignSketchTool::open_ellipse_axis_editor(int ei, bool major)
+{
+    if (ei < 0 || ei >= int(m_entities.size()) || !on_inline_edit) return;
+    const SketchEntity& e = m_entities[ei];
+    if (e.type != SketchEntity::Type::Ellipse) return;
+    const double v = major ? e.radius : e.rminor;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    on_inline_edit(px, v,
+                   [this, ei, major](double nv) { set_ellipse_axis(ei, major, nv); },
+                   []()                         {});
+}
+
+// Set a semi-axis to `v`: major -> e.radius, minor -> e.rminor; keep OCCT a >= b.
+void DesignSketchTool::set_ellipse_axis(int ei, bool major, double v)
+{
+    if (ei < 0 || ei >= int(m_entities.size()) || v < 1e-6) return;
+    SketchEntity& e = m_entities[ei];
+    if (e.type != SketchEntity::Type::Ellipse) return;
+    if (major) e.radius = std::max(v, e.rminor);
+    else       e.rminor = std::min(v, e.radius);
     resolve_live();
 }
 
@@ -2368,6 +2423,8 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
     m_live_poly_side_label = m_live_poly_angle_label = Vec2d(1e18, 1e18);
     m_live_arc_ei = -1;
     m_live_arc_angle_label = Vec2d(1e18, 1e18);
+    m_live_ellipse_ei = -1;
+    m_live_ellipse_major_label = m_live_ellipse_minor_label = Vec2d(1e18, 1e18);
     int ei = -1;
     if (m_dragging_point && m_drag_ei >= 0)  ei = m_drag_ei;
     else if (m_dragging_handle)              ei = m_drag_handle.ei;
@@ -2522,6 +2579,33 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
         m_live_arc_angle_label = albl;
         m_live_arc_ei = ei;
     }
+
+    // Ellipse: two clickable axis quotes — semi-major (a) along the major direction and
+    // semi-minor (b) along the minor. Both edit geometrically (a=e.radius, b=e.rminor);
+    // phi (orientation) is changed by dragging the major grip, not via a label.
+    if (m_live_poly_fi < 0 && e.type == SketchEntity::Type::Ellipse &&
+        e.radius > 1e-6 && e.rminor > 1e-6) {
+        const ColorRGBA dc(0.30f, 0.88f, 0.66f, 1.0f);
+        const double th = std::max(15.0 * unit_per_px, 1e-4);
+        const Vec2d  c  = e.center;
+        const Vec2d  um(std::cos(e.rotation), std::sin(e.rotation));   // major dir
+        const Vec2d  un(-um.y(), um.x());                              // minor dir
+        std::vector<std::pair<Vec2d, Vec2d>> segs;
+        const Vec2d majEnd = c + um * e.radius, minEnd = c + un * e.rminor;
+        segs.emplace_back(c, majEnd);
+        segs.emplace_back(c, minEnd);
+        draw_strokes(m_highlight_model, segs, 0.6, dc);
+        DimAnnot ma; ma.kind = DimType::Length; ma.value = e.radius;   // plain "NN.N"
+        DimAnnot mi; mi.kind = DimType::Length; mi.value = e.rminor;
+        const Vec2d majLbl = c + um * (e.radius * 0.5) + un * (th * 1.0);
+        const Vec2d minLbl = c + un * (e.rminor * 0.5) + um * (th * 1.0);
+        draw_text(m_line_model, dim_text(ma), majLbl, th, dc);
+        draw_text(m_line_model, dim_text(mi), minLbl, th, dc);
+        m_live_ellipse_major_label = majLbl;
+        m_live_ellipse_minor_label = minLbl;
+        m_live_ellipse_ei = ei;
+    }
+
     if (protos.empty()) return;
 
     const ColorRGBA dimcol(0.30f, 0.88f, 0.66f, 1.0f);
@@ -2828,7 +2912,9 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         const double upp = 1.0 / std::max(camera.get_zoom(), 1e-6);
         std::vector<Vec2d> radius_h;
         for (const Handle& h : build_handles())
-            if (h.role == HandleRole::RadiusHandle) radius_h.push_back(h.pos);
+            if (h.role == HandleRole::RadiusHandle || h.role == HandleRole::MajorAxis ||
+                h.role == HandleRole::MinorAxis)
+                radius_h.push_back(h.pos);
         if (!radius_h.empty())
             draw_vertices(m_vertex_model, radius_h, ColorRGBA(0.30f, 0.75f, 0.95f, 1.0f),
                           std::max(4.0 * upp, 1e-4));
@@ -3120,9 +3206,25 @@ static double entity_pick_dist(const Vec2d& p, const SketchEntity& e)
     case SketchEntity::Type::Arc:    return std::abs((p - e.center).norm() - e.radius);
     case SketchEntity::Type::Ellipse:
     case SketchEntity::Type::EllipseArc: {
-        // Crude: distance to the mean-radius circle; good enough for edge picking.
-        const double rm = 0.5 * (e.radius + e.rminor);
-        return std::abs((p - e.center).norm() - rm);
+        // Accurate edge pick: sample the true ellipse outline as a polyline and take the
+        // min segment distance. The crude mean-radius circle mis-picks eccentric ellipses
+        // (the outline at the major/minor extremes is far from that circle), which made the
+        // face-fill swallow edge clicks. Full ellipse sweeps 0..2pi; an arc its param range.
+        const double cu = std::cos(e.rotation), su = std::sin(e.rotation);
+        const bool full = (e.type == SketchEntity::Type::Ellipse);
+        const double t0 = full ? 0.0 : e.start_angle;
+        const double t1 = full ? 2.0 * M_PI : e.end_angle;
+        const int n = 48;
+        double best = 1e30; Vec2d prev;
+        for (int i = 0; i <= n; ++i) {
+            const double t = t0 + (t1 - t0) * double(i) / n;
+            const double lx = e.radius * std::cos(t), ly = e.rminor * std::sin(t);   // local
+            const Vec2d q(e.center.x() + lx * cu - ly * su,
+                          e.center.y() + lx * su + ly * cu);                          // world
+            if (i > 0) best = std::min(best, point_segment_dist(p, prev, q));
+            prev = q;
+        }
+        return best;
     }
     case SketchEntity::Type::BSpline: {
         const std::vector<Vec2d> poly = bspline_polyline(e.ctrl);
@@ -3382,6 +3484,16 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                     open_arc_angle_editor(m_live_arc_ei);           // geometric sweep change
                     return true;
                 }
+                if (m_live_ellipse_ei >= 0) {
+                    if ((m_live_ellipse_major_label - p).norm() <= ltol) {
+                        open_ellipse_axis_editor(m_live_ellipse_ei, true);   // semi-major
+                        return true;
+                    }
+                    if ((m_live_ellipse_minor_label - p).norm() <= ltol) {
+                        open_ellipse_axis_editor(m_live_ellipse_ei, false);  // semi-minor
+                        return true;
+                    }
+                }
             }
 
             // A derived handle (the circle RadiusHandle — not an entity point, so
@@ -3390,7 +3502,9 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             // the circle edge.
             if (evt.LeftDown()) {
                 Handle hh;
-                if (hit_test_handle(p, tol, hh) && hh.role == HandleRole::RadiusHandle) {
+                if (hit_test_handle(p, tol, hh) &&
+                    (hh.role == HandleRole::RadiusHandle || hh.role == HandleRole::MajorAxis ||
+                     hh.role == HandleRole::MinorAxis)) {
                     m_dragging_handle = true;
                     m_drag_handle     = hh;
                     m_selection.clear();
