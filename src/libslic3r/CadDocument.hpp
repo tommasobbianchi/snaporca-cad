@@ -95,8 +95,9 @@ class CadDocument {
 public:
     std::vector<CadFeature> features;
     TopoDS_Shape            body;          // current solid after replay
-    TriangleMesh            display_mesh;  // tessellation of body
-    std::string             error;         // last recompute error ("" = ok)
+    TriangleMesh            display_mesh;      // tessellation of body
+    std::vector<int>        display_tri_face;  // per-triangle source-face id of display_mesh
+    std::string             error;             // last recompute error ("" = ok)
 
     double linear_deflection{0.01};
     double angular_deflection{0.5};

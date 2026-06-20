@@ -176,6 +176,11 @@ public:
                                    double linear_deflection = 0.01,
                                    double angular_deflection = 0.5);
 
+    static TriangleMesh tessellate(const TopoDS_Shape& shape,
+                                   std::vector<int>& tri_face,
+                                   double linear_deflection = 0.01,
+                                   double angular_deflection = 0.5);
+
     static TopoDS_Wire entities_to_wire(const std::vector<SketchEntity>& entities,
                                         const SketchPlane& plane);
 

@@ -7,6 +7,8 @@
 
 #include <cmath>
 #include <fstream>
+#include <set>
+#include <BRepPrimAPI_MakeBox.hxx>
 
 using namespace Slic3r;
 
@@ -816,4 +818,27 @@ TEST_CASE("imported regions: faces-with-holes extrude (Text/SVG carrier)", "[Cad
         // 2 * (5*5*3) = 150 mm^3
         REQUIRE_THAT(double(doc.display_mesh.volume()), Catch::Matchers::WithinRel(150.0, 0.02));
     }
+}
+
+TEST_CASE("tessellate tracks per-triangle face id", "[CadDocument]")
+{
+    TopoDS_Shape box = BRepPrimAPI_MakeBox(10., 10., 10.).Shape();
+    std::vector<int> tf;
+    TriangleMesh m = SketchEngine::tessellate(box, tf);
+
+    REQUIRE(tf.size() == m.its.indices.size());
+    REQUIRE(!tf.empty());
+
+    std::set<int> distinct(tf.begin(), tf.end());
+    REQUIRE(distinct.size() == 6);
+    REQUIRE(*distinct.begin() == 0);
+    REQUIRE(*distinct.rbegin() == 5);
+
+    for (int fid : distinct) {
+        int count = 0;
+        for (int x : tf) if (x == fid) ++count;
+        REQUIRE(count >= 2);
+    }
+
+    REQUIRE(m.its.indices.size() >= 12);
 }

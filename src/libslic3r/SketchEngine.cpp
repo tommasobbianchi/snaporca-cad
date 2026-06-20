@@ -33,6 +33,8 @@
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Wire.hxx>
 #include <GeomAPI_IntCS.hxx>
+#include <map>
+#include <tuple>
 #include <stdexcept>
 
 namespace Slic3r {
@@ -294,6 +296,16 @@ TriangleMesh SketchEngine::tessellate(const TopoDS_Shape& shape,
                                       double linear_deflection,
                                       double angular_deflection)
 {
+    std::vector<int> dummy;
+    return tessellate(shape, dummy, linear_deflection, angular_deflection);
+}
+
+TriangleMesh SketchEngine::tessellate(const TopoDS_Shape& shape,
+                                      std::vector<int>& tri_face,
+                                      double linear_deflection,
+                                      double angular_deflection)
+{
+    tri_face.clear();
     BRepMesh_IncrementalMesh mesh(shape, linear_deflection, false, angular_deflection, true);
 
     int nbNodes = 0, nbTriangles = 0;
@@ -309,27 +321,25 @@ TriangleMesh SketchEngine::tessellate(const TopoDS_Shape& shape,
     if (nbTriangles == 0 || nbNodes == 0)
         return TriangleMesh{};
 
-    stl_file stl;
-    stl.stats.type = inmemory;
-    stl.stats.number_of_facets = static_cast<uint32_t>(nbTriangles);
-    stl.stats.original_num_facets = stl.stats.number_of_facets;
-    stl_allocate(&stl);
+    indexed_triangle_set raw;
+    raw.vertices.reserve(nbNodes);
+    raw.indices.reserve(nbTriangles);
+    tri_face.reserve(nbTriangles);
 
-    std::vector<Vec3f> pts;
-    pts.reserve(nbNodes);
-
-    int nodeOff = 0, triOff = 0;
+    int faceIdx = -1;
+    int nodeOff = 0;
     for (TopExp_Explorer exp(shape, TopAbs_FACE); exp.More(); exp.Next()) {
-        const TopoDS_Shape& aFace = exp.Current();
+        ++faceIdx;
+
         TopLoc_Location loc;
-        Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(TopoDS::Face(aFace), loc);
+        Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(TopoDS::Face(exp.Current()), loc);
         if (tri.IsNull()) continue;
 
         gp_Trsf trsf = loc.Transformation();
         for (int i = 1; i <= tri->NbNodes(); ++i) {
             gp_Pnt p = tri->Node(i);
             p.Transform(trsf);
-            pts.emplace_back(Vec3f(p.X(), p.Y(), p.Z()));
+            raw.vertices.emplace_back(Vec3f(p.X(), p.Y(), p.Z()));
         }
 
         TopAbs_Orientation orient = exp.Current().Orientation();
@@ -340,25 +350,38 @@ TriangleMesh SketchEngine::tessellate(const TopoDS_Shape& shape,
             if (orient == TopAbs_REVERSED)
                 std::swap(ids[1], ids[2]);
 
-            stl_facet facet;
-            facet.vertex[0] = pts[ids[0] + nodeOff - 1].cast<float>();
-            facet.vertex[1] = pts[ids[1] + nodeOff - 1].cast<float>();
-            facet.vertex[2] = pts[ids[2] + nodeOff - 1].cast<float>();
-            facet.extra[0] = 0;
-            facet.extra[1] = 0;
-            stl_normal n;
-            stl_calculate_normal(n, &facet);
-            stl_normalize_vector(n);
-            facet.normal = n;
-            stl.facet_start[triOff + i - 1] = facet;
+            raw.indices.emplace_back(nodeOff + ids[0] - 1,
+                                     nodeOff + ids[1] - 1,
+                                     nodeOff + ids[2] - 1);
+            tri_face.push_back(faceIdx);
         }
         nodeOff += tri->NbNodes();
-        triOff += tri->NbTriangles();
     }
 
-    TriangleMesh result;
-    result.from_stl(stl);
-    return result;
+    std::map<std::tuple<float, float, float>, int> vmap;
+    indexed_triangle_set its;
+    its.indices.reserve(raw.indices.size());
+    its.vertices.reserve(raw.vertices.size() / 2);
+
+    for (const auto& tri : raw.indices) {
+        stl_triangle_vertex_indices new_tri;
+        for (int j = 0; j < 3; ++j) {
+            const stl_vertex& v = raw.vertices[tri[j]];
+            auto key = std::make_tuple(v.x(), v.y(), v.z());
+            auto it = vmap.find(key);
+            if (it == vmap.end()) {
+                int new_id = static_cast<int>(its.vertices.size());
+                vmap[key] = new_id;
+                its.vertices.push_back(v);
+                new_tri[j] = new_id;
+            } else {
+                new_tri[j] = it->second;
+            }
+        }
+        its.indices.push_back(new_tri);
+    }
+
+    return TriangleMesh(std::move(its));
 }
 
 TopoDS_Wire SketchEngine::entities_to_wire(const std::vector<SketchEntity>& entities,

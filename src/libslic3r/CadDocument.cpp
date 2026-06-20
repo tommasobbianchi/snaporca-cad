@@ -469,6 +469,7 @@ void CadDocument::clear()
     features.clear();
     body = TopoDS_Shape();
     display_mesh = TriangleMesh{};
+    display_tri_face.clear();
     error.clear();
 }
 
@@ -488,6 +489,7 @@ static bool commit_or_rollback(CadDocument& doc, std::vector<CadFeature>& snapsh
     if (!has_solid_feature) {
         doc.body         = TopoDS_Shape();
         doc.display_mesh = TriangleMesh{};
+        doc.display_tri_face.clear();
         doc.error.clear();
         return true;
     }
@@ -786,7 +788,7 @@ bool CadDocument::recompute()
     if (!have_body) { error = "no solid-producing features"; return false; }
 
     body = result;
-    display_mesh = SketchEngine::tessellate(body, linear_deflection, angular_deflection);
+    display_mesh = SketchEngine::tessellate(body, display_tri_face, linear_deflection, angular_deflection);
     if (display_mesh.its.indices.empty()) {
         error = "tessellation produced an empty mesh";
         return false;
