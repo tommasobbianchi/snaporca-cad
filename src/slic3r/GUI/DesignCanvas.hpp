@@ -69,6 +69,8 @@ public:
     void set_on_sketch_face_selected(std::function<void()> cb);  // closed loop clicked
     void set_on_display_sketch_selected(std::function<void(int, int)> cb);  // committed loop clicked: (feature, region)
     std::vector<SketchEntity> selected_loop_entities() const;  // entities of the click-selected loop
+    std::vector<std::vector<int>> region_entity_indices(const std::vector<SketchEntity>& ents) const;
+    void clear_loop_pick();  // drop the click-selected loop highlight (e.g. after extrude)
     void set_on_sketch_exit(std::function<void()> cb);           // Esc -> exit the tool
     // Persistently draw committed sketches (un-consumed ones stay visible).
     void set_display_sketches(std::vector<DesignSketchTool::DisplaySketch> ds);

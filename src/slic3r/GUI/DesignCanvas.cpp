@@ -327,6 +327,16 @@ std::vector<SketchEntity> DesignCanvas::selected_loop_entities() const
     return m_sketch_tool.selected_loop_entities();
 }
 
+std::vector<std::vector<int>> DesignCanvas::region_entity_indices(const std::vector<SketchEntity>& ents) const
+{
+    return m_sketch_tool.region_entity_indices(ents);
+}
+
+void DesignCanvas::clear_loop_pick()
+{
+    m_sketch_tool.clear_display_pick();
+}
+
 void DesignCanvas::set_on_sketch_exit(std::function<void()> cb)
 {
     m_sketch_tool.on_exit = std::move(cb);

@@ -2159,6 +2159,14 @@ std::vector<std::vector<Vec2d>> DesignSketchTool::closed_regions(const std::vect
     return out;
 }
 
+std::vector<std::vector<int>>
+DesignSketchTool::region_entity_indices(const std::vector<SketchEntity>& ents) const
+{
+    std::vector<std::vector<int>> out;
+    for (RegionLoop& r : region_loops(ents)) out.push_back(std::move(r.ents));
+    return out;
+}
+
 std::vector<SketchEntity> DesignSketchTool::selected_loop_entities() const
 {
     if (m_display_pick < 0 || m_display_pick_region < 0) return {};

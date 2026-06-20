@@ -1041,10 +1041,26 @@ void DesignPanel::sync_sketch_display()
     if (m_viewport == nullptr) return;
     const int n = int(m_doc.features.size());
     std::vector<bool> consumed(n, false);
-    for (const CadFeature& f : m_doc.features)
-        if (f.type == CadFeatureType::Extrude && f.enabled &&
-            f.sketch_ref >= 0 && f.sketch_ref < n)
-            consumed[f.sketch_ref] = true;
+    // Per-loop extrudes (sketch_ref < 0) carry a verbatim copy of the one loop they
+    // consumed; collect those so that loop is hidden from its source sketch overlay.
+    std::vector<std::vector<SketchEntity>> consumed_loops;
+    for (const CadFeature& f : m_doc.features) {
+        if (f.type != CadFeatureType::Extrude || !f.enabled) continue;
+        if (f.sketch_ref >= 0 && f.sketch_ref < n)        consumed[f.sketch_ref] = true;
+        else if (f.sketch_ref < 0 && !f.entities.empty()) consumed_loops.push_back(f.entities);
+    }
+    // Two loops match when their entities are the same geometry in the same order — the
+    // per-loop extrude stored a verbatim copy, so this is an exact comparison.
+    auto same_loop = [](const std::vector<SketchEntity>& a, const std::vector<SketchEntity>& b) {
+        if (a.size() != b.size() || a.empty()) return false;
+        auto eq = [](const Vec2d& u, const Vec2d& v) { return (u - v).squaredNorm() < 1e-10; };
+        for (size_t k = 0; k < a.size(); ++k) {
+            const SketchEntity& x = a[k]; const SketchEntity& y = b[k];
+            if (x.type != y.type || !eq(x.p0, y.p0) || !eq(x.p1, y.p1) ||
+                !eq(x.center, y.center) || std::abs(x.radius - y.radius) > 1e-7) return false;
+        }
+        return true;
+    };
 
     std::vector<DesignSketchTool::DisplaySketch> ds;
     for (int i = 0; i < n; ++i) {
@@ -1052,7 +1068,28 @@ void DesignPanel::sync_sketch_display()
         if (f.type != CadFeatureType::Sketch || consumed[i] || !f.enabled)
             continue;
         if (!f.entities.empty()) {
-            ds.push_back({ f.entities, f.plane, i });
+            if (consumed_loops.empty()) {
+                ds.push_back({ f.entities, f.plane, i });
+            } else {
+                // Drop the entities of any loop already extruded; keep the rest (other
+                // loops + non-loop entities) so they stay visible and selectable.
+                std::vector<char> drop(f.entities.size(), 0);
+                for (const std::vector<int>& loop : m_viewport->region_entity_indices(f.entities)) {
+                    std::vector<SketchEntity> es;
+                    for (int ei : loop)
+                        if (ei >= 0 && ei < int(f.entities.size())) es.push_back(f.entities[ei]);
+                    bool gone = false;
+                    for (const std::vector<SketchEntity>& c : consumed_loops)
+                        if (same_loop(es, c)) { gone = true; break; }
+                    if (gone)
+                        for (int ei : loop)
+                            if (ei >= 0 && ei < int(drop.size())) drop[ei] = 1;
+                }
+                std::vector<SketchEntity> shown;
+                for (int ei = 0; ei < int(f.entities.size()); ++ei)
+                    if (!drop[ei]) shown.push_back(f.entities[ei]);
+                if (!shown.empty()) ds.push_back({ std::move(shown), f.plane, i });
+            }
         } else if (!f.imported_regions.empty()) {
             // Imported art (Text/SVG) carries no solver entities; synthesize
             // closed line loops from each region contour so it shows as an
@@ -1185,7 +1222,8 @@ void DesignPanel::on_add_extrude()
         m_doc.add_extrude_entities(m_viewport->selected_loop_entities(),
                                    m_doc.features[m_extrude_sketch_ref].plane,
                                    m_distance->GetValue(), false, mode, name);
-        m_sel_sketch_region = -1;   // consume the loop selection
+        m_sel_sketch_region = -1;        // consume the loop selection
+        m_viewport->clear_loop_pick();   // drop the now-stale loop highlight
     } else {
         m_doc.add_extrude(m_extrude_sketch_ref, m_distance->GetValue(), false, mode, name);
     }
@@ -2934,6 +2972,11 @@ void DesignPanel::open_tool(Tool t)
         if (m_extrude_sketch_ref >= 0 && m_extrude_sketch_ref < int(m_doc.features.size()))
             m_extrude_sketch_label->SetLabel(_L("Sketch: ") +
                 wxString::FromUTF8(m_doc.features[m_extrude_sketch_ref].name));
+        // Onshape-style: the first solid is New; once a body exists, a fresh extrude
+        // defaults to Add (union) so extruding further loops accumulates instead of
+        // replacing the body. (Edit-mode keeps the feature's stored mode, set below.)
+        if (m_edit_index < 0)
+            m_mode->SetSelection(m_doc.body.IsNull() ? 0 : 1);
     }
 
     // Retitle the active card's header: edit-mode shows the feature's real name,
