@@ -188,6 +188,11 @@ public:
     // display_mesh. Returns false (with err set) if the candidate is invalid.
     // Used by the Design tab to show a translucent ghost before Confirm.
     bool preview(const CadFeature& candidate, TriangleMesh& out_mesh, std::string& err) const;
+    // Same, but also returns the per-body meshes (in `bodies` order; the candidate may append
+    // one), so the GUI can apply its display-only per-body Move transforms to the ghost and keep
+    // it overlaid on the moved body instead of floating back at the untransformed origin.
+    bool preview(const CadFeature& candidate, TriangleMesh& out_mesh,
+                 std::vector<TriangleMesh>& out_body_meshes, std::string& err) const;
 
 private:
     TopoDS_Wire build_sketch_wire(const CadFeature& sketch) const;

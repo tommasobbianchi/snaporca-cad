@@ -973,9 +973,11 @@ bool CadDocument::recompute()
     return true;
 }
 
-bool CadDocument::preview(const CadFeature& candidate, TriangleMesh& out_mesh, std::string& err) const
+bool CadDocument::preview(const CadFeature& candidate, TriangleMesh& out_mesh,
+                          std::vector<TriangleMesh>& out_body_meshes, std::string& err) const
 {
     err.clear();
+    out_body_meshes.clear();
     std::vector<CadBody> tmp = bodies;     // start from the current committed bodies
     try {
         route_feature(tmp, candidate);     // candidate may append a new body or mutate one
@@ -993,12 +995,21 @@ bool CadDocument::preview(const CadFeature& candidate, TriangleMesh& out_mesh, s
         err = "preview produced no geometry";
         return false;
     }
-    out_mesh = SketchEngine::tessellate(compound_of(tmp), linear_deflection, angular_deflection);
+    // Tessellate per body (same path as recompute) so the GUI can re-apply its display-only
+    // per-body Move transforms to the ghost; out_mesh is the merged whole.
+    std::vector<int> tf, tb;
+    out_mesh = tessellate_bodies(tmp, tf, tb, out_body_meshes, linear_deflection, angular_deflection);
     if (out_mesh.its.indices.empty()) {
         err = "preview produced an empty mesh";
         return false;
     }
     return true;
+}
+
+bool CadDocument::preview(const CadFeature& candidate, TriangleMesh& out_mesh, std::string& err) const
+{
+    std::vector<TriangleMesh> ignore;
+    return preview(candidate, out_mesh, ignore, err);
 }
 
 } // namespace Slic3r

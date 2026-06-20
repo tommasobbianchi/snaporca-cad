@@ -3270,6 +3270,19 @@ void DesignPanel::refresh_preview()
     std::string  err;
     bool         ok = false;
 
+    // The body is displayed through its per-body Move transform (m_body_xform); the ghost is
+    // built from the untransformed kernel, so without this it floats back at the origin once a
+    // body has been moved. Re-merge the per-body ghost meshes with the same transforms applied.
+    auto ghost_from = [this](const std::vector<TriangleMesh>& pbm) -> TriangleMesh {
+        TriangleMesh out;
+        for (size_t b = 0; b < pbm.size(); ++b) {
+            TriangleMesh m = pbm[b];
+            if (b < m_body_xform.size()) m.transform(m_body_xform[b]);
+            out.merge(m);
+        }
+        return out;
+    };
+
     const bool editing_single = (m_edit_index >= 0);
     if (editing_single) {
         // Edit-mode preview: stacking the candidate on top of the live body would
@@ -3278,9 +3291,11 @@ void DesignPanel::refresh_preview()
         // copy so the ghost is the true post-edit body.
         CadDocument tmp = m_doc;
         ok = tmp.replace_feature(m_edit_index, cand);
-        if (ok) mesh = tmp.display_mesh; else err = tmp.error;
+        if (ok) mesh = ghost_from(tmp.display_body_meshes); else err = tmp.error;
     } else {
-        ok = m_doc.preview(cand, mesh, err);
+        std::vector<TriangleMesh> pbm;
+        ok = m_doc.preview(cand, mesh, pbm, err);
+        if (ok) mesh = ghost_from(pbm);
     }
 
     if (ok) {
