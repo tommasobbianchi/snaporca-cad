@@ -19,6 +19,9 @@ namespace GUI {
 // Positioning helpers (defined lower down, used by the dimension methods above them).
 static bool entity_ref_point(const SketchEntity& e, Vec2d& out);
 static void translate_entity(SketchEntity& e, const Vec2d& d);
+// Pick-distance helpers (defined lower down; used earlier by the edit-op gizmo).
+static double point_segment_dist(const Vec2d& p, const Vec2d& a, const Vec2d& b);
+static double entity_pick_dist(const Vec2d& p, const SketchEntity& e);
 
 // Project a world-space point to canvas screen pixels (device px, GL viewport units;
 // origin top-left after the GL y-flip). Mirrors GLCanvas3D's world->screen pattern:
@@ -191,6 +194,9 @@ void DesignSketchTool::set_tool(Mode mode)
     m_points.clear();
     m_has_cursor = false;
     m_awaiting_length = false;
+    reset_op();                 // drop any in-progress edit-op gizmo
+    m_selection.clear();
+    if (on_selection_changed) on_selection_changed(0);
 }
 
 void DesignSketchTool::cancel()
@@ -215,6 +221,7 @@ void DesignSketchTool::cancel()
     m_dof = -1; m_solve_ok = true; m_entity_conflict.clear();
     m_features.clear();
     m_open_feature = -1;
+    reset_op();
 }
 
 // Esc while active: layered exit (Onshape-like). Abort an in-progress entity first, then
@@ -1428,6 +1435,7 @@ void DesignSketchTool::keep_segment_as_drawn()
 
 void DesignSketchTool::finish()
 {
+    if (op_ready()) confirm_op();      // apply a pending edit-op gizmo before committing
     auto cb = on_commit_entities;
     std::vector<SketchEntity> ents = m_entities;
     std::vector<SketchEntityConstraintDef> cons = m_constraints;
@@ -3034,6 +3042,286 @@ void DesignSketchTool::draw_entities_preview(const std::vector<SketchEntity>& en
     }
 }
 
+// ---- In-canvas edit-op gizmo (Fillet/Chamfer/Offset/Mirror toolbar tools) ----------
+// These tools replace the docked numeric card. They operate on the LIVE session's
+// m_entities/m_constraints, so they work both while drawing and after begin_edit re-opens
+// a committed sketch. The SketchEngine op (context-free) is reused verbatim; the
+// constraint binding is ported from DesignPanel::apply_entity_constraint into m_constraints
+// via try_add_constraints (append→solve→keep / rollback).
+
+void DesignSketchTool::reset_op()
+{
+    m_op_a = m_op_b = -1;
+    m_op_value = 0.0;
+    m_op_anchor = Vec2d(0, 0);
+    m_op_dir = Vec2d(0, 0);
+    m_op_label = Vec2d(1e18, 1e18);
+    m_op_ghost.clear();
+    m_op_dragging_arrow = false;
+    m_mirror_targets.clear();
+}
+
+bool DesignSketchTool::op_ready() const
+{
+    switch (m_mode) {
+    case Mode::Fillet:
+    case Mode::Chamfer: return m_op_a >= 0 && m_op_b >= 0;
+    case Mode::Offset:  return m_op_a >= 0;
+    case Mode::Mirror:  return m_op_a >= 0 && !m_mirror_targets.empty();
+    default: return false;
+    }
+}
+
+// Corner vertex of two lines + the inward angle bisector (unit), pointing from the vertex
+// into the fillet/chamfer interior. Mirrors SketchEngine::fillet_lines's geometry so the
+// arrow tracks the op exactly.
+bool DesignSketchTool::op_corner(int a, int b, Vec2d& C, Vec2d& bis, double& theta) const
+{
+    if (a < 0 || b < 0 || a >= int(m_entities.size()) || b >= int(m_entities.size())) return false;
+    const SketchEntity& ea = m_entities[a];
+    const SketchEntity& eb = m_entities[b];
+    if (ea.type != SketchEntity::Type::Line || eb.type != SketchEntity::Type::Line) return false;
+    const Vec2d da = ea.p1 - ea.p0, db = eb.p1 - eb.p0;
+    const double denom = da.x() * db.y() - da.y() * db.x();
+    if (std::abs(denom) < 1e-12) return false;                       // parallel
+    const Vec2d diff = eb.p0 - ea.p0;
+    const double s = (diff.x() * db.y() - diff.y() * db.x()) / denom;
+    C = ea.p0 + s * da;
+    Vec2d ua = ((ea.p0 - C).norm() <= (ea.p1 - C).norm()) ? (ea.p1 - C) : (ea.p0 - C);
+    Vec2d ub = ((eb.p0 - C).norm() <= (eb.p1 - C).norm()) ? (eb.p1 - C) : (eb.p0 - C);
+    if (ua.norm() < 1e-12 || ub.norm() < 1e-12) return false;
+    ua.normalize(); ub.normalize();
+    theta = std::acos(std::max(-1.0, std::min(1.0, ua.dot(ub))));
+    bis = ua + ub;
+    if (bis.norm() < 1e-12) return false;                            // 180° corner
+    bis.normalize();
+    return true;
+}
+
+void DesignSketchTool::recompute_op_ghost()
+{
+    m_op_ghost.clear();
+    if (m_mode == Mode::Fillet || m_mode == Mode::Chamfer) {
+        if (m_op_a < 0 || m_op_b < 0) return;
+        Vec2d C, bis; double theta;
+        if (op_corner(m_op_a, m_op_b, C, bis, theta)) { m_op_anchor = C; m_op_dir = bis; }
+        SketchEntity a_out, b_out, extra;
+        const bool ok = (m_mode == Mode::Fillet)
+            ? SketchEngine::fillet_lines(m_entities[m_op_a], m_entities[m_op_b], m_op_value, a_out, b_out, extra)
+            : SketchEngine::chamfer_lines(m_entities[m_op_a], m_entities[m_op_b], m_op_value, a_out, b_out, extra);
+        if (ok) m_op_ghost = { a_out, b_out, extra };
+    } else if (m_mode == Mode::Offset) {
+        if (m_op_a < 0) return;
+        const SketchEntity& e = m_entities[m_op_a];
+        if (e.type == SketchEntity::Type::Line) {
+            m_op_anchor = 0.5 * (e.p0 + e.p1);
+            Vec2d u = e.p1 - e.p0; if (u.norm() > 1e-12) u.normalize();
+            m_op_dir = Vec2d(-u.y(), u.x());                  // left normal = +distance side
+        } else if (e.type == SketchEntity::Type::Circle || e.type == SketchEntity::Type::Arc) {
+            m_op_anchor = e.center + Vec2d(e.radius, 0.0);
+            m_op_dir = Vec2d(1, 0);
+        }
+        m_op_ghost = SketchEngine::offset_entities({ e }, m_op_value);
+    } else if (m_mode == Mode::Mirror) {
+        if (m_op_a < 0 || m_mirror_targets.empty()) return;
+        const SketchEntity& axis = m_entities[m_op_a];
+        std::vector<SketchEntity> src;
+        for (int ti : m_mirror_targets)
+            if (ti >= 0 && ti < int(m_entities.size())) src.push_back(m_entities[ti]);
+        m_op_ghost = SketchEngine::mirror_entities(src, axis.p0, axis.p1);
+    }
+}
+
+// Route an entity pick to the active op; sets an initial value + ghost once enough
+// entities are picked. Highlights the running picks via m_selection.
+void DesignSketchTool::op_pick(int ei)
+{
+    if (ei < 0 || ei >= int(m_entities.size())) return;
+    const SketchEntity::Type t = m_entities[ei].type;
+    switch (m_mode) {
+    case Mode::Fillet:
+    case Mode::Chamfer:
+        if (t != SketchEntity::Type::Line) return;            // corner ops need two lines
+        if (m_op_a < 0) m_op_a = ei;
+        else if (ei != m_op_a) {
+            m_op_b = ei;
+            const double la = (m_entities[m_op_a].p1 - m_entities[m_op_a].p0).norm();
+            const double lb = (m_entities[m_op_b].p1 - m_entities[m_op_b].p0).norm();
+            m_op_value = std::max(0.001, 0.2 * std::min(la, lb));  // a sensible starting size
+            recompute_op_ghost();
+        }
+        break;
+    case Mode::Offset: {
+        m_op_a = ei;
+        const SketchEntity& e = m_entities[ei];
+        const double sz = (e.type == SketchEntity::Type::Line) ? (e.p1 - e.p0).norm()
+                                                               : std::max(e.radius * 2.0, 1.0);
+        m_op_value = std::max(0.001, 0.1 * sz);
+        recompute_op_ghost();
+        break;
+    }
+    case Mode::Mirror:
+        if (m_op_a < 0) {
+            if (t != SketchEntity::Type::Line) return;        // axis must be a line
+            m_op_a = ei;
+        } else if (ei != m_op_a) {
+            auto it = std::find(m_mirror_targets.begin(), m_mirror_targets.end(), ei);
+            if (it == m_mirror_targets.end()) m_mirror_targets.push_back(ei);
+            else                              m_mirror_targets.erase(it);
+            recompute_op_ghost();
+        }
+        break;
+    default: break;
+    }
+    // Mirror the picks into m_selection so the existing highlight shows them.
+    m_selection.clear();
+    if (m_op_a >= 0) m_selection.push_back(m_op_a);
+    if (m_op_b >= 0) m_selection.push_back(m_op_b);
+    for (int ti : m_mirror_targets) m_selection.push_back(ti);
+    if (on_selection_changed) on_selection_changed(int(m_selection.size()));
+}
+
+bool DesignSketchTool::hit_test_op_arrow(const Vec2d& p, double tol) const
+{
+    if (!op_ready() || m_mode == Mode::Mirror) return false;
+    const Vec2d tip = m_op_anchor + m_op_dir * m_op_value;
+    return point_segment_dist(p, m_op_anchor, tip) <= tol * 1.5;
+}
+
+void DesignSketchTool::drag_op_arrow(const Vec2d& target)
+{
+    const double v = (target - m_op_anchor).dot(m_op_dir);      // project onto the arrow axis
+    if (m_mode == Mode::Offset) m_op_value = v;                 // signed: chooses the side
+    else                        m_op_value = std::max(0.001, v);// fillet/chamfer: positive
+    recompute_op_ghost();
+}
+
+void DesignSketchTool::open_op_editor()
+{
+    if (!on_inline_edit || !op_ready() || m_mode == Mode::Mirror) return;
+    const double sign = (m_mode == Mode::Offset && m_op_value < 0) ? -1.0 : 1.0;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    on_inline_edit(px, std::abs(m_op_value),
+        [this, sign](double v) {
+            m_op_value = (m_mode == Mode::Offset) ? sign * std::abs(v) : std::max(0.001, v);
+            recompute_op_ghost();
+        },
+        []() {});
+}
+
+void DesignSketchTool::render_op_gizmo(double unit_per_px)
+{
+    m_op_label = Vec2d(1e18, 1e18);
+    if (!op_ready()) return;
+    const ColorRGBA ghostc(0.30f, 0.88f, 0.66f, 0.55f);
+    draw_entities_preview(m_op_ghost, ghostc);
+    if (m_mode == Mode::Mirror) return;                         // pick-only, no arrow/label
+    const ColorRGBA dc(0.30f, 0.88f, 0.66f, 1.0f);
+    const double th = std::max(15.0 * unit_per_px, 1e-4);
+    const Vec2d dir = (m_op_value >= 0 ? m_op_dir : -m_op_dir);
+    const Vec2d tip = m_op_anchor + m_op_dir * m_op_value;      // signed length picks the side
+    std::vector<std::pair<Vec2d, Vec2d>> segs;
+    segs.emplace_back(m_op_anchor, tip);
+    const double as = std::max(std::abs(m_op_value) * 0.18, th * 0.8);  // arrowhead size
+    const Vec2d nrm(-dir.y(), dir.x());
+    const Vec2d back = tip - dir * as;
+    segs.emplace_back(tip, back + nrm * (as * 0.5));
+    segs.emplace_back(tip, back - nrm * (as * 0.5));
+    draw_strokes(m_highlight_model, segs, 0.6, dc);
+    DimAnnot a;
+    a.kind  = (m_mode == Mode::Fillet) ? DimType::Radius : DimType::Distance;
+    a.value = std::abs(m_op_value);
+    m_op_label = tip + dir * (th * 1.2);
+    draw_text(m_line_model, dim_text(a), m_op_label, th, dc);
+}
+
+void DesignSketchTool::confirm_op()
+{
+    if (!op_ready()) return;
+    using R  = SketchPointRole;
+    using CT = SketchConstraintType;
+
+    if (m_mode == Mode::Fillet || m_mode == Mode::Chamfer) {
+        const bool fillet = (m_mode == Mode::Fillet);
+        SketchEntity a_out, b_out, extra;
+        const bool ok = fillet
+            ? SketchEngine::fillet_lines(m_entities[m_op_a], m_entities[m_op_b], m_op_value, a_out, b_out, extra)
+            : SketchEngine::chamfer_lines(m_entities[m_op_a], m_entities[m_op_b], m_op_value, a_out, b_out, extra);
+        if (!ok) { reset_op(); return; }
+        const int a = m_op_a, b = m_op_b;
+        m_entities[a] = a_out; m_entities[b] = b_out;
+        const int xi = int(m_entities.size());
+        m_entities.push_back(extra);                 // fillet arc / chamfer segment
+        auto role_near = [](const SketchEntity& ln, const Vec2d& q) -> R {
+            return ((ln.p0 - q).squaredNorm() <= (ln.p1 - q).squaredNorm()) ? R::P0 : R::P1; };
+        const R ra = role_near(m_entities[a], extra.p0);
+        const R rb = role_near(m_entities[b], extra.p1);
+        // Drop the now-stale corner Coincident + each line's own length Distance (the op
+        // trimmed both legs back), then bind the new entity onto the trimmed endpoints.
+        auto refs = [](const SketchEntityConstraintDef& d, int e, R r) {
+            return (d.ea == e && d.ra == r) || (d.eb == e && d.rb == r); };
+        auto self_len = [](const SketchEntityConstraintDef& d, int e) {
+            return d.type == CT::Distance && d.ea == e && d.eb == e; };
+        auto& cs = m_constraints;
+        cs.erase(std::remove_if(cs.begin(), cs.end(), [&](const SketchEntityConstraintDef& d) {
+            return (d.type == CT::Coincident && refs(d, a, ra) && refs(d, b, rb))
+                || self_len(d, a) || self_len(d, b);
+        }), cs.end());
+        auto coin = [&](R xr, int ln, R lr) {
+            SketchEntityConstraintDef d; d.type = CT::Coincident; d.ea = xi; d.ra = xr; d.eb = ln; d.rb = lr; return d; };
+        if (fillet) {
+            auto tang = [&](int ln) {
+                SketchEntityConstraintDef d; d.type = CT::Tangent; d.ea = xi; d.eb = ln; return d; };
+            const std::vector<std::vector<SketchEntityConstraintDef>> ladder = {
+                { coin(R::P0, a, ra), coin(R::P1, b, rb), tang(a), tang(b) },
+                { coin(R::P0, a, ra), coin(R::P1, b, rb), tang(a) },
+                { coin(R::P0, a, ra), coin(R::P1, b, rb) },
+            };
+            for (const auto& set : ladder) if (try_add_constraints(set)) break;
+        } else {
+            try_add_constraints({ coin(R::P0, a, ra), coin(R::P1, b, rb) });
+        }
+    } else if (m_mode == Mode::Offset) {
+        const int a = m_op_a;
+        auto out = SketchEngine::offset_entities({ m_entities[a] }, m_op_value);
+        if (out.empty()) { reset_op(); return; }
+        const int ni = int(m_entities.size());
+        for (auto& o : out) m_entities.push_back(o);
+        const SketchEntity::Type st = m_entities[a].type;
+        SketchEntityConstraintDef d; d.ea = a; d.eb = ni;
+        bool emit = true;
+        if (st == SketchEntity::Type::Line)                                   d.type = CT::Parallel;
+        else if (st == SketchEntity::Type::Arc || st == SketchEntity::Type::Circle) d.type = CT::Concentric;
+        else                                                                  emit = false;
+        if (emit) try_add_constraints({ d });
+    } else if (m_mode == Mode::Mirror) {
+        const SketchEntity axis = m_entities[m_op_a];   // by value (m_entities grows below)
+        for (int ti : m_mirror_targets) {
+            if (ti < 0 || ti >= int(m_entities.size())) continue;
+            auto out = SketchEngine::mirror_entities({ m_entities[ti] }, axis.p0, axis.p1);
+            if (out.empty()) continue;
+            const int mi = int(m_entities.size());
+            for (auto& m : out) m_entities.push_back(m);
+            SketchEntityConstraintDef d; d.type = CT::Symmetric; d.ea = ti; d.eb = mi; d.ec = m_op_a;
+            const SketchEntity::Type st = m_entities[ti].type;
+            std::vector<SketchEntityConstraintDef> cand;
+            if (st == SketchEntity::Type::Line) {
+                d.ra = R::P0; d.rb = R::P0; cand.push_back(d);
+                d.ra = R::P1; d.rb = R::P1; cand.push_back(d);
+            } else if (st == SketchEntity::Type::Arc || st == SketchEntity::Type::Circle) {
+                d.ra = R::Center; d.rb = R::Center; cand.push_back(d);
+            } else if (st == SketchEntity::Type::Point) {
+                d.ra = R::P0; d.rb = R::P0; cand.push_back(d);
+            }
+            if (!cand.empty()) try_add_constraints(cand);
+        }
+    }
+    reset_op();
+    m_selection.clear();
+    resolve_live();
+    if (on_selection_changed) on_selection_changed(0);
+}
+
 void DesignSketchTool::render(GLCanvas3D& canvas)
 {
     (void)canvas;
@@ -3247,6 +3535,8 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     // Pass plane-units-per-pixel so labels keep a constant on-screen size.
     render_dimensions(1.0 / std::max(camera.get_zoom(), 1e-6));
     render_live_quotes(1.0 / std::max(camera.get_zoom(), 1e-6));
+    if (is_edit_op_mode())
+        render_op_gizmo(1.0 / std::max(camera.get_zoom(), 1e-6));
 
     // In-progress entity preview for the active tool.
     const ColorRGBA preview = m_construction ? grey : orange;
@@ -3641,6 +3931,60 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     // projection — the design canvas's viewport isn't valid outside its own paint).
     m_last_mouse_x = evt.GetX();
     m_last_mouse_y = evt.GetY();
+
+    // In-canvas edit-op tools (Fillet/Chamfer/Offset/Mirror): pick entities, then a
+    // draggable arrow + editable value label (Mirror: a two-phase pick) drives a live
+    // ghost. A click on empty space confirms; right-click/Esc cancels the gesture.
+    if (is_edit_op_mode()) {
+        if (evt.Moving()) {
+            screen_to_plane(canvas, evt, m_cursor);
+            m_has_cursor = true;
+            return true;
+        }
+        if (m_op_dragging_arrow && evt.Dragging() && evt.LeftIsDown()) {
+            Vec2d p; screen_to_plane(canvas, evt, p);
+            drag_op_arrow(p);
+            return true;
+        }
+        if (evt.LeftUp()) {
+            if (m_op_dragging_arrow) { m_op_dragging_arrow = false; return true; }
+            return false;
+        }
+        if (evt.LeftDown()) {
+            Vec2d p; screen_to_plane(canvas, evt, p);
+            const Linef3 r2 = canvas.mouse_ray(Point(evt.GetX() + 8, evt.GetY()));
+            const double tol = std::max(1e-3, (m_plane.project(r2.a, r2.vector()) - p).norm());
+            // 1) live gizmo: click the value label to type, or grab the arrow to drag.
+            if (op_ready() && m_mode != Mode::Mirror) {
+                const Linef3 rl = canvas.mouse_ray(Point(evt.GetX() + 24, evt.GetY()));
+                const double ltol = std::max(tol, (m_plane.project(rl.a, rl.vector()) - p).norm());
+                if ((m_op_label - p).norm() <= ltol) { open_op_editor(); return true; }
+                if (hit_test_op_arrow(p, tol))        { m_op_dragging_arrow = true; return true; }
+            }
+            // 2) entity pick (close enough to an entity edge).
+            double best = 1e30; int bi = -1;
+            for (size_t i = 0; i < m_entities.size(); ++i) {
+                const double d = entity_pick_dist(p, m_entities[i]);
+                if (d < best) { best = d; bi = int(i); }
+            }
+            if (bi >= 0 && best <= tol * 3.0) { op_pick(bi); return true; }
+            // 3) empty click confirms a ready gesture.
+            if (op_ready()) confirm_op();
+            return true;
+        }
+        if (evt.RightDown()) {
+            if (m_op_a >= 0 || !m_mirror_targets.empty()) {
+                reset_op();
+                m_selection.clear();
+                if (on_selection_changed) on_selection_changed(0);
+            } else {
+                request_exit();
+            }
+            return true;
+        }
+        return false;
+    }
+
     // Constrain mode: pick a segment on click; let move/drag fall through so the
     // camera can still orbit while inspecting the sketch.
     if (m_mode == Mode::Constrain) {

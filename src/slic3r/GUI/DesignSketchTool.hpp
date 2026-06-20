@@ -30,7 +30,11 @@ public:
                       RoundedRect, CenterCircle, TwoPointCircle, Point,
                       ThreePointCircle, ThreePointArc, TangentArc, CenterArc, Slot, ArcSlot, Polygon,
                       Ellipse, EllipseArc, BSpline,
+                      // In-canvas edit-op TOOLBAR tools (drag-arrow + label, no numeric card):
+                      Fillet, Chamfer, Offset, Mirror,
                       Constrain };
+    bool is_edit_op_mode() const { return m_mode == Mode::Fillet || m_mode == Mode::Chamfer ||
+                                          m_mode == Mode::Offset || m_mode == Mode::Mirror; }
 
     void begin(const SketchPlane& plane, Mode mode = Mode::Polyline);
     // Re-open a committed entity sketch for full in-canvas editing: load its entities +
@@ -372,6 +376,23 @@ private:
     void append_entities(const std::vector<SketchEntity>& ents);
     void draw_entities_preview(const std::vector<SketchEntity>& ents, const ColorRGBA& color);
 
+    // --- In-canvas edit-op gizmo (Fillet/Chamfer/Offset/Mirror toolbar tools) --------
+    // These replace the docked numeric card: pick the entities in-canvas, then a draggable
+    // arrow with a value label is projected toward the corner/centre (Fillet/Chamfer/Offset),
+    // or a two-phase pick (axis line, then targets) drives a live mirrored ghost. The
+    // SketchEngine op is recomputed live so a translucent ghost previews the result; confirm
+    // applies the geometry and binds constraints into m_constraints (try_add_constraints).
+    bool op_corner(int a, int b, Vec2d& C, Vec2d& bis, double& theta) const; // line-line vertex + inward bisector
+    void op_pick(int ei);                       // route an entity pick to the active op
+    void recompute_op_ghost();                  // rebuild m_op_ghost from m_op_value
+    void render_op_gizmo(double unit_per_px);   // ghost + arrow + value label (caches m_op_label)
+    bool hit_test_op_arrow(const Vec2d& p, double tol) const;
+    void drag_op_arrow(const Vec2d& target);    // project cursor onto m_op_dir -> value
+    void open_op_editor();                      // inline-edit the value label
+    void confirm_op();                          // apply + bind, then reset for the next gesture
+    void reset_op();                            // clear gizmo state (keeps the tool active)
+    bool op_ready() const;                      // required entities picked -> arrow/ghost live
+
     // Sample an entity into a 2D polyline for the overlay renderer.
     std::vector<Vec2d> entity_polyline(const SketchEntity& e, bool& closed) const;
 
@@ -444,6 +465,19 @@ private:
     int                   m_live_aslot_fi{-1};          // the arc-slot Feature (rebuild edits)
     std::vector<Feature>  m_features;              // parametric groups over m_entities
     int                   m_open_feature{-1};      // index of the Feature being built, or -1
+
+    // In-canvas edit-op gizmo state (Fillet/Chamfer/Offset/Mirror). GUI-only, reset by
+    // set_tool/cancel. Fillet/Chamfer: m_op_a,m_op_b = the two lines; Offset: m_op_a = src;
+    // Mirror: m_op_a = axis line, m_mirror_targets = entities to mirror.
+    int    m_op_a{-1};
+    int    m_op_b{-1};
+    double m_op_value{0.0};                 // radius / setback / signed offset distance
+    Vec2d  m_op_anchor{0,0};                // arrow base (corner vertex / entity midpoint)
+    Vec2d  m_op_dir{0,0};                   // unit arrow direction (inward bisector / outward normal)
+    Vec2d  m_op_label{1e18,1e18};           // cached arrow-label centre, for picking
+    std::vector<SketchEntity> m_op_ghost;   // live result preview (recomputed on value change)
+    bool   m_op_dragging_arrow{false};      // arrowhead drag in progress
+    std::vector<int> m_mirror_targets;      // Mirror: entities to be mirrored (axis = m_op_a)
 
     // DoF feedback state, refreshed by resolve_live() from the libslvs solve result.
     int               m_dof{-1};          // remaining DoF; 0 = fully constrained, <0 = unknown

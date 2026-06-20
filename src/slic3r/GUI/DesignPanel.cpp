@@ -262,6 +262,16 @@ DesignPanel::DesignPanel(wxWindow* parent)
               _L("Click center, major-axis end, minor point, then arc start and end"));
         skbtn("design_bspline",   DesignSketchTool::Mode::BSpline,          _L("Spline"),
               _L("Click control points; double-click or right-click to finish"));
+        add_sep(m_tb_sketch);
+        // In-canvas edit-op tools: drag the arrow / click its label (no numeric card).
+        skbtn("design_filletedge", DesignSketchTool::Mode::Fillet,          _L("Fillet"),
+              _L("Pick two lines, then drag the arrow or click the radius to set it"));
+        skbtn("design_chamfer",    DesignSketchTool::Mode::Chamfer,         _L("Chamfer"),
+              _L("Pick two lines, then drag the arrow or click the distance to set it"));
+        skbtn("design_offset",     DesignSketchTool::Mode::Offset,          _L("Offset"),
+              _L("Pick an entity, then drag the arrow or click the distance; click empty to apply"));
+        skbtn("design_mirror",     DesignSketchTool::Mode::Mirror,          _L("Mirror"),
+              _L("Pick a mirror-axis line, then the entities to mirror; click empty to apply"));
 
         m_sides = new wxSpinCtrl(m_toolbar, wxID_ANY, "6", wxDefaultPosition, wxSize(50, -1));
         m_sides->SetRange(3, 64);
