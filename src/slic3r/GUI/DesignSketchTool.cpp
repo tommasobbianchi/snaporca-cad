@@ -1277,6 +1277,45 @@ void DesignSketchTool::set_arc_slot(int fi, double Rc, double w)
     resolve_live();
 }
 
+// Resize an axis-aligned rectangle by dragging a corner: the diagonally-opposite corner
+// (captured at grab as m_drag_rect_anchor) stays fixed; the box becomes [anchor, cursor].
+// Geometric rebuild in place (4 lines, same order) — edges stay axis-aligned so the
+// inferred H/V + corner-coincident constraints remain satisfied (no re-solve needed).
+void DesignSketchTool::drag_rect_corner(int fi, const Vec2d& cursor)
+{
+    if (fi < 0 || fi >= int(m_features.size())) return;
+    Feature& f = m_features[fi];
+    if (f.end - f.begin != 4) return;
+    const Vec2d A = m_drag_rect_anchor, B = cursor;
+    if (std::abs(B.x() - A.x()) < 1e-4 || std::abs(B.y() - A.y()) < 1e-4) return;  // degenerate
+    const Vec2d corners[4] = { A, Vec2d(B.x(), A.y()), B, Vec2d(A.x(), B.y()) };
+    for (int i = 0; i < 4; ++i) {
+        SketchEntity e; e.type = SketchEntity::Type::Line;
+        e.p0 = corners[i]; e.p1 = corners[(i + 1) % 4];
+        e.construction = m_entities[f.begin + i].construction;
+        m_entities[f.begin + i] = e;
+    }
+    f.c0 = A; f.c1 = B;
+}
+
+// Move one end of a slot by dragging its cap centre (which cap captured at grab); the other
+// centre + half-width are kept. Rebuilds the 4-entity span via make_slot. Geometric.
+void DesignSketchTool::drag_slot_handle(int fi, const Vec2d& cursor)
+{
+    if (fi < 0 || fi >= int(m_features.size())) return;
+    Feature& f = m_features[fi];
+    if (f.end - f.begin != 4) return;
+    const Vec2d c0 = m_drag_slot_c1 ? f.c0 : cursor;
+    const Vec2d c1 = m_drag_slot_c1 ? cursor : f.c1;
+    std::vector<SketchEntity> rebuilt = make_slot(c0, c1, f.param);
+    if (int(rebuilt.size()) != 4) return;
+    for (int i = 0; i < 4; ++i) {
+        rebuilt[i].construction = m_entities[f.begin + i].construction;
+        m_entities[f.begin + i] = rebuilt[i];
+    }
+    f.c0 = c0; f.c1 = c1;
+}
+
 DesignSketchTool::DimType DesignSketchTool::pending_dimension_type() const
 {
     return (m_pending_dim >= 0 && m_pending_dim < int(m_dimensions.size()))
@@ -3631,6 +3670,10 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             screen_to_plane(canvas, evt, p);
             if (m_drag_poly_fi >= 0)
                 drag_polygon_vertex(m_drag_poly_fi, m_drag_ei, m_drag_role, p);  // keep regular
+            else if (m_drag_rect_fi >= 0)
+                drag_rect_corner(m_drag_rect_fi, p);          // resize axis-aligned box
+            else if (m_drag_slot_fi >= 0)
+                drag_slot_handle(m_drag_slot_fi, p);          // move a slot end
             else if (m_drag_ei >= 0 && m_drag_ei < int(m_entities.size()) &&
                      m_entities[m_drag_ei].type == SketchEntity::Type::Arc)
                 drag_arc_handle(m_drag_ei, m_drag_role, p);   // center/radius/angle grips
@@ -3658,6 +3701,10 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 screen_to_plane(canvas, evt, p);
                 if (m_drag_poly_fi >= 0)
                     drag_polygon_vertex(m_drag_poly_fi, m_drag_ei, m_drag_role, p);
+                else if (m_drag_rect_fi >= 0)
+                    drag_rect_corner(m_drag_rect_fi, p);
+                else if (m_drag_slot_fi >= 0)
+                    drag_slot_handle(m_drag_slot_fi, p);
                 else if (m_drag_ei >= 0 && m_drag_ei < int(m_entities.size()) &&
                          m_entities[m_drag_ei].type == SketchEntity::Type::Arc)
                     drag_arc_handle(m_drag_ei, m_drag_role, p);
@@ -3671,6 +3718,8 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 m_dragging_point = false;
                 m_drag_ei = -1;
                 m_drag_poly_fi = -1;
+                m_drag_rect_fi = -1;
+                m_drag_slot_fi = -1;
                 return true;
             }
             if (m_dragging_handle) {
@@ -3687,6 +3736,8 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             m_dragging_point = false;           // a fresh press disarms any stale grab
             m_dragging_handle = false;
             m_drag_poly_fi = -1;
+            m_drag_rect_fi = -1;
+            m_drag_slot_fi = -1;
             Vec2d p;
             screen_to_plane(canvas, evt, p);
             if (evt.LeftDClick()) {                // double-click a quote label -> edit it
@@ -3798,6 +3849,29 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                     // vertex follows the cursor) instead of moving one point freely.
                     const int pf = feature_of(pe);
                     m_drag_poly_fi = (pf >= 0 && m_features[pf].kind == FeatureKind::Polygon) ? pf : -1;
+                    m_drag_rect_fi = -1; m_drag_slot_fi = -1;
+                    if (pf >= 0 && m_drag_poly_fi < 0) {
+                        const Feature& ft = m_features[pf];
+                        if (ft.kind == FeatureKind::CornerRect || ft.kind == FeatureKind::CenterRect) {
+                            // Only axis-aligned boxes resize by corner (oblique rects fall
+                            // back to free point move). Capture the fixed opposite corner.
+                            const SketchEntity& e0 = m_entities[ft.begin];
+                            const Vec2d d0 = e0.p1 - e0.p0;
+                            const bool aa = std::abs(d0.x()) < 1e-6 || std::abs(d0.y()) < 1e-6;
+                            Vec2d gp;
+                            if (aa && point_at(pe, pr, gp)) {
+                                Vec2d opp;
+                                opp.x() = (std::abs(gp.x() - ft.c0.x()) < std::abs(gp.x() - ft.c1.x())) ? ft.c1.x() : ft.c0.x();
+                                opp.y() = (std::abs(gp.y() - ft.c0.y()) < std::abs(gp.y() - ft.c1.y())) ? ft.c1.y() : ft.c0.y();
+                                m_drag_rect_fi = pf; m_drag_rect_anchor = opp;
+                            }
+                        } else if (ft.kind == FeatureKind::Slot &&
+                                   pr == SketchPointRole::Center &&
+                                   (pe == ft.begin + 1 || pe == ft.begin + 3)) {
+                            m_drag_slot_fi = pf;                 // cap@c1 = begin+1, cap@c0 = begin+3
+                            m_drag_slot_c1 = (pe == ft.begin + 1);
+                        }
+                    }
                     if (on_selection_changed)
                         on_selection_changed(int(m_selection.size() + m_point_sel.size()));
                     return true;

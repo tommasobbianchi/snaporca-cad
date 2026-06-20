@@ -354,6 +354,10 @@ private:
     // Arc-slot grouped edit: centreline-radius + width labels rebuild the 4-arc span.
     void open_arc_slot_editor(int fi, bool radius);     // true=centreline R, false=width
     void set_arc_slot(int fi, double Rc, double w);
+    // Grouped derived-handle drag: resize an axis-aligned rect by a corner (opposite corner
+    // fixed); move a slot end by its cap centre. Both rebuild the feature span geometrically.
+    void drag_rect_corner(int fi, const Vec2d& cursor);
+    void drag_slot_handle(int fi, const Vec2d& cursor);
     std::vector<SketchEntity> make_polygon(const Vec2d& center, const Vec2d& vertex, int sides) const;
     // Ellipse: click center, then major-axis endpoint (sets a + rotation phi),
     // then a point whose perpendicular distance to the major axis sets b.
@@ -408,6 +412,10 @@ private:
     int                 m_drag_ei{-1};            // entity whose point is being dragged
     int                 m_drag_poly_fi{-1};       // >=0 if the grabbed point is a polygon
                                                   // vertex: drag scales+rotates the loop
+    int                 m_drag_rect_fi{-1};       // >=0 if dragging an axis-aligned rect corner
+    Vec2d               m_drag_rect_anchor{0,0};  //   the fixed (opposite) corner
+    int                 m_drag_slot_fi{-1};       // >=0 if dragging a slot cap centre
+    bool                m_drag_slot_c1{false};    //   true=cap@c1, false=cap@c0
     SketchPointRole     m_drag_role{SketchPointRole::P0};
     std::vector<SketchEntityConstraintDef> m_constraints; // driving dims, committed on finish
 
