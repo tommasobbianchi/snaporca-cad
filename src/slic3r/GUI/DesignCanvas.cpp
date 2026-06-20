@@ -113,6 +113,22 @@ DesignCanvas::~DesignCanvas()
     delete m_canvas_widget;
 }
 
+// Distinct per-body colours (Onshape-style). Body 0 keeps the familiar gold; the rest
+// cycle through a small saturated palette so coexisting solids read as separate parts.
+static ColorRGBA body_palette(int body_idx)
+{
+    static const ColorRGBA kPalette[] = {
+        ColorRGBA(0.86f, 0.66f, 0.20f, 1.0f),  // gold
+        ColorRGBA(0.30f, 0.62f, 0.90f, 1.0f),  // blue
+        ColorRGBA(0.45f, 0.78f, 0.42f, 1.0f),  // green
+        ColorRGBA(0.86f, 0.45f, 0.40f, 1.0f),  // coral
+        ColorRGBA(0.70f, 0.52f, 0.86f, 1.0f),  // violet
+        ColorRGBA(0.90f, 0.70f, 0.35f, 1.0f),  // amber
+    };
+    const int n = int(sizeof(kPalette) / sizeof(kPalette[0]));
+    return kPalette[((body_idx % n) + n) % n];
+}
+
 void DesignCanvas::reload(bool keep_view)
 {
     m_canvas->reset_volumes();
@@ -120,7 +136,6 @@ void DesignCanvas::reload(bool keep_view)
     for (int i = 0; i < (int)m_model.objects.size(); ++i)
         m_canvas->load_object(m_model, i);
 
-    const ColorRGBA gold(0.86f, 0.66f, 0.20f, 1.0f);
     const ColorRGBA sel_gold(0.40f, 0.82f, 1.0f, 1.0f);   // cyan tint = solid selected
     const ColorRGBA ghost(0.26f, 0.66f, 1.0f, 0.45f);
 
@@ -128,7 +143,9 @@ void DesignCanvas::reload(bool keep_view)
     for (auto* v : volumes) {
         int obj_idx = v->object_idx();
         if (obj_idx == 0)
-            v->set_color(m_body_selected ? sel_gold : gold);
+            // Object 0 holds one volume per body — colour each by its body index so
+            // multiple coexisting solids are visually distinct (Onshape per-part colour).
+            v->set_color(m_body_selected ? sel_gold : body_palette(v->volume_idx()));
         else if (obj_idx == 1)
             v->set_color(ghost);
     }
@@ -159,6 +176,24 @@ void DesignCanvas::set_mesh(const TriangleMesh& mesh)
         if (obj->instances.empty())
             obj->add_instance();
     }
+
+    reload(!m_first_frame);
+}
+
+void DesignCanvas::set_bodies(const std::vector<TriangleMesh>& body_meshes)
+{
+    // Object 0 carries one GLVolume per body so reload() can colour each distinctly.
+    // Falls back to a single-volume object when there's only one body (identical look
+    // to the old set_mesh path). Picking still uses the combined mesh via set_solid_pick.
+    if (body_meshes.empty()) { clear_mesh(); return; }
+
+    ModelObject* obj = m_model.objects.empty() ? m_model.add_object()
+                                               : m_model.objects.front();
+    obj->clear_volumes();
+    for (const TriangleMesh& m : body_meshes)
+        obj->add_volume(m);
+    if (obj->instances.empty())
+        obj->add_instance();
 
     reload(!m_first_frame);
 }

@@ -119,7 +119,8 @@ public:
     // mutate a target body. Empty after a failed/empty recompute.
     std::vector<CadBody>    bodies;
     TopoDS_Shape            body;          // compound of all bodies (1 body => that body) — display/compat
-    TriangleMesh            display_mesh;      // tessellation of all bodies, concatenated
+    TriangleMesh            display_mesh;      // tessellation of all bodies, concatenated (picking)
+    std::vector<TriangleMesh> display_body_meshes; // one mesh per body, in `bodies` order (per-body color)
     std::vector<int>        display_tri_face;  // per-triangle face id WITHIN its source body
     std::vector<int>        display_tri_body;  // per-triangle source body index (into bodies)
     std::string             error;             // last recompute error ("" = ok)

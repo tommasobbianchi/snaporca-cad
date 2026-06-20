@@ -1100,7 +1100,7 @@ void DesignPanel::set_status_ok()
     m_status->SetLabel(wxString::Format(_L("OK — %zu triangles"),
                                         m_doc.display_mesh.its.indices.size()));
     if (m_viewport != nullptr) {
-        m_viewport->set_mesh(m_doc.display_mesh);
+        m_viewport->set_bodies(m_doc.display_body_meshes);
         // Point the solid-pick at the fresh body + tessellation (resets the whole/face/edge
         // selection, whose ids invalidate on every recompute). Null body is handled inside.
         m_viewport->set_solid_pick(&m_doc.bodies, &m_doc.display_mesh,
@@ -1539,7 +1539,7 @@ void DesignPanel::on_toggle_visibility()
     set_tree_selection(sel);              // keep the toggled feature selected
     if (m_viewport != nullptr) {
         if (m_doc.display_mesh.its.indices.empty()) m_viewport->clear_mesh();
-        else                                        m_viewport->set_mesh(m_doc.display_mesh);
+        else                                        m_viewport->set_bodies(m_doc.display_body_meshes);
     }
     sync_sketch_display();                // skips the hidden sketch + direct-renders
     m_status->SetForegroundColour(wxNullColour);
@@ -1805,7 +1805,7 @@ void DesignPanel::commit_entity_constraints(const std::vector<SketchEntityConstr
     m_doc.recompute();
     m_viewport->update_constrain_entities(m_doc.features[m_constrain_feat].entities);
     if (!m_doc.display_mesh.its.indices.empty())
-        m_viewport->set_mesh(m_doc.display_mesh);
+        m_viewport->set_bodies(m_doc.display_body_meshes);
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(_L("Applied constraint"));
     m_status->Refresh();
@@ -1980,7 +1980,7 @@ void DesignPanel::delete_constraint(int idx)
     m_viewport->set_constraint_highlight({});
     m_viewport->update_constrain_entities(m_doc.features[m_constrain_feat].entities);
     if (!m_doc.display_mesh.its.indices.empty())
-        m_viewport->set_mesh(m_doc.display_mesh);
+        m_viewport->set_bodies(m_doc.display_body_meshes);
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(_L("Constraint deleted"));
     m_status->Refresh();
@@ -2715,7 +2715,7 @@ void DesignPanel::after_edit_op()
     // leave a stale ghost of the pre-edit geometry beside the new position.
     sync_sketch_display();
     if (!m_doc.display_mesh.its.indices.empty())
-        m_viewport->set_mesh(m_doc.display_mesh);
+        m_viewport->set_bodies(m_doc.display_body_meshes);
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(_L("Applied edit"));
     m_status->Refresh();
@@ -2822,7 +2822,7 @@ void DesignPanel::apply_constraint(SketchConstraintType type)
     m_doc.recompute();
     m_viewport->update_constrain_profile(m_doc.features[m_constrain_feat].profile.points);
     if (!m_doc.display_mesh.its.indices.empty())
-        m_viewport->set_mesh(m_doc.display_mesh);
+        m_viewport->set_bodies(m_doc.display_body_meshes);
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(type == SketchConstraintType::Horizontal ? _L("Applied Horizontal")
                                                                 : _L("Applied Vertical"));

@@ -531,6 +531,7 @@ static bool commit_or_rollback(CadDocument& doc, std::vector<CadFeature>& snapsh
         doc.bodies.clear();
         doc.body         = TopoDS_Shape();
         doc.display_mesh = TriangleMesh{};
+        doc.display_body_meshes.clear();
         doc.display_tri_face.clear();
         doc.display_tri_body.clear();
         doc.error.clear();
@@ -889,10 +890,12 @@ static TopoDS_Shape compound_of(const std::vector<CadBody>& bodies)
 // (body index, face id WITHIN that body). Single-body => byte-identical to tessellate(body).
 static TriangleMesh tessellate_bodies(const std::vector<CadBody>& bodies,
                                       std::vector<int>& tri_face, std::vector<int>& tri_body,
+                                      std::vector<TriangleMesh>& body_meshes,
                                       double lin, double ang)
 {
     tri_face.clear();
     tri_body.clear();
+    body_meshes.clear();
     indexed_triangle_set merged;
     for (int bi = 0; bi < int(bodies.size()); ++bi) {
         std::vector<int> tf;
@@ -903,6 +906,7 @@ static TriangleMesh tessellate_bodies(const std::vector<CadBody>& bodies,
         for (const auto& t : its.indices)
             merged.indices.emplace_back(t[0] + voff, t[1] + voff, t[2] + voff);
         for (int fid : tf) { tri_face.push_back(fid); tri_body.push_back(bi); }
+        body_meshes.push_back(std::move(bm));   // per-body mesh kept for distinct GLVolume colors
     }
     return TriangleMesh(merged);
 }
@@ -960,6 +964,7 @@ bool CadDocument::recompute()
     bodies = std::move(built);
     body = compound_of(bodies);
     display_mesh = tessellate_bodies(bodies, display_tri_face, display_tri_body,
+                                     display_body_meshes,
                                      linear_deflection, angular_deflection);
     if (display_mesh.its.indices.empty()) {
         error = "tessellation produced an empty mesh";

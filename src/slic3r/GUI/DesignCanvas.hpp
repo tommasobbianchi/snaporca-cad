@@ -30,6 +30,8 @@ public:
     ~DesignCanvas() override;
 
     void set_mesh(const TriangleMesh& mesh);
+    // Multi-body display: one GLVolume per body, each coloured distinctly (per-body colour).
+    void set_bodies(const std::vector<TriangleMesh>& body_meshes);
     void clear_mesh();
 
     void set_preview_mesh(const TriangleMesh& mesh);
