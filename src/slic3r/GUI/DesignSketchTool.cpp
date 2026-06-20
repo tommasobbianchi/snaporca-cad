@@ -2241,7 +2241,7 @@ bool DesignSketchTool::handle_solid_click(GLCanvas3D& canvas, const wxMouseEvent
     } else if (m_solid_sel == SolidSel::Face) {
         // Advance to the face's edge nearest the click (deterministic cycle step).
         const TopoDS_Face face = GeometryEngine::face_by_index(*m_solid_body, m_sel_face);
-        int eid = -1; double best_ed = 1e30; std::vector<Vec3d> best_pts;
+        int eid = -1; double best_ed = 1e30; std::vector<Vec3d> best_pts; TopoDS_Edge best_edge;
         if (!face.IsNull()) {
             const std::vector<TopoDS_Edge> edges = GeometryEngine::edges_of_face(face);
             for (int k = 0; k < int(edges.size()); ++k) {
@@ -2249,11 +2249,16 @@ bool DesignSketchTool::handle_solid_click(GLCanvas3D& canvas, const wxMouseEvent
                 double d = 1e30;
                 for (size_t s = 1; s < pts.size(); ++s)
                     d = std::min(d, ray_segment_dist3(ro, rd, pts[s - 1], pts[s]));
-                if (d < best_ed) { best_ed = d; eid = k; best_pts = pts; }
+                if (d < best_ed) { best_ed = d; eid = k; best_pts = pts; best_edge = edges[k]; }
             }
         }
-        if (eid >= 0) { m_sel_edge = eid; m_sel_edge_pts = std::move(best_pts); m_solid_sel = SolidSel::Edge; }
-        else          { m_solid_sel = SolidSel::Whole; m_sel_edge = -1; m_sel_edge_pts.clear(); }
+        if (eid >= 0) {
+            // Promote the face-relative pick to a STABLE GLOBAL edge id so dress-up ops
+            // (fillet/chamfer) can target this exact edge across recomputes.
+            m_sel_edge     = GeometryEngine::edge_index_of(*m_solid_body, best_edge);
+            m_sel_edge_pts = std::move(best_pts);
+            m_solid_sel    = SolidSel::Edge;
+        } else { m_solid_sel = SolidSel::Whole; m_sel_edge = -1; m_sel_edge_pts.clear(); }
     } else {   // Edge -> back to Whole
         m_solid_sel = SolidSel::Whole; m_sel_edge = -1; m_sel_edge_pts.clear();
     }

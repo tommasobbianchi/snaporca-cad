@@ -418,6 +418,17 @@ int CadDocument::add_fillet(double radius, FaceGroup faces, const std::string& n
     return int(features.size()) - 1;
 }
 
+int CadDocument::add_fillet(double radius, int edge_id, const std::string& name)
+{
+    CadFeature f;
+    f.type         = CadFeatureType::Fillet;
+    f.name         = name;
+    f.dressup_size = radius;
+    f.dressup_edge = edge_id;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
 int CadDocument::add_chamfer(double distance, FaceGroup faces, const std::string& name)
 {
     CadFeature f;
@@ -425,6 +436,17 @@ int CadDocument::add_chamfer(double distance, FaceGroup faces, const std::string
     f.name         = name;
     f.dressup_size = distance;
     f.face_group   = faces;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
+int CadDocument::add_chamfer(double distance, int edge_id, const std::string& name)
+{
+    CadFeature f;
+    f.type         = CadFeatureType::Chamfer;
+    f.name         = name;
+    f.dressup_size = distance;
+    f.dressup_edge = edge_id;
     features.push_back(f);
     return int(features.size()) - 1;
 }
@@ -721,11 +743,17 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body, const Cad
     }
     case CadFeatureType::Fillet:
         if (!have_body) throw std::runtime_error("fillet needs a body");
-        result = GeometryEngine::apply_fillet(result, f.dressup_size, f.face_group);
+        if (f.dressup_edge >= 0)
+            result = GeometryEngine::apply_fillet(result, f.dressup_size, f.dressup_edge);
+        else
+            result = GeometryEngine::apply_fillet(result, f.dressup_size, f.face_group);
         break;
     case CadFeatureType::Chamfer:
         if (!have_body) throw std::runtime_error("chamfer needs a body");
-        result = GeometryEngine::apply_chamfer(result, f.dressup_size, f.face_group);
+        if (f.dressup_edge >= 0)
+            result = GeometryEngine::apply_chamfer(result, f.dressup_size, f.dressup_edge);
+        else
+            result = GeometryEngine::apply_chamfer(result, f.dressup_size, f.face_group);
         break;
     case CadFeatureType::Hole: {
         if (!have_body) throw std::runtime_error("hole needs a body");

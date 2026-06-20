@@ -956,7 +956,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_status->SetForegroundColour(wxNullColour);
         m_status->SetLabel(level == 1 ? _L("Solid selected (whole) — click again for a face")
                          : level == 2 ? wxString::Format(_L("Face %d selected — click again for an edge"), face)
-                         : level == 3 ? wxString::Format(_L("Edge selected on face %d — click again to reset"), face)
+                         : level == 3 ? wxString::Format(_L("Edge %d selected — open Fillet/Chamfer to dress it, or click again to reset"), edge)
                                       : _L("Nothing selected"));
         (void)edge;
         m_status->Refresh();
@@ -1307,7 +1307,13 @@ void DesignPanel::on_add_dressup()
     bool      fillet = (m_dressup_type->GetSelection() == 0);
 
     m_feature_counter++;
-    if (fillet)
+    // A click-selected solid edge targets THAT edge; otherwise dress the whole face-group.
+    if (m_sel_solid_edge >= 0) {
+        if (fillet)
+            m_doc.add_fillet(sz, m_sel_solid_edge, "Fillet" + std::to_string(m_feature_counter));
+        else
+            m_doc.add_chamfer(sz, m_sel_solid_edge, "Chamfer" + std::to_string(m_feature_counter));
+    } else if (fillet)
         m_doc.add_fillet(sz, fg, "Fillet" + std::to_string(m_feature_counter));
     else
         m_doc.add_chamfer(sz, fg, "Chamfer" + std::to_string(m_feature_counter));
@@ -2808,6 +2814,7 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
         m_dressup_type->SetSelection(f.type == CadFeatureType::Fillet ? 0 : 1);
         m_dressup_size->SetValue(f.dressup_size);
         m_face_group->SetSelection(static_cast<int>(f.face_group));
+        m_sel_solid_edge = f.dressup_edge;   // preserve edge-targeting on re-edit
         break;
     case CadFeatureType::Hole:
         m_hole_plane->SetSelection(index_from_plane(f.plane));
@@ -2954,6 +2961,8 @@ CadFeature DesignPanel::build_candidate(Tool t) const
                                                                : CadFeatureType::Chamfer;
         f.dressup_size = m_dressup_size->GetValue();
         f.face_group   = static_cast<FaceGroup>(m_face_group->GetSelection());
+        // A click-selected solid edge overrides the face-group: dress THAT edge.
+        f.dressup_edge = m_sel_solid_edge;   // -1 when no edge picked
         break;
     case Tool::Hole:
         f.type          = CadFeatureType::Hole;

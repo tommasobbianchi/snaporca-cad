@@ -161,6 +161,36 @@ TopoDS_Shape GeometryEngine::apply_chamfer(const TopoDS_Shape& solid, double dis
     return chamfer.Shape();
 }
 
+TopoDS_Shape GeometryEngine::apply_fillet(const TopoDS_Shape& solid, double radius, int edge_id)
+{
+    if (radius <= 0.001) return solid;
+
+    TopoDS_Edge edge = edge_by_index(solid, edge_id);
+    if (edge.IsNull()) throw std::runtime_error("apply_fillet: invalid edge id");
+
+    BRepFilletAPI_MakeFillet mk(solid);
+    mk.Add(radius, edge);
+    mk.Build();
+
+    if (!mk.IsDone()) throw std::runtime_error("apply_fillet: OCCT fillet failed");
+    return mk.Shape();
+}
+
+TopoDS_Shape GeometryEngine::apply_chamfer(const TopoDS_Shape& solid, double distance, int edge_id)
+{
+    if (distance <= 0.001) return solid;
+
+    TopoDS_Edge edge = edge_by_index(solid, edge_id);
+    if (edge.IsNull()) throw std::runtime_error("apply_chamfer: invalid edge id");
+
+    BRepFilletAPI_MakeChamfer mk(solid);
+    mk.Add(distance, edge);
+    mk.Build();
+
+    if (!mk.IsDone()) throw std::runtime_error("apply_chamfer: OCCT chamfer failed");
+    return mk.Shape();
+}
+
 // ---- Tessellation ----
 
 TriangleMesh GeometryEngine::tessellate(const TopoDS_Shape& shape,
@@ -286,6 +316,30 @@ Vec3d GeometryEngine::face_centroid_world(const TopoDS_Face& face)
     BRepGProp::SurfaceProperties(face, props);
     gp_Pnt c = props.CentreOfMass();
     return Vec3d(c.X(), c.Y(), c.Z());
+}
+
+int GeometryEngine::edge_count(const TopoDS_Shape& shape)
+{
+    TopTools_IndexedMapOfShape map;
+    TopExp::MapShapes(shape, TopAbs_EDGE, map);
+    return map.Extent();
+}
+
+TopoDS_Edge GeometryEngine::edge_by_index(const TopoDS_Shape& shape, int index)
+{
+    TopTools_IndexedMapOfShape map;
+    TopExp::MapShapes(shape, TopAbs_EDGE, map);
+    if (index < 0 || index >= map.Extent())
+        return TopoDS_Edge();
+    return TopoDS::Edge(map(index + 1));
+}
+
+int GeometryEngine::edge_index_of(const TopoDS_Shape& shape, const TopoDS_Edge& edge)
+{
+    TopTools_IndexedMapOfShape map;
+    TopExp::MapShapes(shape, TopAbs_EDGE, map);
+    int idx = map.FindIndex(edge);
+    return (idx > 0) ? (idx - 1) : -1;
 }
 
 } // namespace Slic3r

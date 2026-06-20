@@ -730,3 +730,19 @@ TEST_CASE("GeometryEngine topology accessors", "[Geometry]")
     REQUIRE_THAT((pts.front() - pts.back()).norm(),
                  Catch::Matchers::WithinAbs(10.0, 0.01));         // edge length = 10
 }
+
+TEST_CASE("edge-targeted fillet rounds one edge", "[design][dressup]")
+{
+    TopoDS_Shape box = BRepPrimAPI_MakeBox(20., 20., 20.).Shape();
+    int n = GeometryEngine::edge_count(box);
+    REQUIRE(n == 12);
+
+    for (int i = 0; i < n; ++i)
+        REQUIRE(GeometryEngine::edge_index_of(box, GeometryEngine::edge_by_index(box, i)) == i);
+
+    TopoDS_Shape r = GeometryEngine::apply_fillet(box, 2.0, 0);
+    REQUIRE_FALSE(r.IsNull());
+    REQUIRE(GeometryEngine::face_count(r) > GeometryEngine::face_count(box));
+
+    REQUIRE_THROWS(GeometryEngine::apply_fillet(box, 2.0, 999));
+}

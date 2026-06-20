@@ -55,8 +55,12 @@ public:
 
     static TopoDS_Shape apply_fillet(const TopoDS_Shape& solid, double radius,
                                      FaceGroup faces = FaceGroup::All);
+    static TopoDS_Shape apply_fillet(const TopoDS_Shape& solid, double radius,
+                                     int edge_id);
     static TopoDS_Shape apply_chamfer(const TopoDS_Shape& solid, double distance,
-                                      FaceGroup faces = FaceGroup::All);
+                                       FaceGroup faces = FaceGroup::All);
+    static TopoDS_Shape apply_chamfer(const TopoDS_Shape& solid, double distance,
+                                       int edge_id);
 
     static TriangleMesh tessellate(const TopoDS_Shape& shape,
                                    double linear_deflection = 0.01,
@@ -73,6 +77,10 @@ public:
     static Vec3d face_centroid_world(const TopoDS_Face& face);
     // Sample an edge into a world-space polyline (>=2 pts) for pick-distance + highlight.
     static std::vector<Vec3d> sample_edge_world(const TopoDS_Edge& edge, double chord_tol = 0.05);
+    // 0-based edge index into TopExp::MapShapes(shape, TopAbs_EDGE, map).
+    static int          edge_count(const TopoDS_Shape& shape);
+    static TopoDS_Edge  edge_by_index(const TopoDS_Shape& shape, int index);
+    static int          edge_index_of(const TopoDS_Shape& shape, const TopoDS_Edge& edge);
 
 private:
     static std::vector<TopoDS_Edge> collect_edges(const TopoDS_Shape& solid, FaceGroup faces);

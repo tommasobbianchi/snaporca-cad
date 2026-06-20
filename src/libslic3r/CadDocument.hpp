@@ -79,6 +79,7 @@ struct CadFeature {
     // Dress-up params (Fillet/Chamfer) — applied to the current body in order
     double      dressup_size{1.0};         // fillet radius or chamfer distance
     FaceGroup   face_group{FaceGroup::All};
+    int         dressup_edge{-1};          // global edge id for edge-targeted fillet/chamfer; -1 = use face_group
 
     // Hole params (positioned circular cut into the current body)
     double      hole_diameter{5};
@@ -131,7 +132,9 @@ public:
                               const SketchPlane& plane, double distance, bool symmetric,
                               BooleanMode mode, const std::string& name);
     int  add_fillet(double radius, FaceGroup faces, const std::string& name);
+    int  add_fillet(double radius, int edge_id, const std::string& name);
     int  add_chamfer(double distance, FaceGroup faces, const std::string& name);
+    int  add_chamfer(double distance, int edge_id, const std::string& name);
     int  add_hole(double diameter, double depth, bool through,
                   double x, double y, const SketchPlane& plane,
                   const std::string& name);
