@@ -157,6 +157,10 @@ private:
 
     wxStaticText*     m_extrude_sketch_label{nullptr};
     int               m_extrude_sketch_ref{-1};
+    // Plate loop selection (click a committed sketch loop): the Sketch feature + the
+    // clicked closed-region index, so Extrude builds just that one loop. -1 = none.
+    int               m_sel_sketch_feat{-1};
+    int               m_sel_sketch_region{-1};
 
     wxChoice*         m_dressup_type{nullptr};
     wxChoice*         m_face_group{nullptr};

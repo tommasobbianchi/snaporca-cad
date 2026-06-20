@@ -2154,23 +2154,36 @@ std::vector<std::vector<Vec2d>> DesignSketchTool::closed_regions() const
 
 std::vector<std::vector<Vec2d>> DesignSketchTool::closed_regions(const std::vector<SketchEntity>& ents) const
 {
-    std::vector<std::vector<Vec2d>> regions;
+    std::vector<std::vector<Vec2d>> out;
+    for (RegionLoop& r : region_loops(ents)) out.push_back(std::move(r.poly));
+    return out;
+}
+
+// Closed loops + the entity indices that form each one. A circle/ellipse is its own loop;
+// line/arc chains are walked endpoint-to-endpoint. Entity membership lets a single loop be
+// highlighted and extruded on its own.
+std::vector<DesignSketchTool::RegionLoop>
+DesignSketchTool::region_loops(const std::vector<SketchEntity>& ents) const
+{
+    std::vector<RegionLoop> regions;
     const double eps2 = 1e-3 * 1e-3;
     auto near = [&](const Vec2d& a, const Vec2d& b) { return (a - b).squaredNorm() < eps2; };
 
-    // Circles are self-closed regions; lines/arcs are open segments to be chained.
-    struct Seg { std::vector<Vec2d> pts; bool used{false}; };
+    // Circles are self-closed regions; lines/arcs are open segments to be chained. Each
+    // Seg remembers the entity index it came from.
+    struct Seg { std::vector<Vec2d> pts; int ent{-1}; bool used{false}; };
     std::vector<Seg> segs;
-    for (const SketchEntity& e : ents) {
+    for (int i = 0; i < int(ents.size()); ++i) {
+        const SketchEntity& e = ents[i];
         if (e.construction) continue;
         bool closed = false;
         if (e.type == SketchEntity::Type::Circle || e.type == SketchEntity::Type::Ellipse) {
-            regions.push_back(entity_polyline(e, closed));
+            regions.push_back({ entity_polyline(e, closed), { i } });
         } else if (e.type == SketchEntity::Type::Line || e.type == SketchEntity::Type::Arc
                    || e.type == SketchEntity::Type::EllipseArc
                    || e.type == SketchEntity::Type::BSpline) {
             std::vector<Vec2d> p = entity_polyline(e, closed);
-            if (p.size() >= 2) segs.push_back({ std::move(p), false });
+            if (p.size() >= 2) segs.push_back({ std::move(p), i, false });
         }
     }
 
@@ -2180,6 +2193,7 @@ std::vector<std::vector<Vec2d>> DesignSketchTool::closed_regions(const std::vect
         if (segs[s].used) continue;
         segs[s].used = true;
         std::vector<Vec2d> loop = segs[s].pts;
+        std::vector<int>   loop_ents = { segs[s].ent };
         const Vec2d start = loop.front();
         Vec2d cur = loop.back();
         bool extended = true;
@@ -2198,13 +2212,14 @@ std::vector<std::vector<Vec2d>> DesignSketchTool::closed_regions(const std::vect
                     continue;
                 }
                 segs[t].used = true;
+                loop_ents.push_back(segs[t].ent);
                 extended = true;
                 break;
             }
         }
         if (near(cur, start) && loop.size() >= 4) {
             loop.pop_back();          // drop the duplicate closing vertex
-            regions.push_back(std::move(loop));
+            regions.push_back({ std::move(loop), std::move(loop_ents) });
         }
     }
     return regions;
@@ -3855,23 +3870,37 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     // extrude is removed): faces translucent, outlines orange. Each uses its own plane.
     if (!m_display_sketches.empty()) {
         const SketchPlane saved_plane = m_plane;
-        const ColorRGBA dface(0.30f, 0.60f, 1.0f, 0.16f);
+        const ColorRGBA dface(0.30f, 0.60f, 1.0f, 0.16f);   // normal translucent face
+        const ColorRGBA sface(0.30f, 0.80f, 1.0f, 0.34f);   // click-selected loop: brighter cyan
+        const ColorRGBA dwire(1.0f, 0.55f, 0.1f, 1.0f);     // normal orange outline
+        const ColorRGBA swire(0.30f, 0.85f, 1.0f, 1.0f);    // click-selected loop: cyan outline
         glsafe(::glEnable(GL_BLEND));
         glsafe(::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
         for (const DisplaySketch& ds : m_display_sketches) {
             m_plane = ds.plane;
-            for (const std::vector<Vec2d>& r : closed_regions(ds.entities))
-                draw_fill(m_fill_model, r, dface);
+            const std::vector<RegionLoop> loops = region_loops(ds.entities);
+            for (int r = 0; r < int(loops.size()); ++r) {
+                const bool sel = (ds.feature == m_display_pick && r == m_display_pick_region);
+                draw_fill(m_fill_model, loops[r].poly, sel ? sface : dface);
+            }
         }
         glsafe(::glDisable(GL_BLEND));
-        const ColorRGBA dwire(1.0f, 0.55f, 0.1f, 1.0f);
         for (const DisplaySketch& ds : m_display_sketches) {
             m_plane = ds.plane;
-            for (const SketchEntity& e : ds.entities) {
+            // Entities forming the selected loop (highlighted cyan); the rest stay orange.
+            std::vector<char> sel_ent(ds.entities.size(), 0);
+            if (ds.feature == m_display_pick && m_display_pick_region >= 0) {
+                const std::vector<RegionLoop> loops = region_loops(ds.entities);
+                if (m_display_pick_region < int(loops.size()))
+                    for (int ei : loops[m_display_pick_region].ents)
+                        if (ei >= 0 && ei < int(sel_ent.size())) sel_ent[ei] = 1;
+            }
+            for (int i = 0; i < int(ds.entities.size()); ++i) {
+                const SketchEntity& e = ds.entities[i];
                 if (e.type == SketchEntity::Type::Point) continue;
                 bool closed = false;
                 std::vector<Vec2d> poly = entity_polyline(e, closed);
-                draw_quad_strip(m_line_model, poly, closed, dwire);
+                draw_quad_strip(m_line_model, poly, closed, sel_ent[i] ? swire : dwire);
             }
         }
         m_plane = saved_plane;
@@ -4325,6 +4354,21 @@ static double point_segment_dist(const Vec2d& p, const Vec2d& a, const Vec2d& b)
     return (p - (a + t * ab)).norm();
 }
 
+// Even-odd point-in-polygon test (plane coords), for picking a closed-loop interior.
+static bool point_in_poly(const Vec2d& q, const std::vector<Vec2d>& poly)
+{
+    if (poly.size() < 3) return false;
+    bool in = false;
+    for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++) {
+        const Vec2d& a = poly[i];
+        const Vec2d& b = poly[j];
+        if (((a.y() > q.y()) != (b.y() > q.y())) &&
+            (q.x() < (b.x() - a.x()) * (q.y() - a.y()) / (b.y() - a.y()) + a.x()))
+            in = !in;
+    }
+    return in;
+}
+
 // Screen-plane distance from p to a sketch entity, for click picking in Constrain
 // mode. Circles/arcs measure distance to the ring; points to their position.
 static double entity_pick_dist(const Vec2d& p, const SketchEntity& e)
@@ -4451,6 +4495,43 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     // projection — the design canvas's viewport isn't valid outside its own paint).
     m_last_mouse_x = evt.GetX();
     m_last_mouse_y = evt.GetY();
+
+    // No live session, but committed sketches are shown as overlays on the plate: a left
+    // click on a loop (its edge OR its closed interior) selects that Sketch feature. This
+    // is the ONLY interaction in display-only mode; everything else (drag/move/wheel/right)
+    // falls through (return false) so the camera can still orbit the plate.
+    if (!m_active) {
+        if (!evt.LeftDown()) return false;
+        Point pos(evt.GetX(), evt.GetY());
+        const Linef3 ray  = canvas.mouse_ray(pos);
+        const Linef3 ray8 = canvas.mouse_ray(Point(evt.GetX() + 8, evt.GetY()));
+        int    edge_feat = -1, edge_reg = -1; double edge_d = 1e30;  // nearest edge (wins)
+        int    face_feat = -1, face_reg = -1;                        // first interior (fallback)
+        for (const DisplaySketch& d : m_display_sketches) {
+            const Vec2d p   = d.plane.project(ray.a,  ray.vector());
+            const Vec2d p8  = d.plane.project(ray8.a, ray8.vector());
+            const double tol = std::max(1e-3, (p8 - p).norm());
+            const std::vector<RegionLoop> loops = region_loops(d.entities);
+            for (int r = 0; r < int(loops.size()); ++r) {
+                for (int ei : loops[r].ents) {
+                    if (ei < 0 || ei >= int(d.entities.size())) continue;
+                    const double ed = entity_pick_dist(p, d.entities[ei]);
+                    if (ed <= tol * 3.0 && ed < edge_d) { edge_d = ed; edge_feat = d.feature; edge_reg = r; }
+                }
+                if (face_feat < 0 && point_in_poly(p, loops[r].poly)) { face_feat = d.feature; face_reg = r; }
+            }
+        }
+        const int feat = (edge_feat >= 0) ? edge_feat : face_feat;
+        const int reg  = (edge_feat >= 0) ? edge_reg  : face_reg;
+        if (feat >= 0) {
+            m_display_pick = feat;
+            m_display_pick_region = reg;
+            if (on_display_sketch_selected) on_display_sketch_selected(feat, reg);
+            return true;
+        }
+        m_display_pick = -1; m_display_pick_region = -1;  // clicked bare plate -> drop highlight
+        return false;                                     // let the stock canvas orbit / deselect
+    }
 
     // In-canvas edit-op tools (Fillet/Chamfer/Offset/Mirror): pick entities, then a
     // draggable arrow + editable value label (Mirror: a two-phase pick) drives a live

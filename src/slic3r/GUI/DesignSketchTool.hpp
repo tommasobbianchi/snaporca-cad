@@ -64,9 +64,12 @@ public:
     // Persistent committed sketches to draw even when no session is active (e.g. an
     // un-consumed sketch left visible after its extrude is removed). Each carries its
     // own plane. render() draws these as translucent faces + outlines.
-    struct DisplaySketch { std::vector<SketchEntity> entities; SketchPlane plane; };
+    struct DisplaySketch { std::vector<SketchEntity> entities; SketchPlane plane; int feature{-1}; };
     void set_display_sketches(std::vector<DisplaySketch> ds) { m_display_sketches = std::move(ds); }
     bool has_display() const { return m_active || !m_display_sketches.empty(); }
+    // Click a committed sketch overlay (no live session) -> select that loop: the Sketch
+    // feature index + the clicked closed-region index within it (-1 = no specific loop).
+    std::function<void(int feature, int region)> on_display_sketch_selected;
 
     // Constrain mode: load an already-committed profile for entity picking +
     // constraint application (the geometry is solved in the kernel, not here).
@@ -419,6 +422,10 @@ private:
     // chains are walked endpoint-to-endpoint into loops. Used to fill faces.
     std::vector<std::vector<Vec2d>> closed_regions() const;
     std::vector<std::vector<Vec2d>> closed_regions(const std::vector<SketchEntity>& ents) const;
+    // Same loops, but each carries the indices of the entities that form it — so a single
+    // loop can be highlighted / extruded on its own (per-region selection on the plate).
+    struct RegionLoop { std::vector<Vec2d> poly; std::vector<int> ents; };
+    std::vector<RegionLoop> region_loops(const std::vector<SketchEntity>& ents) const;
     // Index of the closed region containing plane-point p (point-in-polygon), or -1.
     int region_at(const Vec2d& p) const;
 
@@ -570,6 +577,8 @@ private:
     GLModel             m_highlight_model;
     GLModel             m_fill_model;       // translucent face fill for closed regions
     std::vector<DisplaySketch> m_display_sketches;  // committed sketches drawn persistently
+    int m_display_pick{-1};        // FEATURE index of the click-selected display sketch (-1 none)
+    int m_display_pick_region{-1}; // selected closed-region index within that feature (-1 none)
 };
 
 }} // namespace Slic3r::GUI

@@ -908,6 +908,21 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_status->Refresh();
     });
 
+    // Clicking a committed sketch loop on the plate (no live session) selects THAT loop:
+    // the viewport highlights only it (cyan) and its Sketch feature's tree row is selected.
+    // The (feature, region) pair is remembered so Extrude builds just that one loop.
+    m_viewport->set_on_display_sketch_selected([this](int feat, int region) {
+        if (feat < 0 || feat >= int(m_doc.features.size())) return;
+        m_sel_sketch_feat   = feat;
+        m_sel_sketch_region = region;
+        set_tree_selection(feat);
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(region >= 0
+            ? _L("Loop selected — Extrude it, or Edit / Delete the sketch")
+            : _L("Sketch selected — Extrude it, or Edit / Delete from the tree"));
+        m_status->Refresh();
+    });
+
     // Esc exits the active sketch tool: drop the live session, restore Feature mode +
     // the committed-sketch overlay (an in-progress draw is discarded). The tool's layered
     // request_exit only calls this once it's an idle Select session.
@@ -1037,7 +1052,7 @@ void DesignPanel::sync_sketch_display()
         if (f.type != CadFeatureType::Sketch || consumed[i] || !f.enabled)
             continue;
         if (!f.entities.empty()) {
-            ds.push_back({ f.entities, f.plane });
+            ds.push_back({ f.entities, f.plane, i });
         } else if (!f.imported_regions.empty()) {
             // Imported art (Text/SVG) carries no solver entities; synthesize
             // closed line loops from each region contour so it shows as an
@@ -1059,7 +1074,7 @@ void DesignPanel::sync_sketch_display()
                     }
                 }
             if (!lines.empty())
-                ds.push_back({ std::move(lines), f.plane });
+                ds.push_back({ std::move(lines), f.plane, i });
         }
     }
     m_viewport->set_display_sketches(std::move(ds));

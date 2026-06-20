@@ -4091,9 +4091,12 @@ void GLCanvas3D::on_mouse(wxMouseEvent& evt)
             return;
     }
 
-    // SnapOrca Design: an active interactive sketch tool owns the mouse. It runs
-    // after ImGui (so dialogs still work) but before camera/toolbar/gizmo handling.
-    if (m_design_sketch_tool != nullptr && m_design_sketch_tool->is_active()) {
+    // SnapOrca Design: the interactive sketch tool owns the mouse whenever it has
+    // something on screen — an active session OR committed sketch overlays that the user
+    // can click to select. It runs after ImGui (so dialogs still work) but before
+    // camera/toolbar/gizmo handling; on_mouse returns false for events it doesn't consume
+    // (drag/orbit/wheel) so the camera keeps working over the display-only plate.
+    if (m_design_sketch_tool != nullptr && m_design_sketch_tool->has_display()) {
         if (evt.LeftDown() && m_canvas != nullptr)
             m_canvas->SetFocus();   // grab keyboard focus so Delete/keys reach this canvas
         if (m_design_sketch_tool->on_mouse(evt, *this)) {

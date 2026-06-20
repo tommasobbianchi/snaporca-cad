@@ -317,6 +317,11 @@ void DesignCanvas::set_on_sketch_face_selected(std::function<void()> cb)
     m_sketch_tool.on_face_selected = std::move(cb);
 }
 
+void DesignCanvas::set_on_display_sketch_selected(std::function<void(int, int)> cb)
+{
+    m_sketch_tool.on_display_sketch_selected = std::move(cb);
+}
+
 void DesignCanvas::set_on_sketch_exit(std::function<void()> cb)
 {
     m_sketch_tool.on_exit = std::move(cb);
