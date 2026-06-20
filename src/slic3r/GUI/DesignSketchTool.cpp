@@ -1233,6 +1233,50 @@ void DesignSketchTool::set_rounded_rect(int fi, double w, double h, double r)
     resolve_live();
 }
 
+void DesignSketchTool::open_arc_slot_editor(int fi, bool radius)
+{
+    if (fi < 0 || fi >= int(m_features.size()) || !on_inline_edit) return;
+    const Feature& f = m_features[fi];
+    const double Rc = (f.c1 - f.c0).norm();
+    const double v  = radius ? Rc : (2.0 * f.param);     // width quote shows the FULL width
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    on_inline_edit(px, v,
+        [this, fi, radius](double nv) {
+            const Feature& g = m_features[fi];
+            const double gRc = (g.c1 - g.c0).norm();
+            if (radius) set_arc_slot(fi, nv, g.param);
+            else        set_arc_slot(fi, gRc, std::max(1e-3, nv * 0.5));  // full width -> half
+        },
+        []() {});
+}
+
+// Rebuild the arc-slot's 4 arcs in place for a new centreline radius / half-width. Centre
+// + the two centreline directions are kept (the end direction is recovered from the cap@E
+// arc centre). Geometric; entity count preserved so constraint refs stay valid.
+void DesignSketchTool::set_arc_slot(int fi, double Rc, double w)
+{
+    if (fi < 0 || fi >= int(m_features.size())) return;
+    Feature& f = m_features[fi];
+    if (f.begin < 0 || f.end > int(m_entities.size()) || f.end - f.begin != 4) return;
+    const Vec2d center = f.c0;
+    Vec2d dirS = f.c1 - center;
+    const Vec2d Ec = m_entities[f.begin + 1].center;     // cap@E centre = centreline end
+    Vec2d dirE = Ec - center;
+    if (dirS.squaredNorm() < 1e-12 || dirE.squaredNorm() < 1e-12) return;
+    dirS.normalize(); dirE.normalize();
+    Rc = std::max(Rc, 2e-3);
+    w  = std::max(1e-3, std::min(w, Rc - 1e-3));         // make_arc_slot needs w < Rc
+    std::vector<SketchEntity> rebuilt =
+        make_arc_slot(center, center + Rc * dirS, center + Rc * dirE, w);
+    if (int(rebuilt.size()) != 4) return;
+    for (int i = 0; i < 4; ++i) {
+        rebuilt[i].construction = m_entities[f.begin + i].construction;
+        m_entities[f.begin + i] = rebuilt[i];
+    }
+    f.c1 = center + Rc * dirS; f.param = w;
+    resolve_live();
+}
+
 DesignSketchTool::DimType DesignSketchTool::pending_dimension_type() const
 {
     return (m_pending_dim >= 0 && m_pending_dim < int(m_dimensions.size()))
@@ -2548,6 +2592,8 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
     m_live_ellipse_major_label = m_live_ellipse_minor_label = Vec2d(1e18, 1e18);
     m_live_rrect_fi = -1;
     m_live_rrect_w_label = m_live_rrect_h_label = m_live_rrect_r_label = Vec2d(1e18, 1e18);
+    m_live_aslot_fi = -1;
+    m_live_aslot_r_label = m_live_aslot_w_label = Vec2d(1e18, 1e18);
     int ei = -1;
     if (m_dragging_point && m_drag_ei >= 0)  ei = m_drag_ei;
     else if (m_dragging_handle)              ei = m_drag_handle.ei;
@@ -2685,11 +2731,47 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
             m_live_rrect_fi = fi;
             break;
         }
-        default: break;                   // arc/ellipse/etc.: later chunks
+        case FeatureKind::ArcSlot: {
+            // Centreline Radius + slot Width quotes. centre=f.c0, centreline start=f.c1,
+            // half-width=f.param; end direction from the cap@E arc centre (begin+1).
+            if (f.begin + 1 < int(m_entities.size())) {
+                const ColorRGBA dc(0.30f, 0.88f, 0.66f, 1.0f);
+                const double th = std::max(15.0 * unit_per_px, 1e-4);
+                const Vec2d  center = f.c0;
+                const double Rc = (f.c1 - center).norm();
+                const double w  = f.param;
+                Vec2d dirS = (f.c1 - center);
+                Vec2d dirE = (m_entities[f.begin + 1].center - center);
+                if (dirS.squaredNorm() > 1e-12 && dirE.squaredNorm() > 1e-12 && Rc > 1e-6) {
+                    dirS.normalize(); dirE.normalize();
+                    const double aS = std::atan2(dirS.y(), dirS.x());
+                    double sweep = std::atan2(dirE.y(), dirE.x()) - aS;
+                    while (sweep < 0) sweep += 2.0 * M_PI;
+                    const double aMid = aS + sweep * 0.5;
+                    const Vec2d uMid(std::cos(aMid), std::sin(aMid));
+                    // Centreline-radius leader: centre -> centreline midpoint.
+                    std::vector<std::pair<Vec2d, Vec2d>> segs;
+                    segs.emplace_back(center, center + uMid * Rc);
+                    // Width tick across the slot at the start cap (outer<->inner).
+                    segs.emplace_back(center + dirS * (Rc + w), center + dirS * (Rc - w));
+                    draw_strokes(m_highlight_model, segs, 0.6, dc);
+                    DimAnnot ra; ra.kind = DimType::Radius; ra.value = Rc;
+                    DimAnnot wa; wa.kind = DimType::Length; wa.value = 2.0 * w;
+                    m_live_aslot_r_label = center + uMid * (Rc * 0.5) + Vec2d(0, th);
+                    m_live_aslot_w_label = center + dirS * (Rc + w) + dirS * (th * 1.2);
+                    draw_text(m_line_model, dim_text(ra), m_live_aslot_r_label, th, dc);
+                    draw_text(m_line_model, dim_text(wa), m_live_aslot_w_label, th, dc);
+                    m_live_aslot_fi = fi;
+                }
+            }
+            break;
+        }
+        default: break;                   // other features: later chunks
         }
     }
 
-    if (protos.empty() && m_live_poly_fi < 0 && m_live_rrect_fi < 0) {  // ungrouped single entity
+    if (protos.empty() && m_live_poly_fi < 0 && m_live_rrect_fi < 0 &&
+        m_live_aslot_fi < 0) {  // ungrouped single entity
         switch (e.type) {
         case SketchEntity::Type::Line: {
             DimAnnot len; len.kind = DimType::Length; len.ea = ei; len.side = 1.0; protos.push_back(len);
@@ -2713,7 +2795,7 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
     // GEOMETRIC edit (SLVS angle constraints are line-to-line). A wedge spans the arc's
     // start->end angles just OUTSIDE the radius; its label shows the included angle and is
     // clickable to type a new sweep. The radius quote is still emitted via `protos`.
-    if (m_live_poly_fi < 0 && m_live_rrect_fi < 0 &&
+    if (m_live_poly_fi < 0 && m_live_rrect_fi < 0 && m_live_aslot_fi < 0 &&
         e.type == SketchEntity::Type::Arc && e.radius > 1e-6) {
         const ColorRGBA dc(0.30f, 0.88f, 0.66f, 1.0f);
         const double th = std::max(15.0 * unit_per_px, 1e-4);
@@ -3666,6 +3748,10 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                     if ((m_live_rrect_h_label - p).norm() <= ltol) { open_rounded_rect_editor(m_live_rrect_fi, 1); return true; }
                     if ((m_live_rrect_r_label - p).norm() <= ltol) { open_rounded_rect_editor(m_live_rrect_fi, 2); return true; }
                 }
+                if (m_live_aslot_fi >= 0) {
+                    if ((m_live_aslot_r_label - p).norm() <= ltol) { open_arc_slot_editor(m_live_aslot_fi, true);  return true; }
+                    if ((m_live_aslot_w_label - p).norm() <= ltol) { open_arc_slot_editor(m_live_aslot_fi, false); return true; }
+                }
             }
 
             // A derived handle (the circle RadiusHandle — not an entity point, so
@@ -4150,8 +4236,12 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 const double Rc = (m_points[1] - m_points[0]).norm();
                 const double w  = std::abs((m_points[3] - m_points[0]).norm() - Rc);
                 const int base = int(m_entities.size());
+                begin_feature(FeatureKind::ArcSlot);
                 append_entities(make_arc_slot(m_points[0], m_points[1], m_points[2], w));
                 infer_auto_constraints(base);
+                // c0 = centre, c1 = centreline start point; param = half-width. The end
+                // direction is recovered from the cap@E arc centre when rebuilding.
+                end_feature(m_points[0], m_points[1], w);
                 m_points.clear();
             }
             return true;

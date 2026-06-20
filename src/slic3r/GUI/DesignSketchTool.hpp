@@ -351,6 +351,9 @@ private:
     // Rounded-rect grouped edit: W/H/fillet-R labels rebuild the 8-entity span in place.
     void open_rounded_rect_editor(int fi, int which);   // 0=Width 1=Height 2=fillet R
     void set_rounded_rect(int fi, double w, double h, double r);
+    // Arc-slot grouped edit: centreline-radius + width labels rebuild the 4-arc span.
+    void open_arc_slot_editor(int fi, bool radius);     // true=centreline R, false=width
+    void set_arc_slot(int fi, double Rc, double w);
     std::vector<SketchEntity> make_polygon(const Vec2d& center, const Vec2d& vertex, int sides) const;
     // Ellipse: click center, then major-axis endpoint (sets a + rotation phi),
     // then a point whose perpendicular distance to the major axis sets b.
@@ -428,6 +431,9 @@ private:
     Vec2d                 m_live_rrect_h_label{0,0};    // rounded-rect height quote label
     Vec2d                 m_live_rrect_r_label{0,0};    // rounded-rect fillet-radius label
     int                   m_live_rrect_fi{-1};          // the rounded-rect Feature (rebuild edits)
+    Vec2d                 m_live_aslot_r_label{0,0};    // arc-slot centreline-radius label
+    Vec2d                 m_live_aslot_w_label{0,0};    // arc-slot width label
+    int                   m_live_aslot_fi{-1};          // the arc-slot Feature (rebuild edits)
     std::vector<Feature>  m_features;              // parametric groups over m_entities
     int                   m_open_feature{-1};      // index of the Feature being built, or -1
 
