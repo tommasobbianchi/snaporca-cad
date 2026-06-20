@@ -3013,7 +3013,27 @@ void DesignPanel::on_commit()
     ObjectList* obj_list = wxGetApp().obj_list();
     if (obj_list == nullptr)
         return;
-    obj_list->load_mesh_object(m_doc.display_mesh, "Design Body");
+
+    // Multi-body: ship each (visible) body as its own plate object so they arrive on the
+    // slicer plate as independent, separately-arrangeable parts (Onshape "Commit all parts").
+    // Hidden bodies are skipped — what you see on the Design plate is what gets committed.
+    sync_body_visible();
+    if (m_doc.display_body_meshes.size() > 1) {
+        int committed = 0;
+        for (size_t b = 0; b < m_doc.display_body_meshes.size(); ++b) {
+            if (b < m_body_visible.size() && !m_body_visible[b]) continue;   // skip hidden
+            if (m_doc.display_body_meshes[b].its.indices.empty()) continue;
+            obj_list->load_mesh_object(m_doc.display_body_meshes[b],
+                                       "Design Body " + std::to_string(b + 1));
+            ++committed;
+        }
+        if (committed == 0) {   // every body hidden — nothing to ship
+            m_status->SetLabel(_L("All bodies hidden — show one before committing"));
+            return;
+        }
+    } else {
+        obj_list->load_mesh_object(m_doc.display_mesh, "Design Body");
+    }
 
     if (wxGetApp().mainframe != nullptr)
         wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
