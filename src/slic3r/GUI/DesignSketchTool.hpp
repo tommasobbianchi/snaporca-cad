@@ -15,6 +15,9 @@ class wxMouseEvent;
 class wxPoint;
 
 namespace Slic3r {
+
+class TriangleMesh;   // fwd (libslic3r) — solid-pick mesh, non-owning pointer
+
 namespace GUI {
 
 class GLCanvas3D;
@@ -66,7 +69,18 @@ public:
     // own plane. render() draws these as translucent faces + outlines.
     struct DisplaySketch { std::vector<SketchEntity> entities; SketchPlane plane; int feature{-1}; };
     void set_display_sketches(std::vector<DisplaySketch> ds) { m_display_sketches = std::move(ds); }
-    bool has_display() const { return m_active || !m_display_sketches.empty(); }
+    bool has_display() const { return m_active || !m_display_sketches.empty() || m_solid_body != nullptr; }
+
+    // Solid topology selection on the committed body: clicking the solid cycles
+    // whole-solid -> face -> edge (Onshape-style) to target fillet/chamfer/extrude.
+    enum class SolidSel { None, Whole, Face, Edge };
+    // Point the tool at the current body + its tessellation (non-owning; pass nullptrs to
+    // clear). Call after each recompute — the selection is reset (face/edge ids invalidate).
+    void set_solid_pick(const TopoDS_Shape* body, const TriangleMesh* mesh,
+                        const std::vector<int>* tri_face);
+    void clear_solid_selection();
+    // Fired on each cycle change: (level 0=None/1=Whole/2=Face/3=Edge, face id, edge index).
+    std::function<void(int level, int face, int edge)> on_solid_selection_changed;
     // Click a committed sketch overlay (no live session) -> select that loop: the Sketch
     // feature index + the clicked closed-region index within it (-1 = no specific loop).
     std::function<void(int feature, int region)> on_display_sketch_selected;
@@ -585,6 +599,21 @@ private:
     GLModel             m_fill_model;       // translucent face fill for closed regions
     std::vector<DisplaySketch> m_display_sketches;  // committed sketches drawn persistently
     int m_display_pick{-1};        // FEATURE index of the click-selected display sketch (-1 none)
+
+    // Solid (whole/face/edge) selection on the committed body. Pointers are non-owning,
+    // into CadDocument (body + display_mesh + per-triangle face ids), refreshed each
+    // recompute via set_solid_pick. m_sel_edge_pts caches the picked edge's world polyline.
+    const TopoDS_Shape*     m_solid_body{nullptr};
+    const TriangleMesh*     m_solid_mesh{nullptr};
+    const std::vector<int>* m_solid_tri_face{nullptr};
+    SolidSel                m_solid_sel{SolidSel::None};
+    int                     m_sel_face{-1};
+    int                     m_sel_edge{-1};
+    std::vector<Vec3d>      m_sel_edge_pts;
+    bool handle_solid_click(GLCanvas3D& canvas, const wxMouseEvent& evt);  // cycle + notify
+    void render_solid_highlight();
+    GLModel m_solid_face_model;
+    GLModel m_solid_edge_model;
     int m_display_pick_region{-1}; // selected closed-region index within that feature (-1 none)
 };
 

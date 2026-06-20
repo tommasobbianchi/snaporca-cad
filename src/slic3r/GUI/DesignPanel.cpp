@@ -923,6 +923,19 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_status->Refresh();
     });
 
+    // Clicking the solid body cycles whole -> face -> edge. The whole-solid level lights the
+    // body cyan via set_body_highlight; face/edge draw their own cyan overlay in the tool.
+    m_viewport->set_on_solid_selection_changed([this](int level, int face, int edge) {
+        if (m_viewport) m_viewport->set_body_highlight(level == 1 /*Whole*/);
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(level == 1 ? _L("Solid selected (whole) — click again for a face")
+                         : level == 2 ? wxString::Format(_L("Face %d selected — click again for an edge"), face)
+                         : level == 3 ? wxString::Format(_L("Edge selected on face %d — click again to reset"), face)
+                                      : _L("Nothing selected"));
+        (void)edge;
+        m_status->Refresh();
+    });
+
     // Esc exits the active sketch tool: drop the live session, restore Feature mode +
     // the committed-sketch overlay (an in-progress draw is discarded). The tool's layered
     // request_exit only calls this once it's an idle Select session.
@@ -1028,8 +1041,12 @@ void DesignPanel::set_status_ok()
 {
     m_status->SetLabel(wxString::Format(_L("OK — %zu triangles"),
                                         m_doc.display_mesh.its.indices.size()));
-    if (m_viewport != nullptr)
+    if (m_viewport != nullptr) {
         m_viewport->set_mesh(m_doc.display_mesh);
+        // Point the solid-pick at the fresh body + tessellation (resets the whole/face/edge
+        // selection, whose ids invalidate on every recompute). Null body is handled inside.
+        m_viewport->set_solid_pick(&m_doc.body, &m_doc.display_mesh, &m_doc.display_tri_face);
+    }
     sync_sketch_display();
 }
 

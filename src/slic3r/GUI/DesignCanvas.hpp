@@ -71,6 +71,11 @@ public:
     std::vector<SketchEntity> selected_loop_entities() const;  // entities of the click-selected loop
     std::vector<std::vector<int>> region_entity_indices(const std::vector<SketchEntity>& ents) const;
     void clear_loop_pick();  // drop the click-selected loop highlight (e.g. after extrude)
+    // Solid whole/face/edge selection: point the tool at the body + tessellation, and a
+    // callback fired on each whole->face->edge cycle (level, face id, edge index).
+    void set_solid_pick(const TopoDS_Shape* body, const TriangleMesh* mesh,
+                        const std::vector<int>* tri_face);
+    void set_on_solid_selection_changed(std::function<void(int, int, int)> cb);
     void set_on_sketch_exit(std::function<void()> cb);           // Esc -> exit the tool
     // Persistently draw committed sketches (un-consumed ones stay visible).
     void set_display_sketches(std::vector<DesignSketchTool::DisplaySketch> ds);

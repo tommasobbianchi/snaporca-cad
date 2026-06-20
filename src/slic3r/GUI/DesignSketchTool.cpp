@@ -5,6 +5,8 @@
 #include "Camera.hpp"
 #include "3DScene.hpp"
 #include "GLShader.hpp"
+#include "libslic3r/GeometryEngine.hpp"
+#include "libslic3r/TriangleMesh.hpp"
 
 #include <GL/glew.h>
 #include <wx/gdicmn.h>
@@ -22,6 +24,9 @@ static void translate_entity(SketchEntity& e, const Vec2d& d);
 // Pick-distance helpers (defined lower down; used earlier by the edit-op gizmo).
 static double point_segment_dist(const Vec2d& p, const Vec2d& a, const Vec2d& b);
 static double entity_pick_dist(const Vec2d& p, const SketchEntity& e);
+static bool   ray_triangle(const Vec3d& ro, const Vec3d& rd, const Vec3d& v0, const Vec3d& v1,
+                           const Vec3d& v2, double& t);
+static double ray_segment_dist3(const Vec3d& ro, const Vec3d& rd, const Vec3d& a, const Vec3d& b);
 
 // Project a world-space point to canvas screen pixels (device px, GL viewport units;
 // origin top-left after the GL y-flip). Mirrors GLCanvas3D's world->screen pattern:
@@ -2182,6 +2187,144 @@ std::vector<SketchEntity> DesignSketchTool::selected_loop_entities() const
     return {};
 }
 
+// ---- Solid topology selection (whole -> face -> edge cycle) ----
+
+void DesignSketchTool::set_solid_pick(const TopoDS_Shape* body, const TriangleMesh* mesh,
+                                      const std::vector<int>* tri_face)
+{
+    // Treat a null/empty body or empty mesh as "no solid" so has_display()/picking stay off.
+    if (body == nullptr || body->IsNull() || mesh == nullptr || mesh->its.indices.empty()) {
+        m_solid_body = nullptr; m_solid_mesh = nullptr; m_solid_tri_face = nullptr;
+    } else {
+        m_solid_body = body; m_solid_mesh = mesh; m_solid_tri_face = tri_face;
+    }
+    clear_solid_selection();
+}
+
+void DesignSketchTool::clear_solid_selection()
+{
+    m_solid_sel = SolidSel::None;
+    m_sel_face = m_sel_edge = -1;
+    m_sel_edge_pts.clear();
+}
+
+// LeftDown on the solid cycles whole->face->edge. Returns true if the click hit the solid
+// (consumed); false otherwise so the caller can try committed-sketch loop picking.
+bool DesignSketchTool::handle_solid_click(GLCanvas3D& canvas, const wxMouseEvent& evt)
+{
+    if (m_solid_body == nullptr || m_solid_mesh == nullptr) return false;
+    const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = r.a, rd = r.b - r.a;
+
+    // 1) nearest solid face under the cursor (ray vs display-mesh triangles).
+    const indexed_triangle_set& its = m_solid_mesh->its;
+    int best_face = -1; double best_t = 1e30;
+    for (size_t i = 0; i < its.indices.size(); ++i) {
+        const auto& idx = its.indices[i];
+        const Vec3d v0 = its.vertices[idx(0)].cast<double>();
+        const Vec3d v1 = its.vertices[idx(1)].cast<double>();
+        const Vec3d v2 = its.vertices[idx(2)].cast<double>();
+        double t;
+        if (ray_triangle(ro, rd, v0, v1, v2, t) && t < best_t) {
+            best_t = t;
+            best_face = (m_solid_tri_face && i < m_solid_tri_face->size()) ? (*m_solid_tri_face)[i] : -1;
+        }
+    }
+    if (best_face < 0) return false;   // missed the solid
+
+    if (best_face != m_sel_face) {
+        // First click on a (new) face selects the WHOLE solid; refine on repeat clicks.
+        m_sel_face = best_face; m_sel_edge = -1; m_sel_edge_pts.clear();
+        m_solid_sel = SolidSel::Whole;
+    } else if (m_solid_sel == SolidSel::Whole) {
+        m_solid_sel = SolidSel::Face;
+    } else if (m_solid_sel == SolidSel::Face) {
+        // Advance to the face's edge nearest the click (deterministic cycle step).
+        const TopoDS_Face face = GeometryEngine::face_by_index(*m_solid_body, m_sel_face);
+        int eid = -1; double best_ed = 1e30; std::vector<Vec3d> best_pts;
+        if (!face.IsNull()) {
+            const std::vector<TopoDS_Edge> edges = GeometryEngine::edges_of_face(face);
+            for (int k = 0; k < int(edges.size()); ++k) {
+                const std::vector<Vec3d> pts = GeometryEngine::sample_edge_world(edges[k]);
+                double d = 1e30;
+                for (size_t s = 1; s < pts.size(); ++s)
+                    d = std::min(d, ray_segment_dist3(ro, rd, pts[s - 1], pts[s]));
+                if (d < best_ed) { best_ed = d; eid = k; best_pts = pts; }
+            }
+        }
+        if (eid >= 0) { m_sel_edge = eid; m_sel_edge_pts = std::move(best_pts); m_solid_sel = SolidSel::Edge; }
+        else          { m_solid_sel = SolidSel::Whole; m_sel_edge = -1; m_sel_edge_pts.clear(); }
+    } else {   // Edge -> back to Whole
+        m_solid_sel = SolidSel::Whole; m_sel_edge = -1; m_sel_edge_pts.clear();
+    }
+    if (on_solid_selection_changed)
+        on_solid_selection_changed(int(m_solid_sel), m_sel_face, m_sel_edge);
+    return true;
+}
+
+// Cyan overlay for the picked face (translucent, depth-tested + offset) or edge (opaque
+// ribbon billboarded to the camera, depth off so it reads on top). Whole-solid tint is the
+// panel's job (set_body_highlight). Called from render() while no sketch session is active.
+void DesignSketchTool::render_solid_highlight()
+{
+    using EPT = GLModel::Geometry::EPrimitiveType;
+    using EVL = GLModel::Geometry::EVertexLayout;
+    const ColorRGBA cyan(0.20f, 0.85f, 1.0f, 1.0f);
+
+    if (m_solid_sel == SolidSel::Face && m_solid_mesh != nullptr && m_solid_tri_face != nullptr) {
+        const indexed_triangle_set& its = m_solid_mesh->its;
+        GLModel::Geometry g; g.format = { EPT::Triangles, EVL::P3 };
+        unsigned int base = 0;
+        for (size_t i = 0; i < its.indices.size(); ++i) {
+            if (i >= m_solid_tri_face->size() || (*m_solid_tri_face)[i] != m_sel_face) continue;
+            const auto& idx = its.indices[i];
+            for (int j = 0; j < 3; ++j) g.add_vertex(its.vertices[idx(j)]);
+            g.add_triangle(base, base + 1, base + 2); base += 3;
+        }
+        if (base > 0) {
+            glsafe(::glEnable(GL_DEPTH_TEST));
+            glsafe(::glEnable(GL_POLYGON_OFFSET_FILL));
+            glsafe(::glPolygonOffset(-2.0f, -2.0f));
+            glsafe(::glEnable(GL_BLEND));
+            glsafe(::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+            m_solid_face_model.reset();
+            m_solid_face_model.init_from(std::move(g));
+            m_solid_face_model.set_color(ColorRGBA(0.20f, 0.85f, 1.0f, 0.40f));
+            m_solid_face_model.render();
+            glsafe(::glDisable(GL_BLEND));
+            glsafe(::glDisable(GL_POLYGON_OFFSET_FILL));
+            glsafe(::glDisable(GL_DEPTH_TEST));
+        }
+    } else if (m_solid_sel == SolidSel::Edge && m_sel_edge_pts.size() >= 2) {
+        const Camera& cam = wxGetApp().plater()->get_camera();
+        const Vec3d vd = cam.get_dir_forward();
+        const double hw = 2.0 / std::max(cam.get_zoom(), 1e-6);   // ~2 px ribbon half-width
+        GLModel::Geometry g; g.format = { EPT::Triangles, EVL::P3 };
+        unsigned int base = 0;
+        for (size_t s = 1; s < m_sel_edge_pts.size(); ++s) {
+            const Vec3d a = m_sel_edge_pts[s - 1], b = m_sel_edge_pts[s];
+            Vec3d dir = b - a; if (dir.norm() < 1e-9) continue; dir.normalize();
+            Vec3d off = dir.cross(vd);
+            if (off.norm() < 1e-9) off = dir.cross(cam.get_dir_up());
+            if (off.norm() < 1e-9) continue;
+            off.normalize(); off *= hw;
+            g.add_vertex((Vec3f)(a + off).cast<float>());
+            g.add_vertex((Vec3f)(b + off).cast<float>());
+            g.add_vertex((Vec3f)(b - off).cast<float>());
+            g.add_vertex((Vec3f)(a - off).cast<float>());
+            g.add_triangle(base, base + 1, base + 2);
+            g.add_triangle(base, base + 2, base + 3); base += 4;
+        }
+        if (base > 0) {
+            glsafe(::glDisable(GL_DEPTH_TEST));
+            m_solid_edge_model.reset();
+            m_solid_edge_model.init_from(std::move(g));
+            m_solid_edge_model.set_color(cyan);
+            m_solid_edge_model.render();
+        }
+    }
+}
+
 // Closed loops + the entity indices that form each one. A circle/ellipse is its own loop;
 // line/arc chains are walked endpoint-to-endpoint. Entity membership lets a single loop be
 // highlighted and extruded on its own.
@@ -3929,8 +4072,10 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         m_plane = saved_plane;
     }
 
-    // Nothing else to draw when no live sketch session is active.
+    // Nothing else to draw when no live sketch session is active — except the solid
+    // face/edge highlight overlay (whole-solid tint is handled by set_body_highlight).
     if (!m_active) {
+        render_solid_highlight();
         shader->stop_using();
         glsafe(::glEnable(GL_CULL_FACE));
         glsafe(::glEnable(GL_DEPTH_TEST));
@@ -4392,6 +4537,40 @@ static bool point_in_poly(const Vec2d& q, const std::vector<Vec2d>& poly)
     return in;
 }
 
+// Möller–Trumbore ray/triangle intersection in 3D world space. ro=ray origin, rd=ray dir
+// (not necessarily unit). Returns true + the ray parameter t (>0) of the hit.
+static bool ray_triangle(const Vec3d& ro, const Vec3d& rd,
+                         const Vec3d& v0, const Vec3d& v1, const Vec3d& v2, double& t)
+{
+    const Vec3d e1 = v1 - v0, e2 = v2 - v0;
+    const Vec3d p = rd.cross(e2);
+    const double det = e1.dot(p);
+    if (std::abs(det) < 1e-12) return false;          // parallel
+    const double inv = 1.0 / det;
+    const Vec3d s = ro - v0;
+    const double u = s.dot(p) * inv;
+    if (u < -1e-9 || u > 1.0 + 1e-9) return false;
+    const Vec3d q = s.cross(e1);
+    const double v = rd.dot(q) * inv;
+    if (v < -1e-9 || u + v > 1.0 + 1e-9) return false;
+    t = e2.dot(q) * inv;
+    return t > 1e-9;
+}
+
+// Shortest distance between an infinite ray (ro+rd) and a 3D segment [a,b].
+static double ray_segment_dist3(const Vec3d& ro, const Vec3d& rd, const Vec3d& a, const Vec3d& b)
+{
+    const Vec3d d1 = rd, d2 = b - a, r = ro - a;
+    const double A = d1.dot(d1), B = d1.dot(d2), C = d2.dot(d2), D = d1.dot(r), E = d2.dot(r);
+    const double denom = A * C - B * B;
+    double s = (std::abs(denom) > 1e-12) ? (A * E - B * D) / denom : 0.0;  // param on segment
+    s = std::max(0.0, std::min(1.0, s));
+    double tt = (B * s - D) / std::max(A, 1e-12);                          // param on ray
+    tt = std::max(0.0, tt);                                                // ray is forward-only
+    const Vec3d pr = ro + tt * d1, ps = a + s * d2;
+    return (pr - ps).norm();
+}
+
 // Screen-plane distance from p to a sketch entity, for click picking in Constrain
 // mode. Circles/arcs measure distance to the ring; points to their position.
 static double entity_pick_dist(const Vec2d& p, const SketchEntity& e)
@@ -4525,6 +4704,9 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     // falls through (return false) so the camera can still orbit the plate.
     if (!m_active) {
         if (!evt.LeftDown()) return false;
+        // The solid body is the foreground object: a click on it cycles whole/face/edge.
+        // Only fall through to committed-sketch loop picking when no solid face was hit.
+        if (handle_solid_click(canvas, evt)) return true;
         Point pos(evt.GetX(), evt.GetY());
         const Linef3 ray  = canvas.mouse_ray(pos);
         const Linef3 ray8 = canvas.mouse_ray(Point(evt.GetX() + 8, evt.GetY()));
