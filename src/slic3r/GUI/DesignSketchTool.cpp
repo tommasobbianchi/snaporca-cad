@@ -79,9 +79,10 @@ void DesignSketchTool::begin_edit(const std::vector<SketchEntity>& entities,
 
 // Walk the entity list grouping each consecutive CLOSED chain (entities are stored in
 // gesture order, so a polygon/rect/slot's members are contiguous and end-to-end linked)
-// and classify it: L,A,L,A -> Slot; 4 right-angled lines -> Rect; N equal-length lines
-// -> Polygon. Single/irregular entities stay ungrouped (they fall back to per-entity
-// quotes). This reconstructs m_features for a re-opened sketch.
+// and classify it: L,A,L,A -> Slot; 4 arcs (2 concentric + 2 caps) -> ArcSlot;
+// L,A×4 (4 equal-radius corner arcs) -> RoundedRect; 4 right-angled lines -> Rect;
+// N equal-length lines -> Polygon. Single/irregular entities stay ungrouped (they fall
+// back to per-entity quotes). This reconstructs m_features for a re-opened sketch.
 void DesignSketchTool::rebuild_features_from_entities()
 {
     m_features.clear();
@@ -120,6 +121,43 @@ void DesignSketchTool::rebuild_features_from_entities()
             f.c1    = m_entities[i + 1].center;
             f.param = m_entities[i + 1].radius;
             m_features.push_back(f);
+        } else if (cnt == 4 && arcs == 4 &&
+                   near(m_entities[i].center, m_entities[i + 2].center) &&
+                   std::abs(m_entities[i + 1].radius - m_entities[i + 3].radius) <=
+                       0.02 * std::max(m_entities[i + 1].radius, 1e-6) &&
+                   m_entities[i].radius > m_entities[i + 2].radius) {
+            // make_arc_slot: [0]outer(Rc+w), [1]cap@E(w), [2]inner(Rc-w), [3]cap@S(w).
+            // c0=main centre, c1=centreline start (cap@S centre = Sc), param=half-width.
+            f.kind  = FeatureKind::ArcSlot;
+            f.c0    = m_entities[i].center;
+            f.c1    = m_entities[i + 3].center;
+            f.param = m_entities[i + 3].radius;
+            m_features.push_back(f);
+        } else if (cnt == 8 && arcs == 4 &&
+                   m_entities[i].type     == T::Line && m_entities[i + 1].type == T::Arc &&
+                   m_entities[i + 2].type == T::Line && m_entities[i + 3].type == T::Arc &&
+                   m_entities[i + 4].type == T::Line && m_entities[i + 5].type == T::Arc &&
+                   m_entities[i + 6].type == T::Line && m_entities[i + 7].type == T::Arc) {
+            // rounded_rect_entities: 4 corner arcs (equal radius r) at the inset corners.
+            // Recover the axis-aligned bounds from the arc centres ± r.
+            const double r = m_entities[i + 1].radius;
+            bool equal_r = true;
+            for (int k : {3, 5, 7})
+                if (std::abs(m_entities[i + k].radius - r) > 0.02 * std::max(r, 1e-6))
+                    equal_r = false;
+            if (equal_r && r > 1e-6) {
+                double cxmin = 1e18, cxmax = -1e18, cymin = 1e18, cymax = -1e18;
+                for (int k : {1, 3, 5, 7}) {
+                    const Vec2d& o = m_entities[i + k].center;
+                    cxmin = std::min(cxmin, o.x()); cxmax = std::max(cxmax, o.x());
+                    cymin = std::min(cymin, o.y()); cymax = std::max(cymax, o.y());
+                }
+                f.kind  = FeatureKind::RoundedRect;
+                f.c0    = Vec2d(cxmin - r, cymin - r);   // (xmin,ymin)
+                f.c1    = Vec2d(cxmax + r, cymax + r);   // (xmax,ymax)
+                f.param = r;
+                m_features.push_back(f);
+            }
         } else if (all_line) {
             std::vector<double> sidelen(cnt);
             for (int k = 0; k < cnt; ++k) sidelen[k] = (m_entities[i + k].p1 - m_entities[i + k].p0).norm();
