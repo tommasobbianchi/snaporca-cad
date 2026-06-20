@@ -222,6 +222,7 @@ void DesignSketchTool::cancel()
     m_features.clear();
     m_open_feature = -1;
     reset_op();
+    reset_xform();
 }
 
 // Esc while active: layered exit (Onshape-like). Abort an in-progress entity first, then
@@ -3065,6 +3066,128 @@ void DesignSketchTool::reset_op()
     m_mirror_targets.clear();
 }
 
+// ---- Imported-art bounding-box transform gizmo (Mode::TransformArt) ----
+
+void DesignSketchTool::reset_xform()
+{
+    m_xform_base.clear();
+    m_xform_feat = -1;
+    m_xform_handle = -1;
+    m_xform_offset = Vec2d(0, 0);
+    m_xform_sx = m_xform_sy = 1.0;
+    m_xform_min = m_xform_max = Vec2d(0, 0);
+}
+
+void DesignSketchTool::begin_imported_transform(
+        int feat, const std::vector<std::vector<std::vector<Vec2d>>>& base_regions,
+        const SketchPlane& plane, const Vec2d& offset, double sx, double sy)
+{
+    cancel();                       // drop any prior session, clears state
+    m_plane = plane;
+    m_mode  = Mode::TransformArt;
+    m_xform_base   = base_regions;
+    m_xform_feat   = feat;
+    m_xform_offset = offset;
+    m_xform_sx = (std::abs(sx) > 1e-6) ? sx : 1.0;
+    m_xform_sy = (std::abs(sy) > 1e-6) ? sy : 1.0;
+    m_xform_handle = -1;
+    Vec2d mn(1e30, 1e30), mx(-1e30, -1e30);
+    for (const auto& region : m_xform_base)
+        for (const auto& contour : region)
+            for (const Vec2d& p : contour) {
+                mn.x() = std::min(mn.x(), p.x()); mn.y() = std::min(mn.y(), p.y());
+                mx.x() = std::max(mx.x(), p.x()); mx.y() = std::max(mx.y(), p.y());
+            }
+    if (mx.x() < mn.x()) { mn = Vec2d(0, 0); mx = Vec2d(0, 0); }
+    m_xform_min = mn; m_xform_max = mx;
+    m_active = true;
+    m_has_cursor = false;
+}
+
+// 4 bbox corners in plane coords: 0=min/min, 1=max/min, 2=max/max, 3=min/max. The art
+// transform is world = base*scale + offset (CadFeature import convention).
+void DesignSketchTool::xform_world_corners(Vec2d out[4]) const
+{
+    const double x0 = m_xform_min.x() * m_xform_sx + m_xform_offset.x();
+    const double x1 = m_xform_max.x() * m_xform_sx + m_xform_offset.x();
+    const double y0 = m_xform_min.y() * m_xform_sy + m_xform_offset.y();
+    const double y1 = m_xform_max.y() * m_xform_sy + m_xform_offset.y();
+    out[0] = Vec2d(x0, y0); out[1] = Vec2d(x1, y0);
+    out[2] = Vec2d(x1, y1); out[3] = Vec2d(x0, y1);
+}
+
+int DesignSketchTool::hit_test_xform_handle(const Vec2d& p, double tol) const
+{
+    Vec2d c[4]; xform_world_corners(c);
+    int best = -1; double bd = tol;
+    for (int i = 0; i < 4; ++i) { const double d = (c[i] - p).norm(); if (d < bd) { bd = d; best = i; } }
+    if (best >= 0) return best;
+    if ((0.5 * (c[0] + c[2]) - p).norm() <= tol) return 4;   // centre move-handle
+    return -1;
+}
+
+void DesignSketchTool::drag_xform_handle(const Vec2d& target)
+{
+    if (m_xform_handle < 0) return;
+    if (m_xform_handle == 4) {                 // centre move: translate by cursor delta
+        m_xform_offset += (target - m_xform_anchor);
+        m_xform_anchor  = target;
+        emit_xform();
+        return;
+    }
+    // Corner scale: hold the opposite corner (fixed world anchor O), send the grabbed
+    // corner to the cursor. base coords of grabbed (bg) and opposite (ba) corners.
+    auto base_corner = [&](int i) {
+        return Vec2d((i == 1 || i == 2) ? m_xform_max.x() : m_xform_min.x(),
+                     (i == 2 || i == 3) ? m_xform_max.y() : m_xform_min.y());
+    };
+    const int h = m_xform_handle;
+    const Vec2d bg = base_corner(h);
+    const Vec2d ba = base_corner((h + 2) % 4);
+    const Vec2d O  = m_xform_anchor;
+    const double dbx = bg.x() - ba.x(), dby = bg.y() - ba.y();
+    if (std::abs(dbx) > 1e-9) {
+        double nsx = (target.x() - O.x()) / dbx;
+        if (std::abs(nsx) < 1e-4) nsx = (nsx < 0 ? -1e-4 : 1e-4);
+        m_xform_sx = nsx;
+        m_xform_offset.x() = O.x() - ba.x() * nsx;
+    }
+    if (std::abs(dby) > 1e-9) {
+        double nsy = (target.y() - O.y()) / dby;
+        if (std::abs(nsy) < 1e-4) nsy = (nsy < 0 ? -1e-4 : 1e-4);
+        m_xform_sy = nsy;
+        m_xform_offset.y() = O.y() - ba.y() * nsy;
+    }
+    emit_xform();
+}
+
+void DesignSketchTool::emit_xform()
+{
+    if (on_imported_transform)
+        on_imported_transform(m_xform_feat, m_xform_offset, m_xform_sx, m_xform_sy);
+}
+
+void DesignSketchTool::render_xform_gizmo()
+{
+    if (m_mode != Mode::TransformArt) return;
+    Vec2d c[4]; xform_world_corners(c);
+    const ColorRGBA box(0.30f, 0.88f, 0.66f, 1.0f);
+    std::vector<std::pair<Vec2d, Vec2d>> segs;
+    for (int i = 0; i < 4; ++i) segs.emplace_back(c[i], c[(i + 1) % 4]);
+    draw_strokes(m_highlight_model, segs, 0.6, box);
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const double hs = 7.0 / std::max(cam.get_zoom(), 1e-6);   // screen-constant half-size
+    const ColorRGBA hcol(0.30f, 0.88f, 0.66f, 1.0f);
+    const ColorRGBA hhot(1.0f, 0.85f, 0.2f, 1.0f);
+    auto square = [&](const Vec2d& q, const ColorRGBA& col) {
+        const std::vector<Vec2d> sq = { q + Vec2d(-hs, -hs), q + Vec2d(hs, -hs),
+                                        q + Vec2d(hs, hs), q + Vec2d(-hs, hs) };
+        draw_fill(m_fill_model, sq, col);
+    };
+    for (int i = 0; i < 4; ++i) square(c[i], m_xform_handle == i ? hhot : hcol);
+    square(0.5 * (c[0] + c[2]), m_xform_handle == 4 ? hhot : hcol);
+}
+
 bool DesignSketchTool::op_ready() const
 {
     switch (m_mode) {
@@ -3374,6 +3497,15 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
 
     // Nothing else to draw when no live sketch session is active.
     if (!m_active) {
+        shader->stop_using();
+        glsafe(::glEnable(GL_CULL_FACE));
+        glsafe(::glEnable(GL_DEPTH_TEST));
+        return;
+    }
+
+    // Imported-art transform: only the bbox + handles over the (display-overlay) art.
+    if (m_mode == Mode::TransformArt) {
+        render_xform_gizmo();
         shader->stop_using();
         glsafe(::glEnable(GL_CULL_FACE));
         glsafe(::glEnable(GL_DEPTH_TEST));
@@ -3986,6 +4118,36 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             }
             return true;
         }
+        return false;
+    }
+
+    // Imported-art bbox transform: drag a corner to scale, the centre to move. Right-click
+    // ends the session. Values stream live to the host via on_imported_transform.
+    if (m_mode == Mode::TransformArt) {
+        if (evt.Moving()) {
+            screen_to_plane(canvas, evt, m_cursor);
+            m_has_cursor = true;
+            return true;
+        }
+        if (evt.LeftDown()) {
+            Vec2d p; screen_to_plane(canvas, evt, p);
+            const Linef3 r2 = canvas.mouse_ray(Point(evt.GetX() + 10, evt.GetY()));
+            const double tol = std::max(1e-3, (m_plane.project(r2.a, r2.vector()) - p).norm());
+            const int h = hit_test_xform_handle(p, tol);
+            if (h >= 0) {
+                m_xform_handle = h;
+                if (h == 4) m_xform_anchor = p;             // centre move: track the delta
+                else { Vec2d c[4]; xform_world_corners(c); m_xform_anchor = c[(h + 2) % 4]; }
+            }
+            return true;                                     // swallow (no camera orbit while placing)
+        }
+        if (m_xform_handle >= 0 && evt.Dragging() && evt.LeftIsDown()) {
+            Vec2d p; screen_to_plane(canvas, evt, p);
+            drag_xform_handle(p);
+            return true;
+        }
+        if (evt.LeftUp()) { m_xform_handle = -1; return true; }
+        if (evt.RightDown()) { if (on_exit) on_exit(); else cancel(); return true; }
         return false;
     }
 

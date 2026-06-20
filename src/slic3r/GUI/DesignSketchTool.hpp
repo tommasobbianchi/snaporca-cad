@@ -32,6 +32,8 @@ public:
                       Ellipse, EllipseArc, BSpline,
                       // In-canvas edit-op TOOLBAR tools (drag-arrow + label, no numeric card):
                       Fillet, Chamfer, Offset, Mirror,
+                      // In-canvas bounding-box transform for imported Text/SVG art:
+                      TransformArt,
                       Constrain };
     bool is_edit_op_mode() const { return m_mode == Mode::Fillet || m_mode == Mode::Chamfer ||
                                           m_mode == Mode::Offset || m_mode == Mode::Mirror; }
@@ -74,6 +76,17 @@ public:
     // Line entities (constraints are solved against entity endpoints in the kernel).
     void begin_constrain_entities(const std::vector<SketchEntity>& ents, const SketchPlane& plane);
     bool is_constraining_entities() const { return m_active && m_mode == Mode::Constrain && m_constrain_entities; }
+
+    // In-canvas bounding-box transform of imported Text/SVG art (replaces the Move/Scale
+    // dialog). `base_regions` are the untransformed region contours; the gizmo shows the
+    // current bbox with 4 corner scale-handles + a centre move-handle. Dragging fires
+    // on_imported_transform live with the new offset/scale, which the host writes back to
+    // the feature. Exiting (Esc/right-click) ends the session.
+    void begin_imported_transform(int feat,
+                                  const std::vector<std::vector<std::vector<Vec2d>>>& base_regions,
+                                  const SketchPlane& plane, const Vec2d& offset,
+                                  double scale_x, double scale_y);
+    std::function<void(int feat, Vec2d offset, double scale_x, double scale_y)> on_imported_transform;
     // Up to two picked line-entity indices; returns true if at least one is picked.
     bool selected_constrain_entities(int& e0, int& e1) const { e0 = m_pick0; e1 = m_pick1; return m_pick0 >= 0; }
     // Third pick slot (Symmetric axis): only filled after slots 0 and 1 are set.
@@ -478,6 +491,24 @@ private:
     std::vector<SketchEntity> m_op_ghost;   // live result preview (recomputed on value change)
     bool   m_op_dragging_arrow{false};      // arrowhead drag in progress
     std::vector<int> m_mirror_targets;      // Mirror: entities to be mirrored (axis = m_op_a)
+
+    // In-canvas imported-art transform gizmo (Mode::TransformArt). GUI-only. The art's
+    // untransformed contours + its bbox in base coords; the live offset/scale; the grabbed
+    // handle (0..3 = corners, 4 = centre move, -1 = none) and the fixed world anchor (the
+    // opposite corner during a corner-scale drag).
+    std::vector<std::vector<std::vector<Vec2d>>> m_xform_base;
+    int    m_xform_feat{-1};
+    Vec2d  m_xform_min{0,0}, m_xform_max{0,0};   // bbox of m_xform_base (untransformed)
+    Vec2d  m_xform_offset{0,0};
+    double m_xform_sx{1.0}, m_xform_sy{1.0};
+    int    m_xform_handle{-1};
+    Vec2d  m_xform_anchor{0,0};
+    void   xform_world_corners(Vec2d out[4]) const;   // 4 bbox corners in plane coords
+    int    hit_test_xform_handle(const Vec2d& p, double tol) const;
+    void   drag_xform_handle(const Vec2d& target);
+    void   render_xform_gizmo();
+    void   emit_xform();
+    void   reset_xform();
 
     // DoF feedback state, refreshed by resolve_live() from the libslvs solve result.
     int               m_dof{-1};          // remaining DoF; 0 = fully constrained, <0 = unknown

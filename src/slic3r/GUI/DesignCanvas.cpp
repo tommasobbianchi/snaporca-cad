@@ -425,6 +425,19 @@ void DesignCanvas::begin_constrain(const SketchProfile& prof, const SketchPlane&
     if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
 }
 
+void DesignCanvas::begin_imported_transform(
+        int feat, const std::vector<std::vector<std::vector<Vec2d>>>& base_regions,
+        const SketchPlane& plane, const Vec2d& offset, double scale_x, double scale_y)
+{
+    m_sketch_tool.begin_imported_transform(feat, base_regions, plane, offset, scale_x, scale_y);
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
+void DesignCanvas::set_on_imported_transform(std::function<void(int, Vec2d, double, double)> cb)
+{
+    m_sketch_tool.on_imported_transform = std::move(cb);
+}
+
 void DesignCanvas::end_constrain()
 {
     // cancel() clears m_active + the picked-segment/entity indices, so the

@@ -102,6 +102,13 @@ public:
     // Entity-aware Constrain (Fase 4.2): pick Line entities of a committed sketch.
     void begin_constrain_entities(const std::vector<SketchEntity>& ents, const SketchPlane& plane);
     bool is_constraining_entities() const;
+
+    // In-canvas bbox transform of imported Text/SVG art (replaces the Move/Scale dialog).
+    void begin_imported_transform(int feat,
+                                  const std::vector<std::vector<std::vector<Vec2d>>>& base_regions,
+                                  const SketchPlane& plane, const Vec2d& offset,
+                                  double scale_x, double scale_y);
+    void set_on_imported_transform(std::function<void(int, Vec2d, double, double)> cb);
     bool selected_constrain_entities(int& e0, int& e1) const;
     int  selected_constrain_axis() const;  // third pick slot (Symmetric axis), -1 if unset
     bool pick0_point(Vec2d& out) const;   // plane-coords of the slot-0 pick (trim/extend)

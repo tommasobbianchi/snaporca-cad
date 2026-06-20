@@ -944,6 +944,19 @@ DesignPanel::DesignPanel(wxWindow* parent)
                       [this]()         { if (m_viewport) m_viewport->cancel_sketch_dimension(); });
     });
 
+    // Imported-art bbox transform streams the live offset/scale back here; write them to
+    // the feature and re-sync the overlay so the art tracks the drag.
+    m_viewport->set_on_imported_transform([this](int feat, Vec2d off, double sx, double sy) {
+        if (feat < 0 || feat >= int(m_doc.features.size())) return;
+        CadFeature& f = m_doc.features[feat];
+        if (f.imported_regions.empty()) return;
+        f.import_offset  = off;
+        f.import_scale_x = sx;
+        f.import_scale_y = sy;
+        m_doc.recompute();
+        sync_sketch_display();
+    });
+
     auto* vcol = new wxBoxSizer(wxVERTICAL);
     auto* vbar = new wxBoxSizer(wxHORIZONTAL);
     auto* b_fit = new wxButton(this, wxID_ANY, _L("⊹ Fit view"));
@@ -1079,10 +1092,8 @@ void DesignPanel::on_add_text()
     if (text.empty())
         return;
     const std::string utf8(text.ToUTF8().data());
-    request_value(_L("Text height (mm)"), 10.0, 1.0, 1000.0,
-        [this, utf8](double mm) {
-            add_imported_sketch(text_to_regions(utf8, mm), _L("Text"));
-        });
+    // Insert at a default height; resize in-canvas via the bbox handles (Move/Scale).
+    add_imported_sketch(text_to_regions(utf8, 10.0), _L("Text"));
 }
 
 void DesignPanel::on_import_svg()
@@ -1093,10 +1104,8 @@ void DesignPanel::on_import_svg()
     if (dlg.ShowModal() != wxID_OK)
         return;
     const std::string path(dlg.GetPath().ToUTF8().data());
-    request_value(_L("Scale"), 1.0, 0.01, 1000.0,
-        [this, path](double scale) {
-            add_imported_sketch(svg_to_regions(path, scale), _L("SVG"));
-        });
+    // Import at 1:1; resize in-canvas via the bbox handles (Move/Scale).
+    add_imported_sketch(svg_to_regions(path, 1.0), _L("SVG"));
 }
 
 void DesignPanel::add_imported_sketch(
@@ -1128,45 +1137,17 @@ void DesignPanel::add_imported_sketch(
 
 void DesignPanel::on_transform_imported(int feat_idx)
 {
-    if (feat_idx < 0 || feat_idx >= int(m_doc.features.size()))
+    if (feat_idx < 0 || feat_idx >= int(m_doc.features.size()) || !m_viewport)
         return;
-    CadFeature& f = m_doc.features[feat_idx];
+    const CadFeature& f = m_doc.features[feat_idx];
     if (f.imported_regions.empty())
         return;
-
-    wxDialog dlg(this, wxID_ANY, _L("Move / Scale imported art"),
-                 wxDefaultPosition, wxDefaultSize, wxDEFAULT_DIALOG_STYLE);
-    auto* grid = new wxFlexGridSizer(4, 2, 6, 8);
-    auto field = [&](const wxString& label, double val, double lo, double hi, double inc) {
-        grid->Add(new wxStaticText(&dlg, wxID_ANY, label), 0, wxALIGN_CENTER_VERTICAL);
-        auto* sc = new wxSpinCtrlDouble(&dlg, wxID_ANY, wxEmptyString,
-                                        wxDefaultPosition, wxSize(110, -1),
-                                        wxSP_ARROW_KEYS, lo, hi, val, inc);
-        sc->SetDigits(2);
-        grid->Add(sc);
-        return sc;
-    };
-    auto* off_x = field(_L("Offset X (mm)"), f.import_offset.x(), -5000, 5000, 1.0);
-    auto* off_y = field(_L("Offset Y (mm)"), f.import_offset.y(), -5000, 5000, 1.0);
-    auto* sx    = field(_L("Scale X"),       f.import_scale_x,    0.01, 1000, 0.1);
-    auto* sy    = field(_L("Scale Y"),       f.import_scale_y,    0.01, 1000, 0.1);
-
-    auto* top = new wxBoxSizer(wxVERTICAL);
-    top->Add(grid, 0, wxALL, 12);
-    top->Add(dlg.CreateButtonSizer(wxOK | wxCANCEL), 0, wxALIGN_RIGHT | wxALL, 8);
-    dlg.SetSizerAndFit(top);
-
-    if (dlg.ShowModal() != wxID_OK)
-        return;
-
-    f.import_offset   = Vec2d(off_x->GetValue(), off_y->GetValue());
-    f.import_scale_x  = sx->GetValue();
-    f.import_scale_y  = sy->GetValue();
-    m_doc.recompute();
-    refresh_tree();
-    sync_sketch_display();
+    // In-canvas bbox handles (replaces the Move/Scale dialog): drag a corner to scale,
+    // the centre to move. Values stream back via set_on_imported_transform.
+    m_viewport->begin_imported_transform(feat_idx, f.imported_regions, f.plane,
+                                         f.import_offset, f.import_scale_x, f.import_scale_y);
     m_status->SetForegroundColour(wxNullColour);
-    m_status->SetLabel(_L("Imported art transformed"));
+    m_status->SetLabel(_L("Drag a corner to scale, the centre to move — right-click when done"));
     m_status->Refresh();
 }
 
