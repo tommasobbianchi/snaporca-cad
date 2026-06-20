@@ -12,6 +12,7 @@
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Common.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepLib.hxx>
@@ -655,6 +656,8 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body, const Cad
         const CadFeature& sk = (f.sketch_ref >= 0 && f.sketch_ref < int(features.size())
                                 && features[f.sketch_ref].type == CadFeatureType::Sketch)
                                ? features[f.sketch_ref] : f;
+        const bool sym = (f.extrude_end == ExtrudeEnd::Symmetric);
+        const double signed_d = f.flip ? -f.distance : f.distance;
         // Imported rigid art (Text/SVG) extrudes via the faces-with-holes path
         // (with its placement transform applied); otherwise build a single wire
         // from entities/profile/shape.
@@ -662,8 +665,23 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body, const Cad
             ? SketchEngine::make_extrude_regions(
                   transform_regions(sk.imported_regions, sk.import_offset,
                                     sk.import_scale_x, sk.import_scale_y),
-                  sk.plane, f.distance, f.symmetric)
-            : SketchEngine::make_extrude(build_sketch_wire(sk), sk.plane, f.distance, f.symmetric, 0.0);
+                  sk.plane,
+                  f.extrude_end == ExtrudeEnd::ThroughAll ? 1e5 : signed_d,
+                  f.extrude_end == ExtrudeEnd::ThroughAll ? true : (sym || f.extrude_end == ExtrudeEnd::TwoSided))
+            : [&]() {
+                  TopoDS_Wire wire = build_sketch_wire(sk);
+                  TopoDS_Shape t;
+                  switch (f.extrude_end) {
+                      case ExtrudeEnd::Blind:      t = SketchEngine::make_extrude(wire, sk.plane, signed_d, false); break;
+                      case ExtrudeEnd::Symmetric:  t = SketchEngine::make_extrude(wire, sk.plane, f.distance, true); break;
+                      case ExtrudeEnd::TwoSided:   t = SketchEngine::make_extrude_two_sided(wire, sk.plane, f.distance, f.distance2); break;
+                      case ExtrudeEnd::ThroughAll: t = SketchEngine::make_extrude(wire, sk.plane, 1.0e5, true); break;
+                      case ExtrudeEnd::UpToFace:   // C4-part2 (BRepFeat) — fall back to Blind for now
+                      case ExtrudeEnd::UpToVertex: // C4-part2
+                      default:                     t = SketchEngine::make_extrude(wire, sk.plane, signed_d, false); break;
+                  }
+                  return t;
+              }();
         if (!have_body || f.mode == BooleanMode::New) {
             result = tool;
             have_body = true;
@@ -671,10 +689,14 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body, const Cad
             BRepAlgoAPI_Fuse fuse(result, tool);
             if (!fuse.IsDone()) throw std::runtime_error("fuse failed");
             result = fuse.Shape();
-        } else { // Cut
+        } else if (f.mode == BooleanMode::Cut) {
             BRepAlgoAPI_Cut cut(result, tool);
             if (!cut.IsDone()) throw std::runtime_error("cut failed");
             result = cut.Shape();
+        } else if (f.mode == BooleanMode::Intersect) {
+            BRepAlgoAPI_Common common(result, tool);
+            if (!common.IsDone()) throw std::runtime_error("intersect failed");
+            result = common.Shape();
         }
         break;
     }

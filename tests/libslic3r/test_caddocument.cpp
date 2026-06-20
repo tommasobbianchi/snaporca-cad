@@ -8,6 +8,8 @@
 #include <cmath>
 #include <fstream>
 #include <set>
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 
 using namespace Slic3r;
@@ -841,4 +843,25 @@ TEST_CASE("tessellate tracks per-triangle face id", "[CadDocument]")
     }
 
     REQUIRE(m.its.indices.size() >= 12);
+}
+
+TEST_CASE("extrude two-sided + through-all + intersect", "[CadDocument]")
+{
+    using namespace Slic3r;
+    SketchPlane xy = SketchPlane::XY();
+    // a 10x10 square wire centred on origin
+    SketchProfile sp;
+    sp.points = { Vec2d(-5,-5), Vec2d(5,-5), Vec2d(5,5), Vec2d(-5,5) };
+    sp.closed = true;
+    TopoDS_Wire w = sp.to_occt_wire(xy);
+
+    SECTION("two-sided height = up+down") {
+        TopoDS_Shape s = SketchEngine::make_extrude_two_sided(w, xy, 10.0, 4.0);
+        REQUIRE_FALSE(s.IsNull());
+        Bnd_Box bb; BRepBndLib::Add(s, bb);
+        double xmin,ymin,zmin,xmax,ymax,zmax; bb.Get(xmin,ymin,zmin,xmax,ymax,zmax);
+        REQUIRE_THAT(zmax - zmin, Catch::Matchers::WithinAbs(14.0, 0.05));   // 10 up + 4 down
+        REQUIRE_THAT(zmax, Catch::Matchers::WithinAbs(10.0, 0.05));
+        REQUIRE_THAT(zmin, Catch::Matchers::WithinAbs(-4.0, 0.05));
+    }
 }

@@ -155,6 +155,10 @@ class SketchEngine
 public:
     static TopoDS_Shape make_extrude(const TopoDS_Wire& wire, const SketchPlane& plane,
                                      double length, bool symmetric = false, double taper_deg = 0.0);
+    // Asymmetric two-sided prism: extrude the wire's face by `up` along +normal and `down`
+    // along -normal, fused into one solid. up/down are non-negative magnitudes.
+    static TopoDS_Shape make_extrude_two_sided(const TopoDS_Wire& wire, const SketchPlane& plane,
+                                               double up, double down);
     static TopoDS_Shape make_extrude_face(const TopoDS_Face& face, const SketchPlane& plane,
                                           double length, bool symmetric = false, double taper_deg = 0.0);
 

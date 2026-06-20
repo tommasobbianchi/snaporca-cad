@@ -14,7 +14,9 @@ namespace Slic3r {
 
 enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread };
 enum class SketchShape    { Rectangle, Circle };
-enum class BooleanMode    { New, Add, Cut };
+enum class BooleanMode    { New, Add, Cut, Intersect };
+
+enum class ExtrudeEnd { Blind, Symmetric, TwoSided, ThroughAll, UpToFace, UpToVertex };
 
 struct CadFeature {
     CadFeatureType type{CadFeatureType::Sketch};
@@ -67,6 +69,12 @@ struct CadFeature {
     double      distance{10};
     bool        symmetric{false};
     BooleanMode mode{BooleanMode::New};
+    ExtrudeEnd  extrude_end{ExtrudeEnd::Blind};
+    double      distance2{0};     // second-side depth for TwoSided
+    double      taper_deg{0};     // draft angle (C4-part2)
+    bool        flip{false};      // reverse the extrude direction (negate plane normal)
+    int         up_to_face{-1};   // target solid-face id for UpToFace (C4-part2)
+    Vec3d       up_to_point{0,0,0}; // target for UpToVertex (C4-part2)
 
     // Dress-up params (Fillet/Chamfer) — applied to the current body in order
     double      dressup_size{1.0};         // fillet radius or chamfer distance

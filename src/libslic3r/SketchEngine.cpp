@@ -170,6 +170,23 @@ TopoDS_Shape SketchEngine::make_extrude(const TopoDS_Wire& wire, const SketchPla
     return extrude_face_internal(fm.Face(), dir, length, symmetric);
 }
 
+TopoDS_Shape SketchEngine::make_extrude_two_sided(const TopoDS_Wire& wire, const SketchPlane& plane,
+                                                  double up, double down)
+{
+    BRepBuilderAPI_MakeFace fm(wire);
+    if (!fm.IsDone()) throw std::runtime_error("Failed to make face from wire");
+    gp_Dir dir(plane.normal.x(), plane.normal.y(), plane.normal.z());
+    const double u = std::abs(up), d = std::abs(down);
+    if (u < 1e-9 && d < 1e-9) return TopoDS_Shape();
+    if (d < 1e-9) { BRepPrimAPI_MakePrism p(fm.Face(), gp_Vec(dir) *  u); return p.Shape(); }
+    if (u < 1e-9) { BRepPrimAPI_MakePrism p(fm.Face(), gp_Vec(dir) * -d); return p.Shape(); }
+    BRepPrimAPI_MakePrism pos(fm.Face(), gp_Vec(dir) *  u);
+    BRepPrimAPI_MakePrism neg(fm.Face(), gp_Vec(dir) * -d);
+    BRepAlgoAPI_Fuse fuse(pos.Shape(), neg.Shape());
+    if (!fuse.IsDone()) throw std::runtime_error("two-sided extrude fuse failed");
+    return fuse.Shape();
+}
+
 TopoDS_Shape SketchEngine::make_extrude_face(const TopoDS_Face& face, const SketchPlane& plane,
                                              double length, bool symmetric, double /*taper_deg*/)
 {
