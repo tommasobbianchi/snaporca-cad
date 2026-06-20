@@ -672,13 +672,32 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body, const Cad
                   TopoDS_Wire wire = build_sketch_wire(sk);
                   TopoDS_Shape t;
                   switch (f.extrude_end) {
-                      case ExtrudeEnd::Blind:      t = SketchEngine::make_extrude(wire, sk.plane, signed_d, false); break;
+                      case ExtrudeEnd::Blind:
+                          t = (std::abs(f.taper_deg) > 1e-6)
+                              ? SketchEngine::make_extrude_taper(wire, sk.plane, signed_d, f.taper_deg)
+                              : SketchEngine::make_extrude(wire, sk.plane, signed_d, false);
+                          break;
                       case ExtrudeEnd::Symmetric:  t = SketchEngine::make_extrude(wire, sk.plane, f.distance, true); break;
                       case ExtrudeEnd::TwoSided:   t = SketchEngine::make_extrude_two_sided(wire, sk.plane, f.distance, f.distance2); break;
                       case ExtrudeEnd::ThroughAll: t = SketchEngine::make_extrude(wire, sk.plane, 1.0e5, true); break;
-                      case ExtrudeEnd::UpToFace:   // C4-part2 (BRepFeat) — fall back to Blind for now
-                      case ExtrudeEnd::UpToVertex: // C4-part2
-                      default:                     t = SketchEngine::make_extrude(wire, sk.plane, signed_d, false); break;
+                      case ExtrudeEnd::UpToFace: {
+                          const TopoDS_Face tgt = GeometryEngine::face_by_index(result, f.up_to_face);
+                          double L = signed_d;
+                          if (!tgt.IsNull()) {
+                              const Vec3d c = GeometryEngine::face_centroid_world(tgt);
+                              L = (c - sk.plane.origin).dot(sk.plane.normal);
+                          }
+                          t = (std::abs(f.taper_deg) > 1e-6)
+                              ? SketchEngine::make_extrude_taper(wire, sk.plane, L, f.taper_deg)
+                              : SketchEngine::make_extrude(wire, sk.plane, L, false);
+                          break;
+                      }
+                      case ExtrudeEnd::UpToVertex: {
+                          const double L = (f.up_to_point - sk.plane.origin).dot(sk.plane.normal);
+                          t = SketchEngine::make_extrude(wire, sk.plane, L, false);
+                          break;
+                      }
+                      default: t = SketchEngine::make_extrude(wire, sk.plane, signed_d, false); break;
                   }
                   return t;
               }();

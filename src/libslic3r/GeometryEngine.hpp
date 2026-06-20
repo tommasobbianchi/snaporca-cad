@@ -69,6 +69,8 @@ public:
     static TopoDS_Face face_by_index(const TopoDS_Shape& shape, int index);  // null if out of range
     static int         face_count(const TopoDS_Shape& shape);
     static std::vector<TopoDS_Edge> edges_of_face(const TopoDS_Face& face);
+    // Centre of mass (world) of a face — used to compute the extrude length for "up to face".
+    static Vec3d face_centroid_world(const TopoDS_Face& face);
     // Sample an edge into a world-space polyline (>=2 pts) for pick-distance + highlight.
     static std::vector<Vec3d> sample_edge_world(const TopoDS_Edge& edge, double chord_tol = 0.05);
 

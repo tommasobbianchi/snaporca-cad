@@ -865,3 +865,27 @@ TEST_CASE("extrude two-sided + through-all + intersect", "[CadDocument]")
         REQUIRE_THAT(zmin, Catch::Matchers::WithinAbs(-4.0, 0.05));
     }
 }
+
+TEST_CASE("extrude taper + up-to-face distance", "[CadDocument]")
+{
+    using namespace Slic3r;
+    SketchPlane xy = SketchPlane::XY();
+    SketchProfile sp; sp.points = { Vec2d(-5,-5),Vec2d(5,-5),Vec2d(5,5),Vec2d(-5,5) }; sp.closed = true;
+    TopoDS_Wire w = sp.to_occt_wire(xy);
+
+    SECTION("taper widens the top") {
+        TopoDS_Shape s = SketchEngine::make_extrude_taper(w, xy, 10.0, 15.0);
+        REQUIRE_FALSE(s.IsNull());
+        Bnd_Box bb; BRepBndLib::Add(s, bb);
+        double x0,y0,z0,x1,y1,z1; bb.Get(x0,y0,z0,x1,y1,z1);
+        REQUIRE_THAT(z1 - z0, Catch::Matchers::WithinAbs(10.0, 0.1));
+        REQUIRE((x1 - x0) > 12.0);
+    }
+    SECTION("extreme taper falls back to a straight prism") {
+        TopoDS_Shape s = SketchEngine::make_extrude_taper(w, xy, 10.0, 89.0);
+        REQUIRE_FALSE(s.IsNull());
+        Bnd_Box bb; BRepBndLib::Add(s, bb);
+        double x0,y0,z0,x1,y1,z1; bb.Get(x0,y0,z0,x1,y1,z1);
+        REQUIRE_THAT(x1 - x0, Catch::Matchers::WithinAbs(10.0, 0.1));
+    }
+}

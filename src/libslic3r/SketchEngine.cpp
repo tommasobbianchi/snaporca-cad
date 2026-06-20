@@ -18,6 +18,9 @@
 #include <gp_Elips.hxx>
 #include <gp_Ax2.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepOffsetAPI_MakeOffset.hxx>
+#include <BRepOffsetAPI_ThruSections.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
@@ -30,6 +33,8 @@
 #include <TopoDS_Compound.hxx>
 #include <BRep_Builder.hxx>
 #include <ShapeFix_Face.hxx>
+#include <GeomAbs_Shape.hxx>
+#include <Standard_Failure.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Wire.hxx>
 #include <GeomAPI_IntCS.hxx>
@@ -185,6 +190,46 @@ TopoDS_Shape SketchEngine::make_extrude_two_sided(const TopoDS_Wire& wire, const
     BRepAlgoAPI_Fuse fuse(pos.Shape(), neg.Shape());
     if (!fuse.IsDone()) throw std::runtime_error("two-sided extrude fuse failed");
     return fuse.Shape();
+}
+
+TopoDS_Shape SketchEngine::make_extrude_taper(const TopoDS_Wire& wire, const SketchPlane& plane,
+                                              double length, double taper_deg)
+{
+    gp_Dir dir(plane.normal.x(), plane.normal.y(), plane.normal.z());
+    auto straight = [&]() -> TopoDS_Shape {
+        BRepBuilderAPI_MakeFace fm(wire);
+        BRepPrimAPI_MakePrism prism(fm.Face(), gp_Vec(dir) * length);
+        return prism.Shape();
+    };
+    if (std::abs(taper_deg) >= 89.0 || std::abs(length) < 1e-9) return straight();
+    const double off = length * std::tan(taper_deg * M_PI / 180.0);
+    if (std::abs(off) < 1e-7) return straight();
+    try {
+        // 1) offset the planar base wire in its own plane by `off`
+        BRepOffsetAPI_MakeOffset mko(wire, GeomAbs_Arc);
+        mko.Perform(off);
+        if (!mko.IsDone()) return straight();
+        TopoDS_Shape offShape = mko.Shape();
+        TopoDS_Wire topFlat;
+        if (offShape.ShapeType() == TopAbs_WIRE) topFlat = TopoDS::Wire(offShape);
+        else { for (TopExp_Explorer ex(offShape, TopAbs_WIRE); ex.More(); ex.Next()) { topFlat = TopoDS::Wire(ex.Current()); break; } }
+        if (topFlat.IsNull()) return straight();
+        // 2) lift it along the normal by `length`
+        gp_Trsf tr; tr.SetTranslation(gp_Vec(dir) * length);
+        BRepBuilderAPI_Transform xf(topFlat, tr, Standard_True);
+        TopoDS_Wire topWire = TopoDS::Wire(xf.Shape());
+        // 3) loft base -> top into a solid
+        BRepOffsetAPI_ThruSections loft(Standard_True /*solid*/, Standard_False /*ruled*/);
+        loft.AddWire(wire);
+        loft.AddWire(topWire);
+        loft.Build();
+        if (!loft.IsDone()) return straight();
+        TopoDS_Shape s = loft.Shape();
+        if (s.IsNull()) return straight();
+        return s;
+    } catch (const Standard_Failure&) {
+        return straight();
+    }
 }
 
 TopoDS_Shape SketchEngine::make_extrude_face(const TopoDS_Face& face, const SketchPlane& plane,

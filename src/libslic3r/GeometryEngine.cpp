@@ -280,4 +280,12 @@ std::vector<Vec3d> GeometryEngine::sample_edge_world(const TopoDS_Edge& edge, do
     return pts;
 }
 
+Vec3d GeometryEngine::face_centroid_world(const TopoDS_Face& face)
+{
+    GProp_GProps props;
+    BRepGProp::SurfaceProperties(face, props);
+    gp_Pnt c = props.CentreOfMass();
+    return Vec3d(c.X(), c.Y(), c.Z());
+}
+
 } // namespace Slic3r

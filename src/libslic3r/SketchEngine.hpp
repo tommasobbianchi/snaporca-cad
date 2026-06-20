@@ -157,6 +157,11 @@ public:
                                      double length, bool symmetric = false, double taper_deg = 0.0);
     // Asymmetric two-sided prism: extrude the wire's face by `up` along +normal and `down`
     // along -normal, fused into one solid. up/down are non-negative magnitudes.
+    // Tapered (draft) extrude of a planar wire: the top profile is the base wire offset in its
+    // plane by length*tan(taper_deg), lofted from base to top. Falls back to a straight prism on
+    // any failure (self-intersecting offset / loft error). taper_deg>0 widens the top.
+    static TopoDS_Shape make_extrude_taper(const TopoDS_Wire& wire, const SketchPlane& plane,
+                                           double length, double taper_deg);
     static TopoDS_Shape make_extrude_two_sided(const TopoDS_Wire& wire, const SketchPlane& plane,
                                                double up, double down);
     static TopoDS_Shape make_extrude_face(const TopoDS_Face& face, const SketchPlane& plane,
