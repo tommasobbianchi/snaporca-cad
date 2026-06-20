@@ -562,7 +562,15 @@ std::vector<DesignSketchTool::Handle> DesignSketchTool::build_handles() const
             mi.pos = e.center + un * e.rminor; hs.push_back(mi);
             break;
         }
-        default: break;   // Arc/BSpline derived handles land in later chunks
+        case SketchEntity::Type::BSpline: {
+            // One draggable grip per control pole; dragging a pole reshapes the curve.
+            for (size_t k = 0; k < e.ctrl.size(); ++k) {
+                Handle h; h.role = HandleRole::BSplineCtrl; h.ei = int(i);
+                h.ctrl_index = int(k); h.pos = e.ctrl[k]; hs.push_back(h);
+            }
+            break;
+        }
+        default: break;   // Arc derived handles land in later chunks
         }
     }
     return hs;
@@ -647,6 +655,17 @@ void DesignSketchTool::set_handle(const Handle& h, const Vec2d& target)
         if (e.type == SketchEntity::Type::EllipseArc) {
             e.p0 = ellipse_point(e.center, e.radius, e.rminor, e.rotation, e.start_angle);
             e.p1 = ellipse_point(e.center, e.radius, e.rminor, e.rotation, e.end_angle);
+        }
+        resolve_live();
+        break;
+    }
+    case HandleRole::BSplineCtrl: {
+        // Move one control pole; the end poles mirror p0/p1 (kept in sync for picking).
+        const int k = h.ctrl_index;
+        if (k >= 0 && k < int(e.ctrl.size())) {
+            e.ctrl[k] = target;
+            if (k == 0)                       e.p0 = target;
+            if (k == int(e.ctrl.size()) - 1)  e.p1 = target;
         }
         resolve_live();
         break;
@@ -2959,7 +2978,7 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         std::vector<Vec2d> radius_h;
         for (const Handle& h : build_handles())
             if (h.role == HandleRole::RadiusHandle || h.role == HandleRole::MajorAxis ||
-                h.role == HandleRole::MinorAxis)
+                h.role == HandleRole::MinorAxis    || h.role == HandleRole::BSplineCtrl)
                 radius_h.push_back(h.pos);
         if (!radius_h.empty())
             draw_vertices(m_vertex_model, radius_h, ColorRGBA(0.30f, 0.75f, 0.95f, 1.0f),
@@ -3556,7 +3575,7 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 Handle hh;
                 if (hit_test_handle(p, tol, hh) &&
                     (hh.role == HandleRole::RadiusHandle || hh.role == HandleRole::MajorAxis ||
-                     hh.role == HandleRole::MinorAxis)) {
+                     hh.role == HandleRole::MinorAxis || hh.role == HandleRole::BSplineCtrl)) {
                     m_dragging_handle = true;
                     m_drag_handle     = hh;
                     m_selection.clear();
