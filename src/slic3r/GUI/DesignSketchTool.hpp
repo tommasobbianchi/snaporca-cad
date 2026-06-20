@@ -293,6 +293,9 @@ private:
     // Ellipse axis labels (geometric edit of the semi-axes a/b; phi via the major grip).
     void open_ellipse_axis_editor(int ei, bool major);
     void set_ellipse_axis(int ei, bool major, double v);
+    // EllipseArc endpoint drag: Center translates; P0/P1 move the sweep start/end to the
+    // parametric angle of the cursor on the ellipse frame (radius/shape preserved).
+    void drag_ellipsearc_handle(int ei, SketchPointRole role, const Vec2d& target);
     // Drop orientation constraints (H/V/Parallel/Perp/Angle/LockX/LockY) on entities in
     // [begin,end). A ROTATION makes inferred per-edge H/V inconsistent, so re-solving
     // against them collapses the shape — drop them first (fixes up DimAnnot.con indices).

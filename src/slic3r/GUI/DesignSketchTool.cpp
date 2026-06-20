@@ -517,6 +517,11 @@ void DesignSketchTool::end_feature(const Vec2d& c0, const Vec2d& c1, double para
     m_open_feature = -1;
 }
 
+// Forward decls: these ellipse helpers are defined further down but used by the
+// handle/drag code above their definition.
+static Vec2d  ellipse_point(const Vec2d& c, double a, double b, double phi, double t);
+static double ellipse_param_of(const Vec2d& center, double a, double b, double phi, const Vec2d& q);
+
 // Live handle set (A3: Line + Circle). Recomputed from solved geometry every frame,
 // never persisted — so handles always track the current solve. Derived roles (here
 // the circle RadiusHandle, which is NOT a serialized SketchPointRole) are what let a
@@ -543,9 +548,11 @@ std::vector<DesignSketchTool::Handle> DesignSketchTool::build_handles() const
             r.pos = e.center + Vec2d(e.radius, 0.0); hs.push_back(r);
             break;
         }
-        case SketchEntity::Type::Ellipse: {
+        case SketchEntity::Type::Ellipse:
+        case SketchEntity::Type::EllipseArc: {
             // 3 grips: centre (translate), major-axis end (semi-major a + orientation phi),
             // minor-axis end (semi-minor b). a=e.radius, b=e.rminor, phi=e.rotation.
+            // (EllipseArc also exposes its two endpoints via hit_test_point for sweep.)
             const Vec2d um(std::cos(e.rotation), std::sin(e.rotation));   // major dir
             const Vec2d un(-um.y(), um.x());                              // minor dir
             Handle c; c.role = HandleRole::Center; c.ei = int(i); c.pos = e.center; hs.push_back(c);
@@ -624,6 +631,10 @@ void DesignSketchTool::set_handle(const Handle& h, const Vec2d& target)
             e.rotation = std::atan2(d.y(), d.x());
             e.radius   = std::max(a, e.rminor);   // keep OCCT invariant a >= b
         }
+        if (e.type == SketchEntity::Type::EllipseArc) {   // endpoints ride the reshaped frame
+            e.p0 = ellipse_point(e.center, e.radius, e.rminor, e.rotation, e.start_angle);
+            e.p1 = ellipse_point(e.center, e.radius, e.rminor, e.rotation, e.end_angle);
+        }
         resolve_live();
         break;
     }
@@ -633,6 +644,10 @@ void DesignSketchTool::set_handle(const Handle& h, const Vec2d& target)
         const Vec2d un(-um.y(), um.x());
         const double b = std::abs((target - e.center).dot(un));
         if (b > 1e-6) e.rminor = std::min(b, e.radius);
+        if (e.type == SketchEntity::Type::EllipseArc) {
+            e.p0 = ellipse_point(e.center, e.radius, e.rminor, e.rotation, e.start_angle);
+            e.p1 = ellipse_point(e.center, e.radius, e.rminor, e.rotation, e.end_angle);
+        }
         resolve_live();
         break;
     }
@@ -1103,11 +1118,37 @@ void DesignSketchTool::drag_arc_handle(int ei, SketchPointRole role, const Vec2d
     resolve_live();
 }
 
+// Drag an elliptical-arc grip. Center rigidly translates (endpoints + frame move with it);
+// P0/P1 set the sweep start/end to the cursor's parametric angle on the ellipse, keeping
+// the ellipse shape (a/b/phi). Geometric, then resolve_live().
+void DesignSketchTool::drag_ellipsearc_handle(int ei, SketchPointRole role, const Vec2d& target)
+{
+    if (ei < 0 || ei >= int(m_entities.size())) return;
+    SketchEntity& e = m_entities[ei];
+    if (e.type != SketchEntity::Type::EllipseArc) return;
+    if (role == SketchPointRole::Center) {
+        const Vec2d d = target - e.center;
+        e.center = target; e.p0 += d; e.p1 += d;
+    } else if (role == SketchPointRole::P0 || role == SketchPointRole::P1) {
+        const double t = ellipse_param_of(e.center, e.radius, e.rminor, e.rotation, target);
+        if (role == SketchPointRole::P0) {
+            e.start_angle = t;
+            e.p0 = ellipse_point(e.center, e.radius, e.rminor, e.rotation, t);
+        } else {
+            // Keep the CCW sweep (end strictly after start) so the arc never inverts.
+            double t1 = t; while (t1 <= e.start_angle) t1 += 2.0 * M_PI;
+            e.end_angle = t1;
+            e.p1 = ellipse_point(e.center, e.radius, e.rminor, e.rotation, t1);
+        }
+    }
+    resolve_live();
+}
+
 void DesignSketchTool::open_ellipse_axis_editor(int ei, bool major)
 {
     if (ei < 0 || ei >= int(m_entities.size()) || !on_inline_edit) return;
     const SketchEntity& e = m_entities[ei];
-    if (e.type != SketchEntity::Type::Ellipse) return;
+    if (e.type != SketchEntity::Type::Ellipse && e.type != SketchEntity::Type::EllipseArc) return;
     const double v = major ? e.radius : e.rminor;
     const wxPoint px(m_last_mouse_x, m_last_mouse_y);
     on_inline_edit(px, v,
@@ -1120,9 +1161,13 @@ void DesignSketchTool::set_ellipse_axis(int ei, bool major, double v)
 {
     if (ei < 0 || ei >= int(m_entities.size()) || v < 1e-6) return;
     SketchEntity& e = m_entities[ei];
-    if (e.type != SketchEntity::Type::Ellipse) return;
+    if (e.type != SketchEntity::Type::Ellipse && e.type != SketchEntity::Type::EllipseArc) return;
     if (major) e.radius = std::max(v, e.rminor);
     else       e.rminor = std::min(v, e.radius);
+    if (e.type == SketchEntity::Type::EllipseArc) {   // endpoints ride the reshaped frame
+        e.p0 = ellipse_point(e.center, e.radius, e.rminor, e.rotation, e.start_angle);
+        e.p1 = ellipse_point(e.center, e.radius, e.rminor, e.rotation, e.end_angle);
+    }
     resolve_live();
 }
 
@@ -2583,7 +2628,8 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
     // Ellipse: two clickable axis quotes — semi-major (a) along the major direction and
     // semi-minor (b) along the minor. Both edit geometrically (a=e.radius, b=e.rminor);
     // phi (orientation) is changed by dragging the major grip, not via a label.
-    if (m_live_poly_fi < 0 && e.type == SketchEntity::Type::Ellipse &&
+    if (m_live_poly_fi < 0 &&
+        (e.type == SketchEntity::Type::Ellipse || e.type == SketchEntity::Type::EllipseArc) &&
         e.radius > 1e-6 && e.rminor > 1e-6) {
         const ColorRGBA dc(0.30f, 0.88f, 0.66f, 1.0f);
         const double th = std::max(15.0 * unit_per_px, 1e-4);
@@ -3391,6 +3437,9 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             else if (m_drag_ei >= 0 && m_drag_ei < int(m_entities.size()) &&
                      m_entities[m_drag_ei].type == SketchEntity::Type::Arc)
                 drag_arc_handle(m_drag_ei, m_drag_role, p);   // center/radius/angle grips
+            else if (m_drag_ei >= 0 && m_drag_ei < int(m_entities.size()) &&
+                     m_entities[m_drag_ei].type == SketchEntity::Type::EllipseArc)
+                drag_ellipsearc_handle(m_drag_ei, m_drag_role, p);  // center/sweep endpoints
             else {
                 set_point(m_drag_ei, m_drag_role, p);
                 resolve_live_drag(m_drag_ei, m_drag_role);
@@ -3415,6 +3464,9 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 else if (m_drag_ei >= 0 && m_drag_ei < int(m_entities.size()) &&
                          m_entities[m_drag_ei].type == SketchEntity::Type::Arc)
                     drag_arc_handle(m_drag_ei, m_drag_role, p);
+                else if (m_drag_ei >= 0 && m_drag_ei < int(m_entities.size()) &&
+                         m_entities[m_drag_ei].type == SketchEntity::Type::EllipseArc)
+                    drag_ellipsearc_handle(m_drag_ei, m_drag_role, p);
                 else {
                     set_point(m_drag_ei, m_drag_role, p);
                     resolve_live_drag(m_drag_ei, m_drag_role);
