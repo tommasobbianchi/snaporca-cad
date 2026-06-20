@@ -1,6 +1,7 @@
 #include "DesignPanel.hpp"
 #include "DesignCanvas.hpp"
 #include "DesignSketchTool.hpp"
+#include "libslic3r/GeometryEngine.hpp"   // face_by_index for face-extrude gizmo anchor
 
 #include <wx/sizer.h>
 #include <wx/button.h>
@@ -172,10 +173,20 @@ DesignPanel::DesignPanel(wxWindow* parent)
         add_sep(m_tb_feature);
         auto* b_extrude = icon_btn("design_extrude", _L("Extrude"));
         b_extrude->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            // Onshape push/pull: an explicitly picked solid face (Face-level cycle, no loop
+            // selected) is extruded as the profile — this takes priority over re-extruding an
+            // already-consumed sketch (resolve_extrude_sketch always returns the last Sketch).
+            if (m_sel_solid_face >= 0 && !m_doc.body.IsNull() && m_sel_sketch_region < 0) {
+                m_extrude_face_src   = m_sel_solid_face;
+                m_extrude_sketch_ref = -1;
+                open_tool(Tool::Extrude);
+                return;
+            }
+            m_extrude_face_src   = -1;   // ordinary sketch/loop extrude
             m_extrude_sketch_ref = resolve_extrude_sketch();
             if (m_extrude_sketch_ref < 0) {
                 m_status->SetForegroundColour(wxColour(235, 110, 110));
-                m_status->SetLabel(_L("Create a sketch first"));
+                m_status->SetLabel(_L("Create a sketch, or pick a solid face, first"));
                 m_status->Refresh();
                 return;
             }
@@ -955,7 +966,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_sel_solid_edge = (level == 3) ? edge : -1;
         m_status->SetForegroundColour(wxNullColour);
         m_status->SetLabel(level == 1 ? _L("Solid selected (whole) — click again for a face")
-                         : level == 2 ? wxString::Format(_L("Face %d selected — click again for an edge"), face)
+                         : level == 2 ? wxString::Format(_L("Face %d selected — Extrude to push/pull it, or click again for an edge"), face)
                          : level == 3 ? wxString::Format(_L("Edge %d selected — open Fillet/Chamfer to dress it, or click again to reset"), edge)
                                       : _L("Nothing selected"));
         (void)edge;
@@ -1268,7 +1279,11 @@ void DesignPanel::on_add_extrude()
     m_feature_counter++;
     const std::string name = "Extrude" + std::to_string(m_feature_counter);
     int idx = -1;
-    if (extrude_uses_loop()) {
+    if (m_extrude_face_src >= 0) {
+        // Onshape face-extrude: the picked solid face is the profile (no sketch wire).
+        idx = m_doc.add_extrude_face(m_extrude_face_src, m_distance->GetValue(), false, mode, name);
+        m_extrude_face_src = -1;          // consume the face-profile selection
+    } else if (extrude_uses_loop()) {
         // Extrude just the selected loop (its entity subset), leaving the source sketch's
         // other loops intact and still selectable.
         idx = m_doc.add_extrude_entities(m_viewport->selected_loop_entities(),
@@ -2946,7 +2961,11 @@ CadFeature DesignPanel::build_candidate(Tool t) const
                      : (m_mode->GetSelection() == 1) ? BooleanMode::Add
                      : (m_mode->GetSelection() == 2) ? BooleanMode::Cut
                                                      : BooleanMode::Intersect;
-        if (extrude_uses_loop()) {
+        if (m_extrude_face_src >= 0) {
+            // Preview the face-as-profile extrude: the kernel grabs the body face by id.
+            f.extrude_src_face = m_extrude_face_src;
+            f.sketch_ref       = -1;
+        } else if (extrude_uses_loop()) {
             // Preview just the click-selected loop: carry its entity subset on the
             // feature (sketch_ref = -1 -> build_sketch_wire uses f.entities).
             f.sketch_ref = -1;
@@ -3016,6 +3035,11 @@ void DesignPanel::update_extrude_gizmo()
             have_centroid = true;
         }
         // Primitive shape sketches (no entities/profile) are centred at the plane origin -> (0,0).
+    } else if (m_extrude_face_src >= 0 && !m_doc.body.IsNull()) {
+        // Face-as-profile (push/pull): anchor the arrow at the picked solid face's centre,
+        // pointing along its normal. from_face's origin == face centroid, so centroid=(0,0).
+        TopoDS_Face srcf = GeometryEngine::face_by_index(m_doc.body, m_extrude_face_src);
+        if (!srcf.IsNull()) { plane = SketchPlane::from_face(srcf); have = true; }
     }
     if (!have) { m_viewport->clear_extrude_gizmo(); return; }
 
@@ -3110,7 +3134,10 @@ void DesignPanel::open_tool(Tool t)
     s->Show(m_box_thread,  t == Tool::Thread,  true);
 
     if (t == Tool::Extrude) {
-        if (m_extrude_sketch_ref >= 0 && m_extrude_sketch_ref < int(m_doc.features.size()))
+        if (m_extrude_face_src >= 0)
+            m_extrude_sketch_label->SetLabel(
+                wxString::Format(_L("Face %d (push/pull)"), m_extrude_face_src));
+        else if (m_extrude_sketch_ref >= 0 && m_extrude_sketch_ref < int(m_doc.features.size()))
             m_extrude_sketch_label->SetLabel(_L("Sketch: ") +
                 wxString::FromUTF8(m_doc.features[m_extrude_sketch_ref].name));
         // Onshape-style: the first solid is New; once a body exists, a fresh extrude

@@ -174,6 +174,10 @@ private:
     // Click-selected solid topology (whole/face/edge cycle): face id for up-to-face / dress-up.
     int               m_sel_solid_face{-1};
     int               m_sel_solid_edge{-1};
+    // Face-as-profile extrude (Onshape): when Extrude is opened on a picked solid face with
+    // no sketch source, this carries that global face id so the kernel extrudes the face.
+    // -1 = ordinary sketch/loop extrude. Set when opening the Extrude card, consumed on add.
+    int               m_extrude_face_src{-1};
 
     wxChoice*         m_dressup_type{nullptr};
     wxChoice*         m_face_group{nullptr};

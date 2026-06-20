@@ -21,6 +21,7 @@
 #include <GCE2d_MakeSegment.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
+#include <TopAbs_Orientation.hxx>   // outward-normal orientation for face-extrude
 #include <gp_Circ.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Ax3.hxx>
@@ -407,6 +408,21 @@ int CadDocument::add_extrude_entities(const std::vector<SketchEntity>& entities,
     return int(features.size()) - 1;
 }
 
+int CadDocument::add_extrude_face(int src_face, double distance, bool symmetric,
+                                  BooleanMode mode, const std::string& name)
+{
+    CadFeature f;
+    f.type             = CadFeatureType::Extrude;
+    f.name             = name;
+    f.sketch_ref       = -1;
+    f.extrude_src_face = src_face;
+    f.distance         = distance;
+    f.symmetric        = symmetric;
+    f.mode             = mode;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
 int CadDocument::add_fillet(double radius, FaceGroup faces, const std::string& name)
 {
     CadFeature f;
@@ -672,57 +688,72 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body, const Cad
     case CadFeatureType::Sketch:
         return; // sketches carry no solid; consumed by an extrude
     case CadFeatureType::Extrude: {
-        // Use the referenced sketch when sketch_ref is a valid Sketch index,
-        // otherwise fall back to f's own inline sketch params (this makes a
-        // single self-contained candidate previewable).
-        const CadFeature& sk = (f.sketch_ref >= 0 && f.sketch_ref < int(features.size())
-                                && features[f.sketch_ref].type == CadFeatureType::Sketch)
-                               ? features[f.sketch_ref] : f;
         const bool sym = (f.extrude_end == ExtrudeEnd::Symmetric);
         const double signed_d = f.flip ? -f.distance : f.distance;
-        // Imported rigid art (Text/SVG) extrudes via the faces-with-holes path
-        // (with its placement transform applied); otherwise build a single wire
-        // from entities/profile/shape.
-        TopoDS_Shape tool = !sk.imported_regions.empty()
-            ? SketchEngine::make_extrude_regions(
-                  transform_regions(sk.imported_regions, sk.import_offset,
-                                    sk.import_scale_x, sk.import_scale_y),
-                  sk.plane,
-                  f.extrude_end == ExtrudeEnd::ThroughAll ? 1e5 : signed_d,
-                  f.extrude_end == ExtrudeEnd::ThroughAll ? true : (sym || f.extrude_end == ExtrudeEnd::TwoSided))
-            : [&]() {
-                  TopoDS_Wire wire = build_sketch_wire(sk);
-                  TopoDS_Shape t;
-                  switch (f.extrude_end) {
-                      case ExtrudeEnd::Blind:
-                          t = (std::abs(f.taper_deg) > 1e-6)
-                              ? SketchEngine::make_extrude_taper(wire, sk.plane, signed_d, f.taper_deg)
-                              : SketchEngine::make_extrude(wire, sk.plane, signed_d, false);
-                          break;
-                      case ExtrudeEnd::Symmetric:  t = SketchEngine::make_extrude(wire, sk.plane, f.distance, true); break;
-                      case ExtrudeEnd::TwoSided:   t = SketchEngine::make_extrude_two_sided(wire, sk.plane, f.distance, f.distance2); break;
-                      case ExtrudeEnd::ThroughAll: t = SketchEngine::make_extrude(wire, sk.plane, 1.0e5, true); break;
-                      case ExtrudeEnd::UpToFace: {
-                          const TopoDS_Face tgt = GeometryEngine::face_by_index(result, f.up_to_face);
-                          double L = signed_d;
-                          if (!tgt.IsNull()) {
-                              const Vec3d c = GeometryEngine::face_centroid_world(tgt);
-                              L = (c - sk.plane.origin).dot(sk.plane.normal);
+        TopoDS_Shape tool;
+        if (f.extrude_src_face >= 0) {
+            if (!have_body) throw std::runtime_error("face-extrude needs a body");
+            TopoDS_Face srcf = GeometryEngine::face_by_index(result, f.extrude_src_face);
+            if (srcf.IsNull()) throw std::runtime_error("face-extrude: invalid face id");
+            SketchPlane fpl = SketchPlane::from_face(srcf);
+            // from_face takes the surface's geometric normal and IGNORES the topological
+            // face orientation, so for a REVERSED face (e.g. the top cap of an extruded
+            // prism) it points INTO the solid -> a default push would fuse to nothing.
+            // Orient it outward so push/pull grows away from the material (Onshape default);
+            // the Flip checkbox (signed_d) still lets the user drive it inward for a cut.
+            if (srcf.Orientation() == TopAbs_REVERSED) fpl.normal = -fpl.normal;
+            tool = SketchEngine::make_extrude_face(srcf, fpl, signed_d, sym);
+        } else {
+            // Use the referenced sketch when sketch_ref is a valid Sketch index,
+            // otherwise fall back to f's own inline sketch params (this makes a
+            // single self-contained candidate previewable).
+            const CadFeature& sk = (f.sketch_ref >= 0 && f.sketch_ref < int(features.size())
+                                    && features[f.sketch_ref].type == CadFeatureType::Sketch)
+                                   ? features[f.sketch_ref] : f;
+            // Imported rigid art (Text/SVG) extrudes via the faces-with-holes path
+            // (with its placement transform applied); otherwise build a single wire
+            // from entities/profile/shape.
+            tool = !sk.imported_regions.empty()
+                ? SketchEngine::make_extrude_regions(
+                      transform_regions(sk.imported_regions, sk.import_offset,
+                                        sk.import_scale_x, sk.import_scale_y),
+                      sk.plane,
+                      f.extrude_end == ExtrudeEnd::ThroughAll ? 1e5 : signed_d,
+                      f.extrude_end == ExtrudeEnd::ThroughAll ? true : (sym || f.extrude_end == ExtrudeEnd::TwoSided))
+                : [&]() {
+                      TopoDS_Wire wire = build_sketch_wire(sk);
+                      TopoDS_Shape t;
+                      switch (f.extrude_end) {
+                          case ExtrudeEnd::Blind:
+                              t = (std::abs(f.taper_deg) > 1e-6)
+                                  ? SketchEngine::make_extrude_taper(wire, sk.plane, signed_d, f.taper_deg)
+                                  : SketchEngine::make_extrude(wire, sk.plane, signed_d, false);
+                              break;
+                          case ExtrudeEnd::Symmetric:  t = SketchEngine::make_extrude(wire, sk.plane, f.distance, true); break;
+                          case ExtrudeEnd::TwoSided:   t = SketchEngine::make_extrude_two_sided(wire, sk.plane, f.distance, f.distance2); break;
+                          case ExtrudeEnd::ThroughAll: t = SketchEngine::make_extrude(wire, sk.plane, 1.0e5, true); break;
+                          case ExtrudeEnd::UpToFace: {
+                              const TopoDS_Face tgt = GeometryEngine::face_by_index(result, f.up_to_face);
+                              double L = signed_d;
+                              if (!tgt.IsNull()) {
+                                  const Vec3d c = GeometryEngine::face_centroid_world(tgt);
+                                  L = (c - sk.plane.origin).dot(sk.plane.normal);
+                              }
+                              t = (std::abs(f.taper_deg) > 1e-6)
+                                  ? SketchEngine::make_extrude_taper(wire, sk.plane, L, f.taper_deg)
+                                  : SketchEngine::make_extrude(wire, sk.plane, L, false);
+                              break;
                           }
-                          t = (std::abs(f.taper_deg) > 1e-6)
-                              ? SketchEngine::make_extrude_taper(wire, sk.plane, L, f.taper_deg)
-                              : SketchEngine::make_extrude(wire, sk.plane, L, false);
-                          break;
+                          case ExtrudeEnd::UpToVertex: {
+                              const double L = (f.up_to_point - sk.plane.origin).dot(sk.plane.normal);
+                              t = SketchEngine::make_extrude(wire, sk.plane, L, false);
+                              break;
+                          }
+                          default: t = SketchEngine::make_extrude(wire, sk.plane, signed_d, false); break;
                       }
-                      case ExtrudeEnd::UpToVertex: {
-                          const double L = (f.up_to_point - sk.plane.origin).dot(sk.plane.normal);
-                          t = SketchEngine::make_extrude(wire, sk.plane, L, false);
-                          break;
-                      }
-                      default: t = SketchEngine::make_extrude(wire, sk.plane, signed_d, false); break;
-                  }
-                  return t;
-              }();
+                      return t;
+                  }();
+        }
         if (!have_body || f.mode == BooleanMode::New) {
             result = tool;
             have_body = true;

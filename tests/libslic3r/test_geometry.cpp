@@ -1,9 +1,14 @@
 #include <catch2/catch.hpp>
 
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
+#include <TopAbs_Orientation.hxx>
 
 #include "libslic3r/Point.hpp"
 #include "libslic3r/GeometryEngine.hpp"
+#include "libslic3r/SketchEngine.hpp"
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/Polygon.hpp"
 #include "libslic3r/Polyline.hpp"
@@ -745,4 +750,81 @@ TEST_CASE("edge-targeted fillet rounds one edge", "[design][dressup]")
     REQUIRE(GeometryEngine::face_count(r) > GeometryEngine::face_count(box));
 
     REQUIRE_THROWS(GeometryEngine::apply_fillet(box, 2.0, 999));
+}
+
+TEST_CASE("face-extrude grows a solid from a picked face", "[design][faceextrude]")
+{
+    // 20x20x20 box, extrude its top face (+Z) by 10 and FUSE -> taller solid.
+    TopoDS_Shape box = BRepPrimAPI_MakeBox(20., 20., 20.).Shape();
+    REQUIRE_FALSE(box.IsNull());
+
+    // Find the top (+Z) face by scanning all face centroids.
+    int n = GeometryEngine::face_count(box);
+    int topFaceId = -1;
+    double maxZ = -1e9;
+    for (int i = 0; i < n; ++i) {
+        TopoDS_Face f = GeometryEngine::face_by_index(box, i);
+        Vec3d c = GeometryEngine::face_centroid_world(f);
+        if (c.z() > maxZ) { maxZ = c.z(); topFaceId = i; }
+    }
+    REQUIRE(topFaceId >= 0);
+
+    // Extrude the top face by 10 along its normal (+Z).
+    TopoDS_Face topFace = GeometryEngine::face_by_index(box, topFaceId);
+    SketchPlane fpl = SketchPlane::from_face(topFace);
+    TopoDS_Shape boss = SketchEngine::make_extrude_face(topFace, fpl, 10., false);
+    REQUIRE_FALSE(boss.IsNull());
+
+    // Fuse the extrude slab onto the box.
+    BRepAlgoAPI_Fuse fuse(box, boss);
+    REQUIRE(fuse.IsDone());
+    TopoDS_Shape result = fuse.Shape();
+    REQUIRE_FALSE(result.IsNull());
+
+    // The result Z-extent grew by ~10 (20+10=30).
+    Bnd_Box bbox;
+    BRepBndLib::Add(result, bbox);
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    REQUIRE_THAT(zmax - zmin, Catch::Matchers::WithinAbs(30.0, 0.1));
+
+    // Invalid face id produces a null face.
+    REQUIRE(GeometryEngine::face_by_index(box, 999).IsNull());
+}
+
+TEST_CASE("face-extrude pushes OUTWARD on a reversed cap face", "[design][faceextrude]")
+{
+    // Regression: a primitive box top face is FORWARD, but a solid built the way the GUI
+    // builds one — by extruding a sketch wire — has a REVERSED top cap, so from_face()
+    // (which ignores topological orientation) returns an INWARD normal. A naive push would
+    // fuse to nothing. apply_feature orients the normal outward; this reproduces that logic
+    // and asserts the solid actually grows.
+    Slic3r::SketchProfile prof;
+    prof.points = { {-10,-10}, {10,-10}, {10,10}, {-10,10} };
+    prof.closed = true;
+    Slic3r::SketchPlane plane = Slic3r::SketchPlane::XY();
+    TopoDS_Wire  wire  = prof.to_occt_wire(plane);
+    TopoDS_Shape solid = Slic3r::SketchEngine::make_extrude(wire, plane, 10.0, false);
+    REQUIRE_FALSE(solid.IsNull());
+
+    // Pick the +Z (top) face.
+    int n = GeometryEngine::face_count(solid), top = -1; double mz = -1e9;
+    for (int i = 0; i < n; ++i) {
+        Vec3d c = GeometryEngine::face_centroid_world(GeometryEngine::face_by_index(solid, i));
+        if (c.z() > mz) { mz = c.z(); top = i; }
+    }
+    REQUIRE(top >= 0);
+    TopoDS_Face tf = GeometryEngine::face_by_index(solid, top);
+
+    // SAME orientation handling as CadDocument::apply_feature's face-extrude branch.
+    Slic3r::SketchPlane fpl = Slic3r::SketchPlane::from_face(tf);
+    if (tf.Orientation() == TopAbs_REVERSED) fpl.normal = -fpl.normal;
+    TopoDS_Shape boss = Slic3r::SketchEngine::make_extrude_face(tf, fpl, 10.0, false);
+    REQUIRE_FALSE(boss.IsNull());
+
+    BRepAlgoAPI_Fuse fuse(solid, boss);
+    REQUIRE(fuse.IsDone());
+    Bnd_Box bb; BRepBndLib::Add(fuse.Shape(), bb);
+    double x0, y0, z0, x1, y1, z1; bb.Get(x0, y0, z0, x1, y1, z1);
+    REQUIRE_THAT(z1 - z0, Catch::Matchers::WithinAbs(20.0, 0.1));   // 10 base + 10 outward
 }

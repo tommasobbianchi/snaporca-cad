@@ -74,6 +74,7 @@ struct CadFeature {
     double      taper_deg{0};     // draft angle (C4-part2)
     bool        flip{false};      // reverse the extrude direction (negate plane normal)
     int         up_to_face{-1};   // target solid-face id for UpToFace (C4-part2)
+    int         extrude_src_face{-1}; // global face id on the current body to extrude as a profile; -1 = use sketch wire
     Vec3d       up_to_point{0,0,0}; // target for UpToVertex (C4-part2)
 
     // Dress-up params (Fillet/Chamfer) — applied to the current body in order
@@ -131,6 +132,9 @@ public:
     int  add_extrude_entities(const std::vector<SketchEntity>& entities,
                               const SketchPlane& plane, double distance, bool symmetric,
                               BooleanMode mode, const std::string& name);
+    // Extrude an existing solid FACE (global face id on the body) as the profile.
+    int  add_extrude_face(int src_face, double distance, bool symmetric,
+                          BooleanMode mode, const std::string& name);
     int  add_fillet(double radius, FaceGroup faces, const std::string& name);
     int  add_fillet(double radius, int edge_id, const std::string& name);
     int  add_chamfer(double distance, FaceGroup faces, const std::string& name);
