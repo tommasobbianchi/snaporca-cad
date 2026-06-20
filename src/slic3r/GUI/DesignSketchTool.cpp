@@ -2325,6 +2325,122 @@ void DesignSketchTool::render_solid_highlight()
     }
 }
 
+// ---- Visual Extrude gizmo (C5b) -------------------------------------------------------
+void DesignSketchTool::set_extrude_gizmo(const SketchPlane& plane, const Vec2d& centroid,
+                                         double depth, double depth2, bool two_sided, bool flip)
+{
+    m_ex_active    = true;
+    m_ex_plane     = plane;
+    m_ex_centroid  = centroid;
+    m_ex_depth     = std::max(0.0, depth);
+    m_ex_depth2    = std::max(0.0, depth2);
+    m_ex_two_sided = two_sided;
+    m_ex_flip      = flip;
+}
+
+void DesignSketchTool::clear_extrude_gizmo()
+{
+    m_ex_active = false;
+    m_ex_drag   = -1;
+}
+
+// Camera-billboarded depth arrow(s) along the profile normal, drawn in WORLD via a billboard
+// SketchPlane at the centroid (draw_strokes/draw_text lift 2D coords through m_plane.to_world,
+// so swapping m_plane to a screen-facing frame renders a flat, screen-aligned arrow + label).
+void DesignSketchTool::render_extrude_gizmo()
+{
+    if (!m_ex_active) return;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const Vec3d right = cam.get_dir_right().normalized();
+    const Vec3d up    = cam.get_dir_up().normalized();
+    const Vec3d fwd   = cam.get_dir_forward().normalized();
+    const Vec3d base  = m_ex_plane.to_world(m_ex_centroid);
+    const Vec3d ndir  = (m_ex_flip ? -1.0 : 1.0) * m_ex_plane.normal.normalized();
+    const double upp  = 1.0 / std::max(cam.get_zoom(), 1e-6);
+    const double th   = std::max(15.0 * upp, 1e-4);
+
+    // Express everything in the billboard frame (origin=base) so it always faces the camera.
+    const SketchPlane saved = m_plane;
+    SketchPlane bb; bb.origin = base; bb.x_axis = right; bb.y_axis = up; bb.normal = fwd;
+    m_plane = bb;
+    const ColorRGBA arrowc(1.0f, 0.62f, 0.16f, 1.0f);   // CAD amber
+
+    auto draw_arrow = [&](double depth, bool flip_side) {
+        if (depth <= 1e-6) return;
+        const Vec3d dirw = (flip_side ? -1.0 : 1.0) * ndir;      // world arrow direction
+        const Vec3d tipw = base + dirw * depth;
+        const Vec2d tip2((tipw - base).dot(right), (tipw - base).dot(up));
+        if (tip2.norm() < 1e-6) return;                          // axis ~ parallel to view: no arrow
+        const Vec2d u = tip2.normalized();
+        const Vec2d nrm(-u.y(), u.x());
+        std::vector<std::pair<Vec2d, Vec2d>> segs;
+        segs.emplace_back(Vec2d(0, 0), tip2);
+        const double as = std::max(tip2.norm() * 0.18, th * 0.9);   // arrowhead size
+        const Vec2d back = tip2 - u * as;
+        segs.emplace_back(tip2, back + nrm * (as * 0.5));
+        segs.emplace_back(tip2, back - nrm * (as * 0.5));
+        draw_strokes(m_ex_arrow_model, segs, std::max(0.7 * upp, 1e-4), arrowc);
+        DimAnnot a; a.kind = DimType::Distance; a.value = depth;
+        draw_text(m_line_model, dim_text(a), tip2 + u * (th * 1.4), th, arrowc);
+    };
+
+    glsafe(::glDisable(GL_DEPTH_TEST));
+    draw_arrow(m_ex_depth, false);
+    if (m_ex_two_sided) draw_arrow(m_ex_depth2, true);
+    m_plane = saved;
+}
+
+// Ray vs the arrow segment(s) in world space; `which` = 0 primary, 1 second side.
+bool DesignSketchTool::hit_test_extrude_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt, int& which) const
+{
+    if (!m_ex_active) return false;
+    const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = r.a, rd = r.b - r.a;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const double tol = 7.0 / std::max(cam.get_zoom(), 1e-6);    // ~7 px in world units
+    const Vec3d ndir = (m_ex_flip ? -1.0 : 1.0) * m_ex_plane.normal.normalized();
+    const Vec3d base = m_ex_plane.to_world(m_ex_centroid);
+    double dA = 1e30, dB = 1e30;
+    if (m_ex_depth  > 1e-6) dA = ray_segment_dist3(ro, rd, base, base + ndir * m_ex_depth);
+    if (m_ex_two_sided && m_ex_depth2 > 1e-6)
+        dB = ray_segment_dist3(ro, rd, base, base - ndir * m_ex_depth2);
+    if (dA <= tol && dA <= dB) { which = 0; return true; }
+    if (dB <= tol)             { which = 1; return true; }
+    return false;
+}
+
+// Drag the arrow handle: closest point on the world arrow axis to the mouse ray (skew-line
+// closest-point), projected onto the axis direction -> signed depth (clamped positive).
+void DesignSketchTool::drag_extrude_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt, int which)
+{
+    const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = r.a, rd = r.b - r.a;
+    const Vec3d nd = (m_ex_flip ? -1.0 : 1.0) * m_ex_plane.normal.normalized();
+    const Vec3d e  = (which == 1 ? -1.0 : 1.0) * nd;            // axis dir for this arrow
+    const Vec3d base = m_ex_plane.to_world(m_ex_centroid);
+    const Vec3d w0 = base - ro;
+    const double a = e.dot(e), b = e.dot(rd), c = rd.dot(rd), dd = e.dot(w0), ee = rd.dot(w0);
+    const double denom = a * c - b * b;
+    if (std::abs(denom) < 1e-7) return;                        // camera ∥ axis: leave depth as-is
+    const double depth = std::max(0.01, (b * ee - c * dd) / denom);
+    if (which == 1) m_ex_depth2 = depth; else m_ex_depth = depth;
+    if (on_extrude_depth_changed) on_extrude_depth_changed(depth, which == 1);
+}
+
+void DesignSketchTool::open_extrude_editor(int which)
+{
+    if (!on_inline_edit) return;
+    const double cur = (which == 1) ? m_ex_depth2 : m_ex_depth;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    on_inline_edit(px, cur,
+        [this, which](double v) {
+            const double d = std::max(0.01, v);
+            if (which == 1) m_ex_depth2 = d; else m_ex_depth = d;
+            if (on_extrude_depth_changed) on_extrude_depth_changed(d, which == 1);
+        },
+        []() {});
+}
+
 // Closed loops + the entity indices that form each one. A circle/ellipse is its own loop;
 // line/arc chains are walked endpoint-to-endpoint. Entity membership lets a single loop be
 // highlighted and extruded on its own.
@@ -4076,6 +4192,7 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     // face/edge highlight overlay (whole-solid tint is handled by set_body_highlight).
     if (!m_active) {
         render_solid_highlight();
+        if (m_ex_active) render_extrude_gizmo();
         shader->stop_using();
         glsafe(::glEnable(GL_CULL_FACE));
         glsafe(::glEnable(GL_DEPTH_TEST));
@@ -4703,6 +4820,30 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     // is the ONLY interaction in display-only mode; everything else (drag/move/wheel/right)
     // falls through (return false) so the camera can still orbit the plate.
     if (!m_active) {
+        // Visual Extrude gizmo (C5b): while the Extrude card is open the depth arrow is
+        // grabbable — drag changes the depth live; a click (no drag) on the arrow opens the
+        // inline depth editor. Intercept before the early no-LeftDown bailout so Dragging/
+        // LeftUp reach us; a LeftDown that misses the arrow falls through to solid/loop pick.
+        if (m_ex_active) {
+            if (m_ex_drag >= 0 && evt.Dragging() && evt.LeftIsDown()) {
+                drag_extrude_arrow(canvas, evt, m_ex_drag);
+                return true;
+            }
+            if (evt.LeftUp() && m_ex_drag >= 0) {
+                const int which = m_ex_drag; m_ex_drag = -1;
+                const bool moved = std::abs(evt.GetX() - m_ex_press_x) +
+                                   std::abs(evt.GetY() - m_ex_press_y) > 3;
+                if (!moved) open_extrude_editor(which);   // treat a stationary click as edit
+                return true;
+            }
+            if (evt.LeftDown()) {
+                int which = -1;
+                if (hit_test_extrude_arrow(canvas, evt, which)) {
+                    m_ex_drag = which; m_ex_press_x = evt.GetX(); m_ex_press_y = evt.GetY();
+                    return true;
+                }
+            }
+        }
         if (!evt.LeftDown()) return false;
         // The solid body is the foreground object: a click on it cycles whole/face/edge.
         // Only fall through to committed-sketch loop picking when no solid face was hit.

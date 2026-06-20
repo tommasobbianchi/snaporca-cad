@@ -69,7 +69,7 @@ public:
     // own plane. render() draws these as translucent faces + outlines.
     struct DisplaySketch { std::vector<SketchEntity> entities; SketchPlane plane; int feature{-1}; };
     void set_display_sketches(std::vector<DisplaySketch> ds) { m_display_sketches = std::move(ds); }
-    bool has_display() const { return m_active || !m_display_sketches.empty() || m_solid_body != nullptr; }
+    bool has_display() const { return m_active || !m_display_sketches.empty() || m_solid_body != nullptr || m_ex_active; }
 
     // Solid topology selection on the committed body: clicking the solid cycles
     // whole-solid -> face -> edge (Onshape-style) to target fillet/chamfer/extrude.
@@ -91,6 +91,18 @@ public:
     // loops from the committed-sketch overlay).
     std::vector<std::vector<int>> region_entity_indices(const std::vector<SketchEntity>& ents) const;
     void clear_display_pick() { m_display_pick = -1; m_display_pick_region = -1; }
+
+    // Visual Extrude gizmo (C5b). The Extrude tool is a DesignPanel docked card, so the
+    // sketch tool is NOT active during it; the panel feeds the profile plane + a 2D centroid
+    // (arrow anchor) + the live depths/flags, and the tool renders an in-canvas world-space
+    // depth arrow along plane.normal with a draggable handle + editable label. TwoSided draws
+    // a second arrow along -normal driven by depth2. Drag/edit fire on_extrude_depth_changed
+    // back to the panel, which writes the spin value + refreshes the ghost preview.
+    void set_extrude_gizmo(const SketchPlane& plane, const Vec2d& centroid,
+                           double depth, double depth2, bool two_sided, bool flip);
+    void clear_extrude_gizmo();
+    // (new_depth, second_side): second_side=false drives the primary depth, true the 2nd side.
+    std::function<void(double depth, bool second)> on_extrude_depth_changed;
 
     // Constrain mode: load an already-committed profile for entity picking +
     // constraint application (the geometry is solved in the kernel, not here).
@@ -615,6 +627,22 @@ private:
     GLModel m_solid_face_model;
     GLModel m_solid_edge_model;
     int m_display_pick_region{-1}; // selected closed-region index within that feature (-1 none)
+
+    // Visual Extrude gizmo state (C5b). GUI-only; fed by the panel each refresh_preview.
+    bool        m_ex_active{false};
+    SketchPlane m_ex_plane;             // profile plane (gives normal + to_world anchor)
+    Vec2d       m_ex_centroid{0,0};     // arrow base in plane coords (profile centroid)
+    double      m_ex_depth{0.0};        // primary depth (= m_distance)
+    double      m_ex_depth2{0.0};       // second-side depth (TwoSided, = m_distance2)
+    bool        m_ex_two_sided{false};
+    bool        m_ex_flip{false};
+    int         m_ex_drag{-1};          // 0 = primary arrow, 1 = second arrow, -1 = none
+    int         m_ex_press_x{0}, m_ex_press_y{0};   // press px to tell click-to-edit from drag
+    void  render_extrude_gizmo();
+    bool  hit_test_extrude_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt, int& which) const;
+    void  drag_extrude_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt, int which);
+    void  open_extrude_editor(int which);
+    GLModel m_ex_arrow_model;
 };
 
 }} // namespace Slic3r::GUI

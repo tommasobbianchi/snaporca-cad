@@ -76,6 +76,12 @@ public:
     void set_solid_pick(const TopoDS_Shape* body, const TriangleMesh* mesh,
                         const std::vector<int>* tri_face);
     void set_on_solid_selection_changed(std::function<void(int, int, int)> cb);
+    // Visual Extrude depth-arrow gizmo (C5b): the panel feeds the profile plane + centroid +
+    // live depths/flags while its Extrude card is open; drag/edit fire the depth callback.
+    void set_extrude_gizmo(const SketchPlane& plane, const Vec2d& centroid,
+                           double depth, double depth2, bool two_sided, bool flip);
+    void clear_extrude_gizmo();
+    void set_on_extrude_depth_changed(std::function<void(double, bool)> cb);
     void set_on_sketch_exit(std::function<void()> cb);           // Esc -> exit the tool
     // Persistently draw committed sketches (un-consumed ones stay visible).
     void set_display_sketches(std::vector<DesignSketchTool::DisplaySketch> ds);

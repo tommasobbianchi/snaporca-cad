@@ -962,6 +962,14 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_status->Refresh();
     });
 
+    // Visual Extrude gizmo (C5b): dragging/editing the in-canvas depth arrow writes the
+    // matching spin field and re-previews (which re-feeds the gizmo with the new depth).
+    m_viewport->set_on_extrude_depth_changed([this](double depth, bool second) {
+        if (second) { if (m_distance2) m_distance2->SetValue(depth); }
+        else        { if (m_distance)  m_distance->SetValue(depth); }
+        refresh_preview();
+    });
+
     // Esc exits the active sketch tool: drop the live session, restore Feature mode +
     // the committed-sketch overlay (an in-progress draw is discarded). The tool's layered
     // request_exit only calls this once it's an idle Select session.
@@ -2973,6 +2981,63 @@ CadFeature DesignPanel::build_candidate(Tool t) const
     return f;
 }
 
+// Resolve the active Extrude's profile plane + a representative 2D centroid (arrow anchor)
+// and push them to the viewport gizmo. Self-gates: clears the gizmo unless Extrude is open.
+void DesignPanel::update_extrude_gizmo()
+{
+    if (!m_viewport) return;
+    if (m_active != Tool::Extrude) { m_viewport->clear_extrude_gizmo(); return; }
+
+    SketchPlane plane;
+    std::vector<SketchEntity> ents;
+    Vec2d centroid(0, 0);
+    bool  have = false, have_centroid = false;
+    if (extrude_uses_loop()) {
+        plane = m_doc.features[m_extrude_sketch_ref].plane;
+        ents  = m_viewport->selected_loop_entities();
+        have  = true;
+    } else if (m_extrude_sketch_ref >= 0 && m_extrude_sketch_ref < int(m_doc.features.size())) {
+        const CadFeature& sk = m_doc.features[m_extrude_sketch_ref];
+        plane = sk.plane;
+        ents  = sk.entities;
+        have  = true;
+        if (ents.empty() && !sk.profile.points.empty()) {
+            for (const Vec2d& p : sk.profile.points) centroid += p;
+            centroid /= double(sk.profile.points.size());
+            have_centroid = true;
+        }
+        // Primitive shape sketches (no entities/profile) are centred at the plane origin -> (0,0).
+    }
+    if (!have) { m_viewport->clear_extrude_gizmo(); return; }
+
+    if (!ents.empty()) {
+        Vec2d acc(0, 0); int n = 0;
+        for (const SketchEntity& e : ents) {
+            switch (e.type) {
+            case SketchEntity::Type::Line:    acc += 0.5 * (e.p0 + e.p1); ++n; break;
+            case SketchEntity::Type::Arc:
+            case SketchEntity::Type::EllipseArc:
+            case SketchEntity::Type::Circle:
+            case SketchEntity::Type::Ellipse: acc += e.center; ++n; break;
+            case SketchEntity::Type::Point:   acc += e.p0; ++n; break;
+            case SketchEntity::Type::BSpline:
+                if (!e.ctrl.empty()) {
+                    Vec2d s(0, 0); for (const Vec2d& q : e.ctrl) s += q;
+                    acc += s / double(e.ctrl.size()); ++n;
+                }
+                break;
+            }
+        }
+        if (n > 0) { centroid = acc / double(n); have_centroid = true; }
+    }
+    (void)have_centroid;   // centroid defaults to (0,0) for primitive sketches
+
+    const ExtrudeEnd end = static_cast<ExtrudeEnd>(m_extrude_end->GetSelection());
+    m_viewport->set_extrude_gizmo(plane, centroid,
+                                  m_distance->GetValue(), m_distance2->GetValue(),
+                                  end == ExtrudeEnd::TwoSided, m_flip->GetValue());
+}
+
 void DesignPanel::refresh_preview()
 {
     if (m_active == Tool::None) { m_viewport->clear_preview(); return; }
@@ -3020,6 +3085,9 @@ void DesignPanel::refresh_preview()
     for (wxButton* b : m_confirm_btns)
         if (b != nullptr) b->Enable(ok);
     m_status->Refresh();
+
+    // Refresh the in-canvas Extrude depth arrow (self-gates: only while the Extrude card is open).
+    update_extrude_gizmo();
 }
 
 void DesignPanel::open_tool(Tool t)
@@ -3075,6 +3143,7 @@ void DesignPanel::close_tool()
     s->Show(m_box_hole,    false, true);
     s->Show(m_box_thread,  false, true);
     m_viewport->clear_preview();
+    m_viewport->clear_extrude_gizmo();
     m_form->Layout();
     m_form->FitInside();
 }

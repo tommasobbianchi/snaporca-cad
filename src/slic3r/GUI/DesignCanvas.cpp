@@ -348,6 +348,24 @@ void DesignCanvas::set_on_solid_selection_changed(std::function<void(int, int, i
     m_sketch_tool.on_solid_selection_changed = std::move(cb);
 }
 
+void DesignCanvas::set_extrude_gizmo(const SketchPlane& plane, const Vec2d& centroid,
+                                     double depth, double depth2, bool two_sided, bool flip)
+{
+    m_sketch_tool.set_extrude_gizmo(plane, centroid, depth, depth2, two_sided, flip);
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }   // llvmpipe: force repaint
+}
+
+void DesignCanvas::clear_extrude_gizmo()
+{
+    m_sketch_tool.clear_extrude_gizmo();
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
+void DesignCanvas::set_on_extrude_depth_changed(std::function<void(double, bool)> cb)
+{
+    m_sketch_tool.on_extrude_depth_changed = std::move(cb);
+}
+
 void DesignCanvas::set_on_sketch_exit(std::function<void()> cb)
 {
     m_sketch_tool.on_exit = std::move(cb);

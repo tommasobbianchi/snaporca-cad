@@ -114,6 +114,9 @@ private:
     // resolved sketch is selected and it carries entities).
     bool       extrude_uses_loop() const;
     void       sync_sketch_display();   // push un-consumed committed sketches to the viewport
+    // Feed the viewport's visual Extrude depth-arrow gizmo (C5b) with the current profile
+    // plane + centroid + live depths while the Extrude card is open (self-gates on m_active).
+    void       update_extrude_gizmo();
 
     CadDocument m_doc;
 
