@@ -340,10 +340,9 @@ DesignPanel::DesignPanel(wxWindow* parent)
             b->Bind(wxEVT_BUTTON, [this, op](wxCommandEvent&) { apply_edit_op(op); });
             cadd(b);
         };
-        ebtn("design_mirror",     _L("Mirror"),       EditOp::Mirror);
-        ebtn("design_offset",     _L("Offset"),       EditOp::Offset);
-        ebtn("design_filletedge", _L("Sketch fillet"),EditOp::Fillet);
-        ebtn("design_chamfer",    _L("Sketch chamfer"),EditOp::Chamfer);
+        // Mirror/Offset/Fillet/Chamfer are now first-class in-canvas SKETCH toolbar tools
+        // (drag-arrow + editable label, no docked card) — the old Constrain-mode buttons
+        // that popped a numeric card are retired. Trim/Extend/Array/… stay here for now.
         ebtn("design_trim",       _L("Trim"),         EditOp::Trim);
         ebtn("design_extend",     _L("Extend"),       EditOp::Extend);
         ebtn("design_array",      _L("Linear array"), EditOp::Array);
@@ -915,34 +914,9 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_status->Refresh();
     });
 
-    // Line tool: after the segment is placed, ask for the exact length (Confirm
-    // rescales it; Cancel keeps it as drawn).
-    m_viewport->set_on_segment_drawn([this](double len, double /*ang_deg*/) {
-        request_value(_L("Length (mm)"), len, 0.001, 1000000.0,
-                      [this](double v) { if (m_viewport) m_viewport->apply_segment_length(v); },
-                      [this]()         { if (m_viewport) m_viewport->keep_segment_as_drawn(); });
-    });
-
-    // Dimension tool: a click placed a quote at its measured value; pop the value card
-    // pre-filled so the user can type an exact value (which drives the geometry).
-    m_viewport->set_on_dimension_pick_complete([this](double current) {
-        if (!m_viewport) return;
-        using D = DesignSketchTool::DimType;
-        const D k = m_viewport->pending_dimension_type();
-        wxString label = _L("Value");
-        double mn = 0.001, mx = 1000000.0;
-        switch (k) {
-        case D::Length:         label = _L("Length (mm)");   break;
-        case D::Diameter:       label = _L("Diameter (mm)"); break;
-        case D::Radius:         label = _L("Radius (mm)");   break;
-        case D::Distance:       label = _L("Distance (mm) — 0 = coincident"); mn = 0.0; break;
-        case D::DistanceToLine: label = _L("Distance to line (mm) — 0 = on the axis"); mn = 0.0; break;
-        default: break;
-        }
-        request_value(label, current, mn, mx,
-                      [this](double v) { if (m_viewport) m_viewport->set_sketch_dimension_value(v); },
-                      [this]()         { if (m_viewport) m_viewport->cancel_sketch_dimension(); });
-    });
+    // The Line tool's length and the Dimension tool's value are both entered in-canvas now
+    // (live quote labels + the floating SketchInlineEditor), so the old docked-card
+    // callbacks (on_segment_drawn / on_dimension_pick_complete) are no longer wired.
 
     // Imported-art bbox transform streams the live offset/scale back here; write them to
     // the feature and re-sync the overlay so the art tracks the drag.
