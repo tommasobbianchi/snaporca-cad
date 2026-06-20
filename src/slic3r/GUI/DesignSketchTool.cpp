@@ -1190,6 +1190,49 @@ void DesignSketchTool::set_ellipse_axis(int ei, bool major, double v)
     resolve_live();
 }
 
+void DesignSketchTool::open_rounded_rect_editor(int fi, int which)
+{
+    if (fi < 0 || fi >= int(m_features.size()) || !on_inline_edit) return;
+    const Feature& f = m_features[fi];
+    const double w = std::abs(f.c1.x() - f.c0.x());
+    const double h = std::abs(f.c1.y() - f.c0.y());
+    const double r = f.param;
+    const double v = (which == 0) ? w : (which == 1) ? h : r;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    on_inline_edit(px, v,
+        [this, fi, which](double nv) {
+            const Feature& g = m_features[fi];
+            double gw = std::abs(g.c1.x() - g.c0.x());
+            double gh = std::abs(g.c1.y() - g.c0.y());
+            double gr = g.param;
+            if (which == 0) gw = nv; else if (which == 1) gh = nv; else gr = nv;
+            set_rounded_rect(fi, gw, gh, gr);
+        },
+        []() {});
+}
+
+// Rebuild the rounded-rect's 8 entities in place for a new width/height/fillet radius,
+// keeping the min corner (c0) fixed. Geometric (entity order/count preserved so constraint
+// refs stay valid); fillet clamped to (0, min(w,h)/2].
+void DesignSketchTool::set_rounded_rect(int fi, double w, double h, double r)
+{
+    if (fi < 0 || fi >= int(m_features.size())) return;
+    Feature& f = m_features[fi];
+    if (f.begin < 0 || f.end > int(m_entities.size()) || f.end <= f.begin) return;
+    w = std::max(w, 1e-3); h = std::max(h, 1e-3);
+    r = std::max(1e-3, std::min(r, std::min(w, h) * 0.5 - 1e-4));
+    const double xmin = std::min(f.c0.x(), f.c1.x()), ymin = std::min(f.c0.y(), f.c1.y());
+    const double xmax = xmin + w, ymax = ymin + h;
+    std::vector<SketchEntity> rebuilt = rounded_rect_entities(xmin, ymin, xmax, ymax, r);
+    if (int(rebuilt.size()) != f.end - f.begin) return;   // count must match to keep con refs
+    for (int i = 0; i < int(rebuilt.size()); ++i) {
+        rebuilt[i].construction = m_entities[f.begin + i].construction;   // preserve flag
+        m_entities[f.begin + i] = rebuilt[i];
+    }
+    f.c0 = Vec2d(xmin, ymin); f.c1 = Vec2d(xmax, ymax); f.param = r;
+    resolve_live();
+}
+
 DesignSketchTool::DimType DesignSketchTool::pending_dimension_type() const
 {
     return (m_pending_dim >= 0 && m_pending_dim < int(m_dimensions.size()))
@@ -1792,24 +1835,17 @@ std::vector<SketchEntity> DesignSketchTool::make_arc_slot(const Vec2d& center, c
 // Rounded rectangle: axis-aligned box (a,b opposite corners) with filleted
 // corners. radius_pt's distance to the nearest corner sets the fillet radius.
 // 4 straight edges + 4 quarter arcs, CCW.
-std::vector<SketchEntity> DesignSketchTool::make_rounded_rect(const Vec2d& a, const Vec2d& b, const Vec2d& radius_pt) const
+// Build the 8 entities (4 lines + 4 corner arcs, CCW) of an axis-aligned rounded box
+// from explicit bounds + fillet radius. Shared by make_rounded_rect (gesture) and
+// set_rounded_rect (label/handle edit) so the entity order/count is identical → a rebuild
+// in place keeps constraint indices into the feature span valid.
+std::vector<SketchEntity> DesignSketchTool::rounded_rect_entities(double xmin, double ymin,
+                                                                  double xmax, double ymax, double r) const
 {
     std::vector<SketchEntity> out;
-    const double xmin = std::min(a.x(), b.x()), xmax = std::max(a.x(), b.x());
-    const double ymin = std::min(a.y(), b.y()), ymax = std::max(a.y(), b.y());
-    const double bw = xmax - xmin, bh = ymax - ymin;
-    if (bw < 1e-6 || bh < 1e-6) return out;
-    const Vec2d cs[4] = { {xmin,ymin}, {xmax,ymin}, {xmax,ymax}, {xmin,ymax} };
-    double r = 1e18;
-    for (const Vec2d& c : cs) r = std::min(r, (radius_pt - c).norm());
-    r = std::min(r, std::min(bw, bh) * 0.5);
     auto line = [&](const Vec2d& p0, const Vec2d& p1) {
         SketchEntity e; e.type = SketchEntity::Type::Line; e.p0 = p0; e.p1 = p1;
         e.construction = m_construction; return e; };
-    if (r < 1e-6) {   // degenerate -> plain rectangle
-        for (int i = 0; i < 4; ++i) out.push_back(line(cs[i], cs[(i + 1) % 4]));
-        return out;
-    }
     auto corner = [&](const Vec2d& O, const Vec2d& sharp, const Vec2d& start, const Vec2d& end) {
         const Vec2d thr = O + r * (sharp - O).normalized();
         return make_arc_through(O, r, start, end, thr, m_construction); };
@@ -1822,6 +1858,27 @@ std::vector<SketchEntity> DesignSketchTool::make_rounded_rect(const Vec2d& a, co
     out.push_back(line({xmin, ymax - r}, {xmin, ymin + r}));                                  // left
     out.push_back(corner({xmin + r, ymin + r}, {xmin, ymin}, {xmin, ymin + r}, {xmin + r, ymin})); // BL
     return out;
+}
+
+std::vector<SketchEntity> DesignSketchTool::make_rounded_rect(const Vec2d& a, const Vec2d& b, const Vec2d& radius_pt) const
+{
+    std::vector<SketchEntity> out;
+    const double xmin = std::min(a.x(), b.x()), xmax = std::max(a.x(), b.x());
+    const double ymin = std::min(a.y(), b.y()), ymax = std::max(a.y(), b.y());
+    const double bw = xmax - xmin, bh = ymax - ymin;
+    if (bw < 1e-6 || bh < 1e-6) return out;
+    const Vec2d cs[4] = { {xmin,ymin}, {xmax,ymin}, {xmax,ymax}, {xmin,ymax} };
+    double r = 1e18;
+    for (const Vec2d& c : cs) r = std::min(r, (radius_pt - c).norm());
+    r = std::min(r, std::min(bw, bh) * 0.5);
+    if (r < 1e-6) {   // degenerate -> plain rectangle
+        auto line = [&](const Vec2d& p0, const Vec2d& p1) {
+            SketchEntity e; e.type = SketchEntity::Type::Line; e.p0 = p0; e.p1 = p1;
+            e.construction = m_construction; return e; };
+        for (int i = 0; i < 4; ++i) out.push_back(line(cs[i], cs[(i + 1) % 4]));
+        return out;
+    }
+    return rounded_rect_entities(xmin, ymin, xmax, ymax, r);
 }
 
 std::vector<SketchEntity> DesignSketchTool::make_polygon(const Vec2d& center, const Vec2d& vertex, int sides) const
@@ -2489,6 +2546,8 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
     m_live_arc_angle_label = Vec2d(1e18, 1e18);
     m_live_ellipse_ei = -1;
     m_live_ellipse_major_label = m_live_ellipse_minor_label = Vec2d(1e18, 1e18);
+    m_live_rrect_fi = -1;
+    m_live_rrect_w_label = m_live_rrect_h_label = m_live_rrect_r_label = Vec2d(1e18, 1e18);
     int ei = -1;
     if (m_dragging_point && m_drag_ei >= 0)  ei = m_drag_ei;
     else if (m_dragging_handle)              ei = m_drag_handle.ei;
@@ -2590,11 +2649,47 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
             }
             break;
         }
+        case FeatureKind::RoundedRect: {
+            // Width + Height (box bounds) + fillet Radius, drawn as clickable quotes that
+            // rebuild the box geometrically (set_rounded_rect). c0=min corner, c1=max, param=r.
+            const ColorRGBA dc(0.30f, 0.88f, 0.66f, 1.0f);
+            const double th = std::max(15.0 * unit_per_px, 1e-4);
+            const double xmin = std::min(f.c0.x(), f.c1.x()), xmax = std::max(f.c0.x(), f.c1.x());
+            const double ymin = std::min(f.c0.y(), f.c1.y()), ymax = std::max(f.c0.y(), f.c1.y());
+            const double w = xmax - xmin, h = ymax - ymin, r = f.param;
+            const double off = th * 2.0;
+            std::vector<std::pair<Vec2d, Vec2d>> segs;
+            // Width quote below the box.
+            const double yb = ymin - off;
+            segs.emplace_back(Vec2d(xmin, ymin), Vec2d(xmin, yb));
+            segs.emplace_back(Vec2d(xmax, ymin), Vec2d(xmax, yb));
+            segs.emplace_back(Vec2d(xmin, yb),   Vec2d(xmax, yb));
+            // Height quote left of the box.
+            const double xl = xmin - off;
+            segs.emplace_back(Vec2d(xmin, ymin), Vec2d(xl, ymin));
+            segs.emplace_back(Vec2d(xmin, ymax), Vec2d(xl, ymax));
+            segs.emplace_back(Vec2d(xl, ymin),   Vec2d(xl, ymax));
+            // Fillet-radius leader from the TR arc centre out to the corner.
+            const Vec2d rc(xmax - r, ymax - r);
+            segs.emplace_back(rc, rc + Vec2d(r, r).normalized() * r);
+            draw_strokes(m_highlight_model, segs, 0.6, dc);
+            DimAnnot wa; wa.kind = DimType::Length; wa.value = w;
+            DimAnnot ha; ha.kind = DimType::Length; ha.value = h;
+            DimAnnot ra; ra.kind = DimType::Radius; ra.value = r;
+            m_live_rrect_w_label = Vec2d((xmin + xmax) * 0.5, yb - th * 0.8);
+            m_live_rrect_h_label = Vec2d(xl - th * 0.8, (ymin + ymax) * 0.5);
+            m_live_rrect_r_label = rc + Vec2d(r, r).normalized() * (r + th * 1.2);
+            draw_text(m_line_model, dim_text(wa), m_live_rrect_w_label, th, dc);
+            draw_text(m_line_model, dim_text(ha), m_live_rrect_h_label, th, dc);
+            draw_text(m_line_model, dim_text(ra), m_live_rrect_r_label, th, dc);
+            m_live_rrect_fi = fi;
+            break;
+        }
         default: break;                   // arc/ellipse/etc.: later chunks
         }
     }
 
-    if (protos.empty() && m_live_poly_fi < 0) {  // ungrouped single entity
+    if (protos.empty() && m_live_poly_fi < 0 && m_live_rrect_fi < 0) {  // ungrouped single entity
         switch (e.type) {
         case SketchEntity::Type::Line: {
             DimAnnot len; len.kind = DimType::Length; len.ea = ei; len.side = 1.0; protos.push_back(len);
@@ -2618,7 +2713,8 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
     // GEOMETRIC edit (SLVS angle constraints are line-to-line). A wedge spans the arc's
     // start->end angles just OUTSIDE the radius; its label shows the included angle and is
     // clickable to type a new sweep. The radius quote is still emitted via `protos`.
-    if (m_live_poly_fi < 0 && e.type == SketchEntity::Type::Arc && e.radius > 1e-6) {
+    if (m_live_poly_fi < 0 && m_live_rrect_fi < 0 &&
+        e.type == SketchEntity::Type::Arc && e.radius > 1e-6) {
         const ColorRGBA dc(0.30f, 0.88f, 0.66f, 1.0f);
         const double th = std::max(15.0 * unit_per_px, 1e-4);
         const Vec2d  c  = e.center;
@@ -2647,7 +2743,7 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
     // Ellipse: two clickable axis quotes — semi-major (a) along the major direction and
     // semi-minor (b) along the minor. Both edit geometrically (a=e.radius, b=e.rminor);
     // phi (orientation) is changed by dragging the major grip, not via a label.
-    if (m_live_poly_fi < 0 &&
+    if (m_live_poly_fi < 0 && m_live_rrect_fi < 0 &&
         (e.type == SketchEntity::Type::Ellipse || e.type == SketchEntity::Type::EllipseArc) &&
         e.radius > 1e-6 && e.rminor > 1e-6) {
         const ColorRGBA dc(0.30f, 0.88f, 0.66f, 1.0f);
@@ -3565,6 +3661,11 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                         return true;
                     }
                 }
+                if (m_live_rrect_fi >= 0) {
+                    if ((m_live_rrect_w_label - p).norm() <= ltol) { open_rounded_rect_editor(m_live_rrect_fi, 0); return true; }
+                    if ((m_live_rrect_h_label - p).norm() <= ltol) { open_rounded_rect_editor(m_live_rrect_fi, 1); return true; }
+                    if ((m_live_rrect_r_label - p).norm() <= ltol) { open_rounded_rect_editor(m_live_rrect_fi, 2); return true; }
+                }
             }
 
             // A derived handle (the circle RadiusHandle — not an entity point, so
@@ -3884,8 +3985,19 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             m_points.push_back(p);
             if (m_points.size() == 3) {
                 const int base = int(m_entities.size());
+                begin_feature(FeatureKind::RoundedRect);
                 append_entities(make_rounded_rect(m_points[0], m_points[1], m_points[2]));
                 infer_auto_constraints(base);
+                // Group with the actual clamped fillet radius so the W/H/R live quotes
+                // and rebuild edits can recover the box. (Skip grouping if degenerate.)
+                const Vec2d a = m_points[0], b = m_points[1];
+                const double xmin=std::min(a.x(),b.x()), xmax=std::max(a.x(),b.x());
+                const double ymin=std::min(a.y(),b.y()), ymax=std::max(a.y(),b.y());
+                const double bw=xmax-xmin, bh=ymax-ymin;
+                const Vec2d cs[4]={{xmin,ymin},{xmax,ymin},{xmax,ymax},{xmin,ymax}};
+                double r=1e18; for(const Vec2d&c:cs) r=std::min(r,(m_points[2]-c).norm());
+                r=std::min(r, std::min(bw,bh)*0.5);
+                end_feature(Vec2d(xmin,ymin), Vec2d(xmax,ymax), r);
                 m_points.clear();
             }
             return true;
