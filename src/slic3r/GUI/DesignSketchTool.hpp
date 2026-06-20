@@ -71,7 +71,8 @@ public:
     struct DisplaySketch { std::vector<SketchEntity> entities; SketchPlane plane; int feature{-1}; };
     void set_display_sketches(std::vector<DisplaySketch> ds) { m_display_sketches = std::move(ds); }
     bool has_display() const { return m_active || !m_display_sketches.empty()
-                                      || (m_solid_bodies != nullptr && !m_solid_bodies->empty()) || m_ex_active; }
+                                      || (m_solid_bodies != nullptr && !m_solid_bodies->empty())
+                                      || m_ex_active || m_mv_active; }
 
     // Solid topology selection on the committed bodies: clicking a solid cycles
     // whole-solid -> face -> edge (Onshape-style) to target fillet/chamfer/extrude. With
@@ -82,11 +83,23 @@ public:
     // tri_face = per-triangle face id within its body; tri_body = per-triangle body index.
     void set_solid_pick(const std::vector<CadBody>* bodies, const TriangleMesh* mesh,
                         const std::vector<int>* tri_face, const std::vector<int>* tri_body,
-                        const std::vector<bool>* visible = nullptr);
+                        const std::vector<bool>* visible = nullptr,
+                        const std::vector<Transform3d>* xform = nullptr);
     void clear_solid_selection();
     // Select a whole body by index (from the Parts list) — Whole-level highlight, no face/edge.
     // body < 0 or out of range clears the selection.
     void select_body(int body);
+
+    // Move-body gizmo (M5): translate a whole body with three world-axis drag arrows
+    // (X red / Y green / Z blue) anchored at the body centroid. Display-only — the host
+    // keeps a per-body Transform3d and re-feeds the moved display/pick meshes; the OCCT
+    // shape (and thus face/edge global ids) is never touched. Drag fires on_body_move_changed
+    // live; a stationary click on an arrow opens the inline offset editor for that axis.
+    void set_move_gizmo(int body, const Vec3d& base, const Vec3d& offset);
+    void clear_move_gizmo();
+    bool moving_body() const { return m_mv_active; }
+    int  move_body_index() const { return m_mv_body; }
+    std::function<void(int body, Vec3d offset)> on_body_move_changed;
     // Fired on each cycle change: (level 0=None/1=Whole/2=Face/3=Edge, body index, face id, edge id).
     std::function<void(int level, int body, int face, int edge)> on_solid_selection_changed;
     // Click a committed sketch overlay (no live session) -> select that loop: the Sketch
@@ -628,6 +641,8 @@ private:
     const std::vector<int>* m_solid_tri_face{nullptr};
     const std::vector<int>* m_solid_tri_body{nullptr};
     const std::vector<bool>* m_solid_visible{nullptr};  // per-body visibility; hidden bodies aren't pickable
+    const std::vector<Transform3d>* m_solid_xform{nullptr};  // per-body display transform (for edge sampling)
+    Vec3d body_xform_pt(int body, const Vec3d& p) const;     // map an OCCT-shape point through the body xform
     bool body_pickable(int b) const;                    // false when the body is explicitly hidden
     SolidSel                m_solid_sel{SolidSel::None};
     int                     m_sel_body{-1};   // which body the face/edge selection is on
@@ -655,6 +670,19 @@ private:
     void  drag_extrude_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt, int which);
     void  open_extrude_editor(int which);
     GLModel m_ex_arrow_model;
+
+    // Move-body gizmo state (3 world-axis arrows from m_mv_base + m_mv_offset).
+    bool        m_mv_active{false};
+    int         m_mv_body{-1};
+    Vec3d       m_mv_base{Vec3d::Zero()};      // original body centroid (world)
+    Vec3d       m_mv_offset{Vec3d::Zero()};    // current translation applied to the body
+    int         m_mv_drag{-1};                 // 0=X, 1=Y, 2=Z, -1=none
+    int         m_mv_press_x{0}, m_mv_press_y{0};
+    void  render_move_gizmo();
+    bool  hit_test_move_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt, int& axis) const;
+    void  drag_move_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt, int axis);
+    void  open_move_editor(int axis);
+    GLModel m_mv_arrow_model;
 };
 
 }} // namespace Slic3r::GUI

@@ -222,6 +222,16 @@ private:
     // bodies are appended in feature order). Empty/grown to all-visible by sync_body_visible().
     std::vector<bool> m_body_visible;
     void sync_body_visible();             // grow/shrink m_body_visible to bodies.size()
+    // Per-body display translation (Move-body, M5). Parallel to m_doc.bodies; default
+    // identity. Applied to the display/pick meshes only — the OCCT shape (and face/edge
+    // global ids) is never touched, so dress-up targeting stays stable across a move.
+    std::vector<Transform3d>  m_body_xform;
+    std::vector<TriangleMesh> m_disp_body_meshes;   // display_body_meshes with m_body_xform applied
+    TriangleMesh              m_disp_pick_mesh;      // combined pick mesh with m_body_xform applied
+    void sync_body_xform();               // grow m_body_xform to bodies.size() (identity)
+    void rebuild_disp_meshes();           // recompute m_disp_* from m_doc + m_body_xform
+    void feed_bodies();                   // push m_disp_* + visibility/xform to the viewport
+    void on_move_body();                  // start the move gizmo on the selected body
     int  tree_selection() const;          // selected feature row, or wxNOT_FOUND
     int  tree_body_selection() const;     // selected Parts-list body index, or -1
     void set_tree_selection(int row);

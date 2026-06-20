@@ -380,9 +380,29 @@ void DesignCanvas::clear_loop_pick()
 
 void DesignCanvas::set_solid_pick(const std::vector<CadBody>* bodies, const TriangleMesh* mesh,
                                   const std::vector<int>* tri_face, const std::vector<int>* tri_body,
-                                  const std::vector<bool>* visible)
+                                  const std::vector<bool>* visible,
+                                  const std::vector<Transform3d>* xform)
 {
-    m_sketch_tool.set_solid_pick(bodies, mesh, tri_face, tri_body, visible);
+    m_sketch_tool.set_solid_pick(bodies, mesh, tri_face, tri_body, visible, xform);
+}
+
+void DesignCanvas::begin_move_body(int body, const Vec3d& base, const Vec3d& offset)
+{
+    m_sketch_tool.set_move_gizmo(body, base, offset);
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }   // llvmpipe: force repaint
+}
+
+void DesignCanvas::clear_move_gizmo()
+{
+    m_sketch_tool.clear_move_gizmo();
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
+bool DesignCanvas::moving_body() const { return m_sketch_tool.moving_body(); }
+
+void DesignCanvas::set_on_body_move_changed(std::function<void(int, Vec3d)> cb)
+{
+    m_sketch_tool.on_body_move_changed = std::move(cb);
 }
 
 void DesignCanvas::set_on_solid_selection_changed(std::function<void(int, int, int, int)> cb)

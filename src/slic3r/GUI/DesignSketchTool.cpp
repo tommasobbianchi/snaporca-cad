@@ -2191,17 +2191,28 @@ std::vector<SketchEntity> DesignSketchTool::selected_loop_entities() const
 
 void DesignSketchTool::set_solid_pick(const std::vector<CadBody>* bodies, const TriangleMesh* mesh,
                                       const std::vector<int>* tri_face, const std::vector<int>* tri_body,
-                                      const std::vector<bool>* visible)
+                                      const std::vector<bool>* visible,
+                                      const std::vector<Transform3d>* xform)
 {
     // Treat no bodies or an empty mesh as "no solid" so has_display()/picking stay off.
     if (bodies == nullptr || bodies->empty() || mesh == nullptr || mesh->its.indices.empty()) {
         m_solid_bodies = nullptr; m_solid_mesh = nullptr; m_solid_tri_face = nullptr; m_solid_tri_body = nullptr;
-        m_solid_visible = nullptr;
+        m_solid_visible = nullptr; m_solid_xform = nullptr;
     } else {
         m_solid_bodies = bodies; m_solid_mesh = mesh; m_solid_tri_face = tri_face; m_solid_tri_body = tri_body;
-        m_solid_visible = visible;
+        m_solid_visible = visible; m_solid_xform = xform;
     }
     clear_solid_selection();
+}
+
+// Map a point sampled from the (untransformed) OCCT body shape through the body's display
+// transform, so edge picking/highlight track a moved body. The pick MESH is already
+// transformed by the host; only OCCT-sampled edges need this.
+Vec3d DesignSketchTool::body_xform_pt(int body, const Vec3d& p) const
+{
+    if (m_solid_xform != nullptr && body >= 0 && body < int(m_solid_xform->size()))
+        return (*m_solid_xform)[body] * p;
+    return p;
 }
 
 // A body is pickable unless an explicit visibility vector marks it hidden.
@@ -2277,7 +2288,8 @@ bool DesignSketchTool::handle_solid_click(GLCanvas3D& canvas, const wxMouseEvent
         if (!face.IsNull()) {
             const std::vector<TopoDS_Edge> edges = GeometryEngine::edges_of_face(face);
             for (int k = 0; k < int(edges.size()); ++k) {
-                const std::vector<Vec3d> pts = GeometryEngine::sample_edge_world(edges[k]);
+                std::vector<Vec3d> pts = GeometryEngine::sample_edge_world(edges[k]);
+                for (Vec3d& q : pts) q = body_xform_pt(m_sel_body, q);   // follow a moved body
                 double d = 1e30;
                 for (size_t s = 1; s < pts.size(); ++s)
                     d = std::min(d, ray_segment_dist3(ro, rd, pts[s - 1], pts[s]));
@@ -2480,6 +2492,117 @@ void DesignSketchTool::open_extrude_editor(int which)
             const double d = std::max(0.01, v);
             if (which == 1) m_ex_depth2 = d; else m_ex_depth = d;
             if (on_extrude_depth_changed) on_extrude_depth_changed(d, which == 1);
+        },
+        []() {});
+}
+
+// ---- Move-body gizmo (M5) -------------------------------------------------------------
+void DesignSketchTool::set_move_gizmo(int body, const Vec3d& base, const Vec3d& offset)
+{
+    m_mv_active = true;
+    m_mv_body   = body;
+    m_mv_base   = base;
+    m_mv_offset = offset;
+    m_mv_drag   = -1;
+}
+
+void DesignSketchTool::clear_move_gizmo()
+{
+    m_mv_active = false;
+    m_mv_drag   = -1;
+    m_mv_body   = -1;
+}
+
+// Three world-axis arrows (X red / Y green / Z blue) from the body centroid + current
+// offset, billboarded into a screen-facing frame like the extrude depth arrow.
+void DesignSketchTool::render_move_gizmo()
+{
+    if (!m_mv_active) return;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const Vec3d right = cam.get_dir_right().normalized();
+    const Vec3d up    = cam.get_dir_up().normalized();
+    const Vec3d fwd   = cam.get_dir_forward().normalized();
+    const Vec3d anchor = m_mv_base + m_mv_offset;
+    const double upp  = 1.0 / std::max(cam.get_zoom(), 1e-6);
+    const double th   = std::max(15.0 * upp, 1e-4);
+    const double L    = 70.0 * upp;                 // fixed screen-size arrow length
+
+    const SketchPlane saved = m_plane;
+    SketchPlane bb; bb.origin = anchor; bb.x_axis = right; bb.y_axis = up; bb.normal = fwd;
+    m_plane = bb;
+
+    const Vec3d axes[3]   = { Vec3d::UnitX(), Vec3d::UnitY(), Vec3d::UnitZ() };
+    const ColorRGBA cols[3] = { ColorRGBA(0.92f, 0.28f, 0.28f, 1.0f),   // X red
+                                ColorRGBA(0.30f, 0.80f, 0.34f, 1.0f),   // Y green
+                                ColorRGBA(0.32f, 0.55f, 0.95f, 1.0f) }; // Z blue
+
+    glsafe(::glDisable(GL_DEPTH_TEST));
+    for (int a = 0; a < 3; ++a) {
+        const Vec3d tipw = anchor + axes[a] * L;
+        const Vec2d tip2((tipw - anchor).dot(right), (tipw - anchor).dot(up));
+        if (tip2.norm() < 1e-6) continue;           // axis ~parallel to view: skip
+        const Vec2d u = tip2.normalized();
+        const Vec2d nrm(-u.y(), u.x());
+        std::vector<std::pair<Vec2d, Vec2d>> segs;
+        segs.emplace_back(Vec2d(0, 0), tip2);
+        const double as = std::max(tip2.norm() * 0.20, th * 0.9);
+        const Vec2d back = tip2 - u * as;
+        segs.emplace_back(tip2, back + nrm * (as * 0.5));
+        segs.emplace_back(tip2, back - nrm * (as * 0.5));
+        draw_strokes(m_mv_arrow_model, segs, std::max(0.7 * upp, 1e-4), cols[a]);
+        const double off = m_mv_offset[a];
+        if (std::abs(off) > 1e-4) {
+            DimAnnot da; da.kind = DimType::Distance; da.value = std::abs(off);
+            draw_text(m_line_model, dim_text(da), tip2 + u * (th * 1.4), th, cols[a]);
+        }
+    }
+    m_plane = saved;
+}
+
+// Ray vs each world-axis arrow segment; nearest within ~7 px wins.
+bool DesignSketchTool::hit_test_move_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt, int& axis) const
+{
+    if (!m_mv_active) return false;
+    const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = r.a, rd = r.b - r.a;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const double upp = 1.0 / std::max(cam.get_zoom(), 1e-6);
+    const double L   = 70.0 * upp;
+    const Vec3d anchor = m_mv_base + m_mv_offset;
+    const Vec3d axes[3] = { Vec3d::UnitX(), Vec3d::UnitY(), Vec3d::UnitZ() };
+    int best = -1; double bestd = 7.0 * upp;        // ~7 px tolerance
+    for (int a = 0; a < 3; ++a) {
+        const double d = ray_segment_dist3(ro, rd, anchor, anchor + axes[a] * L);
+        if (d <= bestd) { bestd = d; best = a; }
+    }
+    if (best < 0) return false;
+    axis = best; return true;
+}
+
+// Skew-line closest point of the mouse ray to the axis line through the ORIGINAL centroid
+// -> signed offset along that axis (no clamp; a body can move either way).
+void DesignSketchTool::drag_move_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt, int axis)
+{
+    const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = r.a, rd = r.b - r.a;
+    const Vec3d axes[3] = { Vec3d::UnitX(), Vec3d::UnitY(), Vec3d::UnitZ() };
+    const Vec3d e = axes[axis];
+    const Vec3d w0 = m_mv_base - ro;
+    const double a = e.dot(e), b = e.dot(rd), c = rd.dot(rd), dd = e.dot(w0), ee = rd.dot(w0);
+    const double denom = a * c - b * b;
+    if (std::abs(denom) < 1e-7) return;             // camera ∥ axis: leave offset as-is
+    m_mv_offset[axis] = (b * ee - c * dd) / denom;
+    if (on_body_move_changed) on_body_move_changed(m_mv_body, m_mv_offset);
+}
+
+void DesignSketchTool::open_move_editor(int axis)
+{
+    if (!on_inline_edit) return;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    on_inline_edit(px, m_mv_offset[axis],
+        [this, axis](double v) {
+            m_mv_offset[axis] = v;
+            if (on_body_move_changed) on_body_move_changed(m_mv_body, m_mv_offset);
         },
         []() {});
 }
@@ -4236,6 +4359,7 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     if (!m_active) {
         render_solid_highlight();
         if (m_ex_active) render_extrude_gizmo();
+        if (m_mv_active) render_move_gizmo();
         shader->stop_using();
         glsafe(::glEnable(GL_CULL_FACE));
         glsafe(::glEnable(GL_DEPTH_TEST));
@@ -4863,10 +4987,37 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     // is the ONLY interaction in display-only mode; everything else (drag/move/wheel/right)
     // falls through (return false) so the camera can still orbit the plate.
     if (!m_active) {
+        // Double-click anywhere fits the view (the bottom navigator orb does orientation; this
+        // is the fit shortcut). Handled before gizmo/pick so it always works on the idle plate.
+        if (evt.LeftDClick()) { canvas.zoom_to_volumes(); return true; }
         // Visual Extrude gizmo (C5b): while the Extrude card is open the depth arrow is
         // grabbable — drag changes the depth live; a click (no drag) on the arrow opens the
         // inline depth editor. Intercept before the early no-LeftDown bailout so Dragging/
         // LeftUp reach us; a LeftDown that misses the arrow falls through to solid/loop pick.
+        // Move-body gizmo (M5): three world-axis arrows on the selected body. Drag an arrow to
+        // translate live; a stationary click on it opens the inline offset editor; a right click
+        // exits move mode. A LeftDown that misses the arrows falls through to solid re-pick.
+        if (m_mv_active) {
+            if (m_mv_drag >= 0 && evt.Dragging() && evt.LeftIsDown()) {
+                drag_move_arrow(canvas, evt, m_mv_drag);
+                return true;
+            }
+            if (evt.LeftUp() && m_mv_drag >= 0) {
+                const int axis = m_mv_drag; m_mv_drag = -1;
+                const bool moved = std::abs(evt.GetX() - m_mv_press_x) +
+                                   std::abs(evt.GetY() - m_mv_press_y) > 3;
+                if (!moved) open_move_editor(axis);   // stationary click = edit
+                return true;
+            }
+            if (evt.RightDown()) { clear_move_gizmo(); canvas.set_as_dirty(); return true; }
+            if (evt.LeftDown()) {
+                int axis = -1;
+                if (hit_test_move_arrow(canvas, evt, axis)) {
+                    m_mv_drag = axis; m_mv_press_x = evt.GetX(); m_mv_press_y = evt.GetY();
+                    return true;
+                }
+            }
+        }
         if (m_ex_active) {
             if (m_ex_drag >= 0 && evt.Dragging() && evt.LeftIsDown()) {
                 drag_extrude_arrow(canvas, evt, m_ex_drag);

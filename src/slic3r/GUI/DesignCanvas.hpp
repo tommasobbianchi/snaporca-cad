@@ -80,9 +80,16 @@ public:
     // whole->face->edge cycle (level, body index, face id, edge id).
     void set_solid_pick(const std::vector<CadBody>* bodies, const TriangleMesh* mesh,
                         const std::vector<int>* tri_face, const std::vector<int>* tri_body,
-                        const std::vector<bool>* visible = nullptr);
+                        const std::vector<bool>* visible = nullptr,
+                        const std::vector<Transform3d>* xform = nullptr);
     void set_on_solid_selection_changed(std::function<void(int, int, int, int)> cb);
     void select_body(int body);   // Parts-list -> highlight a whole body by index
+    // Move-body gizmo (M5): three world-axis drag arrows on a body; drag fires the move
+    // callback with the body index + accumulated translation (display-only, host applies it).
+    void begin_move_body(int body, const Vec3d& base, const Vec3d& offset);
+    void clear_move_gizmo();
+    bool moving_body() const;
+    void set_on_body_move_changed(std::function<void(int, Vec3d)> cb);
     // Visual Extrude depth-arrow gizmo (C5b): the panel feeds the profile plane + centroid +
     // live depths/flags while its Extrude card is open; drag/edit fire the depth callback.
     void set_extrude_gizmo(const SketchPlane& plane, const Vec2d& centroid,

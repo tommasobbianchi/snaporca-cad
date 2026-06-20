@@ -768,15 +768,17 @@ DesignPanel::DesignPanel(wxWindow* parent)
         };
         auto* edit = edit_btn("design_edit", _L("Edit"));
         edit->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_edit_feature(); });
-        auto* move = edit_btn("design_move", _L("Move / Scale (imported Text/SVG)"));
+        auto* move = edit_btn("design_move", _L("Move body / Scale imported Text-SVG"));
         move->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
             const int sel = tree_selection();
             if (sel != wxNOT_FOUND && sel < int(m_doc.features.size()) &&
                 !m_doc.features[sel].imported_regions.empty()) {
                 on_transform_imported(sel);
+            } else if (m_sel_solid_body >= 0 && m_sel_solid_body < int(m_doc.bodies.size())) {
+                on_move_body();   // translate the selected body with the 3-axis gizmo
             } else {
                 m_status->SetForegroundColour(wxColour(235, 110, 110));
-                m_status->SetLabel(_L("Move / Scale is available for imported Text/SVG art"));
+                m_status->SetLabel(_L("Select a body to move it, or an imported Text/SVG to scale"));
                 m_status->Refresh();
             }
         });
@@ -972,6 +974,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // Clicking a solid cycles whole -> face -> edge. The tool draws the cyan overlay for ALL
     // levels now (per-body, so other bodies stay untinted) — no whole-compound set_body_highlight.
     m_viewport->set_on_solid_selection_changed([this](int level, int body, int face, int edge) {
+        // A pick that fell through the move gizmo (clicked off the arrows) exits move mode.
+        if (m_viewport->moving_body()) m_viewport->clear_move_gizmo();
         // Remember which body + face/edge so Extrude / dress-up target the RIGHT body.
         m_sel_solid_body = (level >= 1) ? body : -1;
         m_sel_solid_face = (level >= 2) ? face : -1;
@@ -992,6 +996,22 @@ DesignPanel::DesignPanel(wxWindow* parent)
         if (second) { if (m_distance2) m_distance2->SetValue(depth); }
         else        { if (m_distance)  m_distance->SetValue(depth); }
         refresh_preview();
+    });
+
+    // Move-body gizmo (M5): each drag/edit reports the body's new translation. Store it as a
+    // display-only per-body transform and re-feed the moved meshes (the OCCT shape is untouched,
+    // so face/edge ids the dress-up ops target stay valid).
+    m_viewport->set_on_body_move_changed([this](int body, Vec3d offset) {
+        sync_body_xform();
+        if (body < 0 || body >= int(m_body_xform.size())) return;
+        m_body_xform[body] = Transform3d(Eigen::Translation3d(offset));
+        feed_bodies();   // rebuilds the transformed meshes in place + refreshes display + pick
+        const int nb = int(m_doc.bodies.size());
+        const wxString tag = (nb > 1) ? wxString::Format(_L("Body %d "), body + 1) : wxString();
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(tag + wxString::Format(_L("moved (%.1f, %.1f, %.1f) mm"),
+                                                  offset.x(), offset.y(), offset.z()));
+        m_status->Refresh();
     });
 
     // Esc exits the active sketch tool: drop the live session, restore Feature mode +
@@ -1026,23 +1046,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
     });
 
     auto* vcol = new wxBoxSizer(wxVERTICAL);
-    auto* vbar = new wxBoxSizer(wxHORIZONTAL);
-    auto* b_fit = new wxButton(this, wxID_ANY, _L("⊹ Fit view"));
-    b_fit->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { m_viewport->fit_view(); });
-    vbar->Add(b_fit, 0, wxRIGHT, 8);
-    // Standard-view shortcuts (a minimal view-cube): snap the camera to a named
-    // orientation, reusing Camera::select_view via DesignCanvas::set_view.
-    struct { const char* label; const char* view; } views[] = {
-        { "Iso", "iso" }, { "Front", "front" }, { "Top", "top" }, { "Right", "right" },
-    };
-    for (const auto& v : views) {
-        std::string view = v.view;
-        // Auto-size: translated labels (e.g. IT "Dall'alto") overflow a fixed width.
-        auto* b = new wxButton(this, wxID_ANY, _L(v.label));
-        b->Bind(wxEVT_BUTTON, [this, view](wxCommandEvent&) { m_viewport->set_view(view); });
-        vbar->Add(b, 0, wxRIGHT, 4);
-    }
-    vcol->Add(vbar, 0, wxALL, 4);
+    // The bottom 3D-navigator orb handles all view orientation, so no separate view buttons.
+    // Fit view is a double-click on the viewport (the tool intercepts it -> zoom_to_volumes).
     vcol->Add(m_viewport, 1, wxEXPAND);
 
     // Onshape layout: top toolbar over [ slim left column | center viewport ].
@@ -1100,13 +1105,15 @@ void DesignPanel::set_status_ok()
     m_status->SetLabel(wxString::Format(_L("OK — %zu triangles"),
                                         m_doc.display_mesh.its.indices.size()));
     if (m_viewport != nullptr) {
-        sync_body_visible();
-        m_viewport->set_bodies(m_doc.display_body_meshes, m_body_visible);
-        // Point the solid-pick at the fresh body + tessellation (resets the whole/face/edge
-        // selection, whose ids invalidate on every recompute). Null body is handled inside.
-        m_viewport->set_solid_pick(&m_doc.bodies, &m_doc.display_mesh,
+        m_viewport->clear_move_gizmo();   // a recompute invalidates the gizmo's body centroid
+        rebuild_disp_meshes();            // apply per-body Move transforms to the display/pick meshes
+        // Point the solid-pick at the fresh body + TRANSFORMED pick mesh (stable address) + the
+        // per-body xform vector (for edge sampling). Resets the whole/face/edge selection, whose
+        // ids invalidate on every recompute. Null body is handled inside.
+        m_viewport->set_solid_pick(&m_doc.bodies, &m_disp_pick_mesh,
                                    &m_doc.display_tri_face, &m_doc.display_tri_body,
-                                   &m_body_visible);
+                                   &m_body_visible, &m_body_xform);
+        feed_bodies();
     }
     sync_sketch_display();
 }
@@ -1479,6 +1486,71 @@ void DesignPanel::sync_body_visible()
     m_body_visible.resize(m_doc.bodies.size(), true);
 }
 
+void DesignPanel::sync_body_xform()
+{
+    // Parallel to bodies; new bodies default to identity (no move). Stable on resize.
+    m_body_xform.resize(m_doc.bodies.size(), Transform3d::Identity());
+}
+
+// Build the display + pick meshes with each body's Move transform applied. The pick mesh is
+// re-merged from the transformed per-body meshes IN THE SAME body order as tessellate_bodies,
+// so display_tri_face/display_tri_body stay aligned. m_disp_pick_mesh keeps a stable address —
+// the tool holds a pointer to it, so an in-place rebuild updates picking without re-pointing.
+void DesignPanel::rebuild_disp_meshes()
+{
+    sync_body_visible();
+    sync_body_xform();
+    const std::vector<TriangleMesh>& src = m_doc.display_body_meshes;
+
+    bool any = false;
+    for (const Transform3d& t : m_body_xform)
+        if (!t.isApprox(Transform3d::Identity())) { any = true; break; }
+
+    if (!any) {                          // no body moved: identical to the untransformed meshes
+        m_disp_body_meshes = src;
+        m_disp_pick_mesh   = m_doc.display_mesh;
+        return;
+    }
+
+    m_disp_body_meshes.clear();
+    m_disp_body_meshes.reserve(src.size());
+    m_disp_pick_mesh = TriangleMesh{};
+    for (size_t b = 0; b < src.size(); ++b) {
+        TriangleMesh m = src[b];
+        if (b < m_body_xform.size()) m.transform(m_body_xform[b]);
+        m_disp_pick_mesh.merge(m);       // same order as tessellate_bodies -> tri_* stay aligned
+        m_disp_body_meshes.push_back(std::move(m));
+    }
+}
+
+void DesignPanel::feed_bodies()
+{
+    // Rebuild the transformed meshes first so every display-refresh path (recompute, tint,
+    // visibility, live move) shows the bodies at their current Move offsets. The solid-pick
+    // keeps a STABLE pointer to m_disp_pick_mesh / m_body_visible / m_body_xform (rebuilt in
+    // place), so it needs no re-call here — the whole/face/edge selection survives a move drag.
+    if (m_viewport == nullptr) return;
+    rebuild_disp_meshes();
+    m_viewport->set_bodies(m_disp_body_meshes, m_body_visible);
+}
+
+void DesignPanel::on_move_body()
+{
+    const int b = m_sel_solid_body;
+    if (m_viewport == nullptr || b < 0 || b >= int(m_doc.display_body_meshes.size())) return;
+    sync_body_xform();
+    // Anchor the gizmo at the UNtransformed body centroid (bbox centre); the tool adds the
+    // current offset so the arrows sit on the body wherever it has been moved to.
+    const BoundingBoxf3 bb = m_doc.display_body_meshes[b].bounding_box();
+    const Vec3d base = bb.center();
+    Vec3d offset = Vec3d::Zero();
+    if (b < int(m_body_xform.size())) offset = m_body_xform[b].translation();
+    m_viewport->begin_move_body(b, base, offset);
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(_L("Drag the X/Y/Z arrows to move the body — click an arrow to type an offset, right-click to finish"));
+    m_status->Refresh();
+}
+
 int DesignPanel::tree_selection() const
 {
     const wxTreeItemId sel = m_tree->GetSelection();
@@ -1538,10 +1610,10 @@ void DesignPanel::on_toggle_visibility()
             const bool now_visible = !m_body_visible[bsel];
             m_body_visible[bsel] = now_visible;
             if (m_viewport != nullptr) {
-                m_viewport->set_bodies(m_doc.display_body_meshes, m_body_visible);
-                m_viewport->set_solid_pick(&m_doc.bodies, &m_doc.display_mesh,
+                feed_bodies();   // flips is_active; m_solid_visible is a stable pointer (live)
+                m_viewport->set_solid_pick(&m_doc.bodies, &m_disp_pick_mesh,
                                            &m_doc.display_tri_face, &m_doc.display_tri_body,
-                                           &m_body_visible);
+                                           &m_body_visible, &m_body_xform);
             }
             refresh_tree();
             if (bsel < int(m_tree_body_items.size()))   // keep the row selected for repeat toggles
@@ -1577,7 +1649,7 @@ void DesignPanel::on_toggle_visibility()
     set_tree_selection(sel);              // keep the toggled feature selected
     if (m_viewport != nullptr) {
         if (m_doc.display_mesh.its.indices.empty()) m_viewport->clear_mesh();
-        else                                        m_viewport->set_bodies(m_doc.display_body_meshes, m_body_visible);
+        else                                        feed_bodies();
     }
     sync_sketch_display();                // skips the hidden sketch + direct-renders
     m_status->SetForegroundColour(wxNullColour);
@@ -1843,7 +1915,7 @@ void DesignPanel::commit_entity_constraints(const std::vector<SketchEntityConstr
     m_doc.recompute();
     m_viewport->update_constrain_entities(m_doc.features[m_constrain_feat].entities);
     if (!m_doc.display_mesh.its.indices.empty())
-        m_viewport->set_bodies(m_doc.display_body_meshes, m_body_visible);
+        feed_bodies();
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(_L("Applied constraint"));
     m_status->Refresh();
@@ -2018,7 +2090,7 @@ void DesignPanel::delete_constraint(int idx)
     m_viewport->set_constraint_highlight({});
     m_viewport->update_constrain_entities(m_doc.features[m_constrain_feat].entities);
     if (!m_doc.display_mesh.its.indices.empty())
-        m_viewport->set_bodies(m_doc.display_body_meshes, m_body_visible);
+        feed_bodies();
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(_L("Constraint deleted"));
     m_status->Refresh();
@@ -2753,7 +2825,7 @@ void DesignPanel::after_edit_op()
     // leave a stale ghost of the pre-edit geometry beside the new position.
     sync_sketch_display();
     if (!m_doc.display_mesh.its.indices.empty())
-        m_viewport->set_bodies(m_doc.display_body_meshes, m_body_visible);
+        feed_bodies();
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(_L("Applied edit"));
     m_status->Refresh();
@@ -2860,7 +2932,7 @@ void DesignPanel::apply_constraint(SketchConstraintType type)
     m_doc.recompute();
     m_viewport->update_constrain_profile(m_doc.features[m_constrain_feat].profile.points);
     if (!m_doc.display_mesh.its.indices.empty())
-        m_viewport->set_bodies(m_doc.display_body_meshes, m_body_visible);
+        feed_bodies();
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(type == SketchConstraintType::Horizontal ? _L("Applied Horizontal")
                                                                 : _L("Applied Vertical"));
@@ -3018,12 +3090,13 @@ void DesignPanel::on_commit()
     // slicer plate as independent, separately-arrangeable parts (Onshape "Commit all parts").
     // Hidden bodies are skipped — what you see on the Design plate is what gets committed.
     sync_body_visible();
-    if (m_doc.display_body_meshes.size() > 1) {
+    rebuild_disp_meshes();   // ship moved bodies at their Move-gizmo positions
+    if (m_disp_body_meshes.size() > 1) {
         int committed = 0;
-        for (size_t b = 0; b < m_doc.display_body_meshes.size(); ++b) {
+        for (size_t b = 0; b < m_disp_body_meshes.size(); ++b) {
             if (b < m_body_visible.size() && !m_body_visible[b]) continue;   // skip hidden
-            if (m_doc.display_body_meshes[b].its.indices.empty()) continue;
-            obj_list->load_mesh_object(m_doc.display_body_meshes[b],
+            if (m_disp_body_meshes[b].its.indices.empty()) continue;
+            obj_list->load_mesh_object(m_disp_body_meshes[b],
                                        "Design Body " + std::to_string(b + 1));
             ++committed;
         }
@@ -3032,7 +3105,7 @@ void DesignPanel::on_commit()
             return;
         }
     } else {
-        obj_list->load_mesh_object(m_doc.display_mesh, "Design Body");
+        obj_list->load_mesh_object(m_disp_pick_mesh, "Design Body");
     }
 
     if (wxGetApp().mainframe != nullptr)
