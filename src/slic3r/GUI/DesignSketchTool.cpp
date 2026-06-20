@@ -2679,6 +2679,10 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
     m_live_rrect_w_label = m_live_rrect_h_label = m_live_rrect_r_label = Vec2d(1e18, 1e18);
     m_live_aslot_fi = -1;
     m_live_aslot_r_label = m_live_aslot_w_label = Vec2d(1e18, 1e18);
+    // Edit-op tools (Fillet/Chamfer/Offset/Mirror) put their picks in m_selection for the
+    // highlight, but their own arrow/label gizmo is the value affordance — don't also draw
+    // the picked entity's characteristic quotes (Length/Angle/…) or the view gets cluttered.
+    if (is_edit_op_mode()) return;
     int ei = -1;
     if (m_dragging_point && m_drag_ei >= 0)  ei = m_drag_ei;
     else if (m_dragging_handle)              ei = m_drag_handle.ei;
