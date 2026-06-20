@@ -83,6 +83,9 @@ public:
     void set_solid_pick(const std::vector<CadBody>* bodies, const TriangleMesh* mesh,
                         const std::vector<int>* tri_face, const std::vector<int>* tri_body);
     void clear_solid_selection();
+    // Select a whole body by index (from the Parts list) — Whole-level highlight, no face/edge.
+    // body < 0 or out of range clears the selection.
+    void select_body(int body);
     // Fired on each cycle change: (level 0=None/1=Whole/2=Face/3=Edge, body index, face id, edge id).
     std::function<void(int level, int body, int face, int edge)> on_solid_selection_changed;
     // Click a committed sketch overlay (no live session) -> select that loop: the Sketch

@@ -2208,6 +2208,18 @@ void DesignSketchTool::clear_solid_selection()
     m_sel_edge_pts.clear();
 }
 
+void DesignSketchTool::select_body(int body)
+{
+    if (m_solid_bodies == nullptr || body < 0 || body >= int(m_solid_bodies->size())) {
+        clear_solid_selection();
+        return;
+    }
+    m_sel_body  = body;
+    m_sel_face  = m_sel_edge = -1;
+    m_sel_edge_pts.clear();
+    m_solid_sel = SolidSel::Whole;   // render_solid_highlight tints just this body
+}
+
 // LeftDown on the solid cycles whole->face->edge. Returns true if the click hit the solid
 // (consumed); false otherwise so the caller can try committed-sketch loop picking.
 bool DesignSketchTool::handle_solid_click(GLCanvas3D& canvas, const wxMouseEvent& evt)

@@ -77,6 +77,7 @@ public:
     void set_solid_pick(const std::vector<CadBody>* bodies, const TriangleMesh* mesh,
                         const std::vector<int>* tri_face, const std::vector<int>* tri_body);
     void set_on_solid_selection_changed(std::function<void(int, int, int, int)> cb);
+    void select_body(int body);   // Parts-list -> highlight a whole body by index
     // Visual Extrude depth-arrow gizmo (C5b): the panel feeds the profile plane + centroid +
     // live depths/flags while its Extrude card is open; drag/edit fire the depth callback.
     void set_extrude_gizmo(const SketchPlane& plane, const Vec2d& centroid,

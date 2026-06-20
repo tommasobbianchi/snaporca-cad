@@ -215,7 +215,11 @@ private:
     wxTreeCtrl*               m_tree{nullptr};
     wxImageList*              m_tree_images{nullptr};
     std::vector<wxTreeItemId> m_tree_items;
+    // Parts list: tree rows for each body (parallel to m_doc.bodies). Selecting one
+    // highlights that body and makes it the target for the next op.
+    std::vector<wxTreeItemId> m_tree_body_items;
     int  tree_selection() const;          // selected feature row, or wxNOT_FOUND
+    int  tree_body_selection() const;     // selected Parts-list body index, or -1
     void set_tree_selection(int row);
     static int tree_icon_for(CadFeatureType t);
 

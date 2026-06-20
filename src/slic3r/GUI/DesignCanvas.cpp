@@ -348,6 +348,12 @@ void DesignCanvas::set_on_solid_selection_changed(std::function<void(int, int, i
     m_sketch_tool.on_solid_selection_changed = std::move(cb);
 }
 
+void DesignCanvas::select_body(int body)
+{
+    m_sketch_tool.select_body(body);
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }   // redraw the overlay (llvmpipe)
+}
+
 void DesignCanvas::set_extrude_gizmo(const SketchPlane& plane, const Vec2d& centroid,
                                      double depth, double depth2, bool two_sided, bool flip)
 {

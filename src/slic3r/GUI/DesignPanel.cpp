@@ -738,6 +738,18 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // (its face is already shown via the persistent sketch overlay).
     m_tree->Bind(wxEVT_TREE_SEL_CHANGED, [this](wxTreeEvent&) {
         if (!m_viewport) return;
+        // A Parts-list body row: highlight that body and make it the op target.
+        const int bsel = tree_body_selection();
+        if (bsel >= 0) {
+            m_viewport->set_body_highlight(false);   // the per-body overlay does the tint
+            m_viewport->select_body(bsel);
+            m_sel_solid_body = bsel;
+            m_sel_solid_face = m_sel_solid_edge = -1;
+            m_status->SetForegroundColour(wxNullColour);
+            m_status->SetLabel(wxString::Format(_L("Body %d selected — next Extrude / Fillet acts on it"), bsel + 1));
+            m_status->Refresh();
+            return;
+        }
         const int sel = tree_selection();
         const bool body = (sel >= 0 && sel < int(m_doc.features.size()) &&
                            m_doc.features[sel].type != CadFeatureType::Sketch &&
@@ -1418,6 +1430,7 @@ void DesignPanel::refresh_tree()
 
     m_tree->DeleteAllItems();
     m_tree_items.clear();
+    m_tree_body_items.clear();
     wxTreeItemId root = m_tree->AddRoot("root");
     for (const auto& f : m_doc.features) {
         const int img = tree_icon_for(f.type);
@@ -1427,8 +1440,31 @@ void DesignPanel::refresh_tree()
                                                 : wxColour(0x70, 0x70, 0x70));
         m_tree_items.push_back(id);
     }
+    // Parts list: a Bodies group listing each independent solid. Shown only with >1 body
+    // (a single body is just "the solid"); selecting a row highlights it + targets it.
+    if (m_doc.bodies.size() > 1) {
+        wxTreeItemId grp = m_tree->AppendItem(root, _L("Bodies"));
+        m_tree->SetItemTextColour(grp, wxColour(0x9a, 0x9a, 0x9a));
+        for (size_t b = 0; b < m_doc.bodies.size(); ++b) {
+            // Label "Body N" (matches the viewport/status); the originating feature name is
+            // kept on the CadBody for tooltips/debug but isn't shown as the row label.
+            wxTreeItemId id = m_tree->AppendItem(grp, wxString::Format(_L("Body %zu"), b + 1));
+            m_tree->SetItemTextColour(id, wxColour(0xE0, 0xE0, 0xE0));
+            m_tree_body_items.push_back(id);
+        }
+        m_tree->Expand(grp);
+    }
     if (keep >= 0 && keep < int(m_tree_items.size()))
         m_tree->SelectItem(m_tree_items[keep]);
+}
+
+int DesignPanel::tree_body_selection() const
+{
+    const wxTreeItemId sel = m_tree->GetSelection();
+    if (!sel.IsOk()) return -1;
+    for (size_t i = 0; i < m_tree_body_items.size(); ++i)
+        if (m_tree_body_items[i] == sel) return int(i);
+    return -1;
 }
 
 int DesignPanel::tree_selection() const
