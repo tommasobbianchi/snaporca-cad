@@ -10,6 +10,7 @@
 #include <BRepPrimAPI_MakeTorus.hxx>
 #include <gp_Ax2.hxx>
 #include <TopoDS_Solid.hxx>
+#include <TopoDS_Face.hxx>
 #include <TopoDS_Edge.hxx>
 #include <vector>
 
@@ -61,6 +62,15 @@ public:
                                    double linear_deflection = 0.01,
                                    double angular_deflection = 0.5);
     static std::string  primitive_name(PrimitiveType type);
+
+    // Topology accessors for in-viewport face/edge picking (Design tab). Face index is the
+    // TopExp_Explorer(shape, TopAbs_FACE) ordinal — identical to SketchEngine::tessellate's
+    // per-triangle face id, so a picked triangle's id maps back to a face here.
+    static TopoDS_Face face_by_index(const TopoDS_Shape& shape, int index);  // null if out of range
+    static int         face_count(const TopoDS_Shape& shape);
+    static std::vector<TopoDS_Edge> edges_of_face(const TopoDS_Face& face);
+    // Sample an edge into a world-space polyline (>=2 pts) for pick-distance + highlight.
+    static std::vector<Vec3d> sample_edge_world(const TopoDS_Edge& edge, double chord_tol = 0.05);
 
 private:
     static std::vector<TopoDS_Edge> collect_edges(const TopoDS_Shape& solid, FaceGroup faces);

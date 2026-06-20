@@ -20,6 +20,8 @@
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <GeomLProp_SLProps.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <GCPnts_TangentialDeflection.hxx>
 
 namespace Slic3r {
 
@@ -221,6 +223,61 @@ std::string GeometryEngine::primitive_name(PrimitiveType type)
     case PrimitiveType::Torus:    return "Torus";
     default:                      return "Unknown";
     }
+}
+
+// ---- Topology accessors ----
+
+int GeometryEngine::face_count(const TopoDS_Shape& shape)
+{
+    int n = 0;
+    for (TopExp_Explorer e(shape, TopAbs_FACE); e.More(); e.Next())
+        ++n;
+    return n;
+}
+
+TopoDS_Face GeometryEngine::face_by_index(const TopoDS_Shape& shape, int index)
+{
+    if (index < 0) return TopoDS_Face();
+    int ordinal = 0;
+    for (TopExp_Explorer e(shape, TopAbs_FACE); e.More(); e.Next()) {
+        if (ordinal == index)
+            return TopoDS::Face(e.Current());
+        ++ordinal;
+    }
+    return TopoDS_Face();
+}
+
+std::vector<TopoDS_Edge> GeometryEngine::edges_of_face(const TopoDS_Face& face)
+{
+    std::vector<TopoDS_Edge> result;
+    TopTools_IndexedMapOfShape map;
+    TopExp::MapShapes(face, TopAbs_EDGE, map);
+    for (int i = 1; i <= map.Extent(); ++i)
+        result.push_back(TopoDS::Edge(map(i)));
+    return result;
+}
+
+std::vector<Vec3d> GeometryEngine::sample_edge_world(const TopoDS_Edge& edge, double chord_tol)
+{
+    if (BRep_Tool::Degenerated(edge))
+        return {};
+
+    BRepAdaptor_Curve curve(edge);
+    GCPnts_TangentialDeflection disc(curve, 0.1, chord_tol);
+
+    std::vector<Vec3d> pts;
+    if (disc.NbPoints() >= 2) {
+        for (int i = 1; i <= disc.NbPoints(); ++i) {
+            gp_Pnt p = disc.Value(i);
+            pts.emplace_back(p.X(), p.Y(), p.Z());
+        }
+    } else {
+        gp_Pnt p0 = curve.Value(curve.FirstParameter());
+        gp_Pnt p1 = curve.Value(curve.LastParameter());
+        pts.emplace_back(p0.X(), p0.Y(), p0.Z());
+        pts.emplace_back(p1.X(), p1.Y(), p1.Z());
+    }
+    return pts;
 }
 
 } // namespace Slic3r

@@ -1,6 +1,9 @@
 #include <catch2/catch.hpp>
 
+#include <BRepPrimAPI_MakeBox.hxx>
+
 #include "libslic3r/Point.hpp"
+#include "libslic3r/GeometryEngine.hpp"
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/Polygon.hpp"
 #include "libslic3r/Polyline.hpp"
@@ -707,4 +710,23 @@ TEST_CASE("Convex polygon intersection test prusa polygons", "[Geometry][Rotcali
 
         REQUIRE(res == ref);
     }
+}
+
+TEST_CASE("GeometryEngine topology accessors", "[Geometry]")
+{
+    TopoDS_Shape box = BRepPrimAPI_MakeBox(10., 10., 10.).Shape();
+    REQUIRE(GeometryEngine::face_count(box) == 6);
+    for (int i = 0; i < 6; ++i)
+        REQUIRE_FALSE(GeometryEngine::face_by_index(box, i).IsNull());
+    REQUIRE(GeometryEngine::face_by_index(box, 6).IsNull());      // out of range
+    REQUIRE(GeometryEngine::face_by_index(box, -1).IsNull());
+
+    TopoDS_Face f0 = GeometryEngine::face_by_index(box, 0);
+    auto edges = GeometryEngine::edges_of_face(f0);
+    REQUIRE(edges.size() == 4);                                   // a box face is a quad
+
+    auto pts = GeometryEngine::sample_edge_world(edges[0]);
+    REQUIRE(pts.size() >= 2);
+    REQUIRE_THAT((pts.front() - pts.back()).norm(),
+                 Catch::Matchers::WithinAbs(10.0, 0.01));         // edge length = 10
 }
