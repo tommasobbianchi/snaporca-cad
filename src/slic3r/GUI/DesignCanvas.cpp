@@ -366,6 +366,35 @@ void DesignCanvas::apply_sketch_dimension(double v)
     if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
 }
 
+void DesignCanvas::open_inline_value(double current, std::function<void(double)> commit,
+                                     std::function<void()> cancel)
+{
+    if (!m_inline_editor || !m_canvas_widget) { if (cancel) cancel(); return; }
+    // Host-driven value entry (committed-feature Constrain path): the trigger is a
+    // toolbar button, not a canvas click, so there is no cursor anchor — open at the
+    // centre of the viewport, where the sketch under edit is in view. Mirrors the
+    // on_inline_edit wrapper so commit/cancel re-solve and repaint the viewport.
+    // GetScreenRect collapses GetClientSize()+ClientToScreen() into one call; if the GL
+    // canvas reports degenerate geometry (it can, transiently, right after a re-layout),
+    // fall back to the always-realised top-level window so the editor never lands in the
+    // top-left corner over the menu bar.
+    wxRect r = m_canvas_widget->GetScreenRect();
+    if (r.GetWidth() <= 1 || r.GetHeight() <= 1) {
+        if (wxWindow* top = wxGetTopLevelParent(m_canvas_widget))
+            r = top->GetScreenRect();
+    }
+    const wxPoint scr(r.GetLeft() + r.GetWidth() / 2, r.GetTop() + r.GetHeight() / 2);
+    m_inline_editor->open(scr, current,
+        [this, commit](double v) {
+            if (commit) commit(v);
+            if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+        },
+        [this, cancel]() {
+            if (cancel) cancel();
+            if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+        });
+}
+
 void DesignCanvas::set_on_dimension_pick_complete(std::function<void(double)> cb)
 {
     m_sketch_tool.on_dimension_pick_complete = std::move(cb);

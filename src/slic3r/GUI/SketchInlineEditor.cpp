@@ -7,6 +7,7 @@
 #include <wx/toplevel.h>
 #include <wx/gdicmn.h>
 
+#include <algorithm>
 #include <cstdio>
 
 namespace Slic3r {
@@ -65,7 +66,12 @@ void SketchInlineEditor::open(const wxPoint& screen_px, double value,
     m_ctrl->ChangeValue(en_format(value));
     m_frame->Fit();
     const wxSize sz = m_frame->GetSize();
-    const wxPoint pos(screen_px.x - sz.GetWidth() / 2, screen_px.y - sz.GetHeight() / 2);
+    wxPoint pos(screen_px.x - sz.GetWidth() / 2, screen_px.y - sz.GetHeight() / 2);
+    // Keep the frame fully on-screen: an anchor that maps off the display makes GTK drop
+    // the window at a default corner (top-left) instead of the requested point.
+    const wxRect area = wxGetClientDisplayRect();
+    pos.x = std::max(area.GetLeft(), std::min(pos.x, area.GetRight()  - sz.GetWidth()));
+    pos.y = std::max(area.GetTop(),  std::min(pos.y, area.GetBottom() - sz.GetHeight()));
     // Show() BEFORE Move(): GTK ignores a Move() issued before the window is mapped (the
     // WM places it at its default, i.e. the top-left corner). Move after Show sticks.
     m_frame->Show();

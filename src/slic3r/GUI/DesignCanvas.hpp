@@ -79,6 +79,11 @@ public:
     double sketch_dimension_current() const;
     void   apply_sketch_dimension(double v);
 
+    // Open the in-canvas value editor at the cursor for a host-driven value (the
+    // committed-feature Constrain path uses this instead of a docked numeric card).
+    void   open_inline_value(double current, std::function<void(double)> commit,
+                             std::function<void()> cancel = {});
+
     // Dimension tool (Mode::Dimension): click-to-place quotes. The pick-complete
     // callback lets the panel pop the value card; set/cancel apply or keep the value.
     void set_on_dimension_pick_complete(std::function<void(double)> cb);

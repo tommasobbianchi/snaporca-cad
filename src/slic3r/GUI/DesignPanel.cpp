@@ -1525,15 +1525,24 @@ void DesignPanel::apply_entity_constraint(SketchConstraintType type)
         break;
     }
     case T::Angle: {
-        // Angle between two line segments; value entered (degrees) in the docked card.
+        // Angle between two line segments; typed in-canvas at the cursor (no card),
+        // pre-filled with the current angle between the picked lines.
         const int a = e0, b = e1;
-        request_value(_L("Angle (degrees)"), 90.0, 0.0, 360.0, [this, a, b](double deg) {
+        const Vec2d da = feat.entities[a].p1 - feat.entities[a].p0;
+        const Vec2d db = feat.entities[b].p1 - feat.entities[b].p0;
+        double cur = 90.0;
+        const double na = da.norm(), nb = db.norm();
+        if (na > 1e-9 && nb > 1e-9) {
+            const double c = std::max(-1.0, std::min(1.0, da.dot(db) / (na * nb)));
+            cur = std::acos(c) * 180.0 / M_PI;
+        }
+        m_viewport->open_inline_value(cur, [this, a, b](double deg) {
             SketchEntityConstraintDef d;
             d.type = T::Angle; d.ea = a; d.eb = b;
             d.value = deg * M_PI / 180.0;
             commit_entity_constraint(d);
         });
-        return;   // deferred: commit runs on Confirm
+        return;   // deferred: commit runs on the typed value
     }
     case T::Midpoint: {
         // One pick is a Point, the other a Line: the point is the line's midpoint.
@@ -1589,13 +1598,13 @@ void DesignPanel::apply_entity_constraint(SketchConstraintType type)
         if (!is_round(A)) { fail(_L("Radius/Diameter needs a circle or arc")); return; }
         const double cur = (type == T::Diameter) ? 2.0 * A.radius : A.radius;
         const int a = e0; const T tt = type;
-        request_value(tt == T::Diameter ? _L("Diameter") : _L("Radius"), cur, 0.001, 100000.0,
-            [this, a, tt](double v) {
-                SketchEntityConstraintDef d;
-                d.type = tt; d.ea = a; d.ra = R::Center; d.value = v;
-                commit_entity_constraint(d);
-            });
-        return;   // deferred: commit runs on Confirm
+        // Typed in-canvas at the cursor (no docked card), pre-filled with the current value.
+        m_viewport->open_inline_value(cur, [this, a, tt](double v) {
+            SketchEntityConstraintDef d;
+            d.type = tt; d.ea = a; d.ra = R::Center; d.value = v;
+            commit_entity_constraint(d);
+        });
+        return;   // deferred: commit runs on the typed value
     }
     default:
         fail(_L("Unsupported constraint"));
@@ -1714,7 +1723,7 @@ wxString DesignPanel::constraint_label(const SketchEntityConstraintDef& d) const
     case T::Midpoint:      return two(_L("Midpoint"));
     case T::Symmetric:     return wxString::Format(_L("Symmetric %s — %s / %s"),
                                                    tag(d.ea, d.ra), tag(d.eb, d.rb), tag(d.ec, d.rc));
-    case T::Angle:         return wxString::Format("%s = %s°", two(_L("Angle")), en_format(d.value, 1));
+    case T::Angle:         return wxString::Format("%s = %s°", two(_L("Angle")), en_format(d.value * 180.0 / M_PI, 1));
     case T::Radius:        return wxString::Format("%s %s = %s", _L("Radius"),   tag(d.ea, d.ra), en_format(d.value));
     case T::Diameter:      return wxString::Format("%s %s = %s", _L("Diameter"), tag(d.ea, d.ra), en_format(d.value));
     case T::PointOnLine:   return two(_L("On line"));
