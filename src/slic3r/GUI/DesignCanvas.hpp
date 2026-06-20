@@ -90,6 +90,12 @@ public:
     void clear_move_gizmo();
     bool moving_body() const;
     void set_on_body_move_changed(std::function<void(int, Vec3d)> cb);
+    // Visual Fillet/Chamfer radius gizmo: when a solid edge is picked, anchor a radius arrow on
+    // it; drag/edit fire the radius callback. Returns false if no edge is currently picked.
+    bool begin_fillet_gizmo(const Vec3d& body_centroid, double radius);
+    void clear_fillet_gizmo();
+    bool filleting() const;
+    void set_on_fillet_radius_changed(std::function<void(double)> cb);
     // Visual Extrude depth-arrow gizmo (C5b): the panel feeds the profile plane + centroid +
     // live depths/flags while its Extrude card is open; drag/edit fire the depth callback.
     void set_extrude_gizmo(const SketchPlane& plane, const Vec2d& centroid,

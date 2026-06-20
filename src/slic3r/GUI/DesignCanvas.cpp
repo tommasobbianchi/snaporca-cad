@@ -405,6 +405,26 @@ void DesignCanvas::set_on_body_move_changed(std::function<void(int, Vec3d)> cb)
     m_sketch_tool.on_body_move_changed = std::move(cb);
 }
 
+bool DesignCanvas::begin_fillet_gizmo(const Vec3d& body_centroid, double radius)
+{
+    const bool ok = m_sketch_tool.set_fillet_gizmo(body_centroid, radius);
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }   // llvmpipe: force repaint
+    return ok;
+}
+
+void DesignCanvas::clear_fillet_gizmo()
+{
+    m_sketch_tool.clear_fillet_gizmo();
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
+bool DesignCanvas::filleting() const { return m_sketch_tool.filleting(); }
+
+void DesignCanvas::set_on_fillet_radius_changed(std::function<void(double)> cb)
+{
+    m_sketch_tool.on_fillet_radius_changed = std::move(cb);
+}
+
 void DesignCanvas::set_on_solid_selection_changed(std::function<void(int, int, int, int)> cb)
 {
     m_sketch_tool.on_solid_selection_changed = std::move(cb);

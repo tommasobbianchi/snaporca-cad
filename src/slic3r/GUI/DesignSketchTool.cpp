@@ -2607,6 +2607,147 @@ void DesignSketchTool::open_move_editor(int axis)
         []() {});
 }
 
+// ---- Fillet/Chamfer radius gizmo ------------------------------------------------------
+// Anchor a single radius arrow at the picked edge midpoint (m_sel_edge_pts is already in world
+// space, body-transformed), perpendicular to the edge and pointing away from the body centroid —
+// the natural outward direction a fillet/chamfer grows.
+bool DesignSketchTool::set_fillet_gizmo(const Vec3d& body_centroid, double radius)
+{
+    if (m_sel_edge_pts.size() < 2) { m_fl_active = false; return false; }
+    const size_t n = m_sel_edge_pts.size();
+    // True geometric midpoint along the edge: a straight edge often samples to just its two
+    // endpoints, so the middle INDEX would land on an end. Walk the polyline to its half-length.
+    double total = 0.0;
+    for (size_t i = 1; i < n; ++i) total += (m_sel_edge_pts[i] - m_sel_edge_pts[i - 1]).norm();
+    m_fl_anchor = m_sel_edge_pts[0];
+    Vec3d t = m_sel_edge_pts[n - 1] - m_sel_edge_pts[0];
+    const double half = 0.5 * total;
+    double acc = 0.0;
+    for (size_t i = 1; i < n; ++i) {
+        const Vec3d seg = m_sel_edge_pts[i] - m_sel_edge_pts[i - 1];
+        const double L = seg.norm();
+        if (acc + L >= half && L > 1e-12) {
+            m_fl_anchor = m_sel_edge_pts[i - 1] + seg * ((half - acc) / L);
+            t = seg;
+            break;
+        }
+        acc += L;
+    }
+    if (t.norm() < 1e-9) return false;
+    t.normalize();
+    Vec3d r = m_fl_anchor - body_centroid;           // radial offset from the body centre
+    r -= r.dot(t) * t;                               // strip the along-edge component
+    if (r.norm() < 1e-6) {                           // edge passes through the centroid
+        r = t.cross(Vec3d::UnitZ());
+        if (r.norm() < 1e-6) r = t.cross(Vec3d::UnitX());
+    }
+    m_fl_dir    = r.normalized();
+    m_fl_radius = std::max(0.01, radius);
+    if (!m_fl_active) m_fl_drag = false;   // re-anchored every preview: preserve an in-progress drag
+    m_fl_active = true;
+    return true;
+}
+
+void DesignSketchTool::clear_fillet_gizmo()
+{
+    m_fl_active = false;
+    m_fl_drag   = false;
+}
+
+// Single billboarded radius arrow from the edge midpoint along m_fl_dir; length = radius (world),
+// floored to a grabbable screen size. Label shows the true radius (R-prefixed).
+void DesignSketchTool::render_fillet_gizmo()
+{
+    if (!m_fl_active) return;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const Vec3d right = cam.get_dir_right().normalized();
+    const Vec3d up    = cam.get_dir_up().normalized();
+    const double upp  = 1.0 / std::max(cam.get_zoom(), 1e-6);
+    const double th   = std::max(15.0 * upp, 1e-4);
+    const double L    = std::max(m_fl_radius, 40.0 * upp);   // WYSIWYG, floored to a comfortable handle
+    const Vec3d tipw  = m_fl_anchor + m_fl_dir * L;
+
+    const SketchPlane saved = m_plane;
+    SketchPlane bb; bb.origin = m_fl_anchor; bb.x_axis = right; bb.y_axis = up; bb.normal = cam.get_dir_forward().normalized();
+    m_plane = bb;
+    const ColorRGBA arrowc(1.0f, 0.62f, 0.16f, 1.0f);       // CAD amber
+
+    const Vec2d tip2((tipw - m_fl_anchor).dot(right), (tipw - m_fl_anchor).dot(up));
+    if (tip2.norm() > 1e-6) {
+        const Vec2d u = tip2.normalized();
+        const Vec2d nrm(-u.y(), u.x());
+        std::vector<std::pair<Vec2d, Vec2d>> segs;
+        segs.emplace_back(Vec2d(0, 0), tip2);
+        const double as = std::max(tip2.norm() * 0.20, th * 0.9);
+        const Vec2d back = tip2 - u * as;
+        segs.emplace_back(tip2, back + nrm * (as * 0.5));
+        segs.emplace_back(tip2, back - nrm * (as * 0.5));
+        glsafe(::glDisable(GL_DEPTH_TEST));
+        draw_strokes(m_fl_arrow_model, segs, std::max(0.7 * upp, 1e-4), arrowc);
+        DimAnnot da; da.kind = DimType::Radius; da.value = m_fl_radius;
+        draw_text(m_line_model, dim_text(da), tip2 + u * (th * 1.4), th, arrowc);
+    }
+    m_plane = saved;
+}
+
+// Ray vs the radius arrow segment; ~12 px tolerance over the (floored) handle length.
+bool DesignSketchTool::hit_test_fillet_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt) const
+{
+    if (!m_fl_active) return false;
+    const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = r.a, rd = r.b - r.a;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const double upp = 1.0 / std::max(cam.get_zoom(), 1e-6);
+    const double L   = std::max(m_fl_radius, 40.0 * upp);
+    return ray_segment_dist3(ro, rd, m_fl_anchor, m_fl_anchor + m_fl_dir * L) <= 12.0 * upp;
+}
+
+// Skew-line closest point of the mouse ray to the radius axis -> signed distance along m_fl_dir
+// from the anchor. NaN when the camera is ~parallel to the axis (no meaningful projection).
+double DesignSketchTool::fillet_axis_proj(GLCanvas3D& canvas, const wxMouseEvent& evt) const
+{
+    const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = r.a, rd = r.b - r.a;
+    const Vec3d e = m_fl_dir;
+    const Vec3d w0 = m_fl_anchor - ro;
+    const double a = e.dot(e), b = e.dot(rd), c = rd.dot(rd), dd = e.dot(w0), ee = rd.dot(w0);
+    const double denom = a * c - b * b;
+    if (std::abs(denom) < 1e-7) return std::nan("");
+    return (b * ee - c * dd) / denom;
+}
+
+// Record the grab reference so the drag is RELATIVE (grab anywhere on the handle without the
+// radius snapping to the grab point — important since the handle is floored to a min size).
+void DesignSketchTool::start_fillet_drag(GLCanvas3D& canvas, const wxMouseEvent& evt)
+{
+    m_fl_drag        = true;
+    m_fl_press_x     = evt.GetX();
+    m_fl_press_y     = evt.GetY();
+    m_fl_grab_radius = m_fl_radius;
+    const double p   = fillet_axis_proj(canvas, evt);
+    m_fl_grab_proj   = std::isnan(p) ? 0.0 : p;
+}
+
+void DesignSketchTool::drag_fillet_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt)
+{
+    const double proj = fillet_axis_proj(canvas, evt);
+    if (std::isnan(proj)) return;                   // camera ∥ axis: leave radius as-is
+    m_fl_radius = std::max(0.01, m_fl_grab_radius + (proj - m_fl_grab_proj));
+    if (on_fillet_radius_changed) on_fillet_radius_changed(m_fl_radius);
+}
+
+void DesignSketchTool::open_fillet_editor()
+{
+    if (!on_inline_edit) return;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    on_inline_edit(px, m_fl_radius,
+        [this](double v) {
+            m_fl_radius = std::max(0.01, v);
+            if (on_fillet_radius_changed) on_fillet_radius_changed(m_fl_radius);
+        },
+        []() {});
+}
+
 // Closed loops + the entity indices that form each one. A circle/ellipse is its own loop;
 // line/arc chains are walked endpoint-to-endpoint. Entity membership lets a single loop be
 // highlighted and extruded on its own.
@@ -4360,6 +4501,7 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         render_solid_highlight();
         if (m_ex_active) render_extrude_gizmo();
         if (m_mv_active) render_move_gizmo();
+        if (m_fl_active) render_fillet_gizmo();
         shader->stop_using();
         glsafe(::glEnable(GL_CULL_FACE));
         glsafe(::glEnable(GL_DEPTH_TEST));
@@ -5036,6 +5178,25 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                     m_ex_drag = which; m_ex_press_x = evt.GetX(); m_ex_press_y = evt.GetY();
                     return true;
                 }
+            }
+        }
+        // Fillet/Chamfer radius gizmo: drag the edge-anchored arrow to set the radius live; a
+        // stationary click opens the inline editor. A LeftDown that misses falls through to pick.
+        if (m_fl_active) {
+            if (m_fl_drag && evt.Dragging() && evt.LeftIsDown()) {
+                drag_fillet_arrow(canvas, evt);
+                return true;
+            }
+            if (evt.LeftUp() && m_fl_drag) {
+                m_fl_drag = false;
+                const bool moved = std::abs(evt.GetX() - m_fl_press_x) +
+                                   std::abs(evt.GetY() - m_fl_press_y) > 3;
+                if (!moved) open_fillet_editor();   // stationary click = edit
+                return true;
+            }
+            if (evt.LeftDown() && hit_test_fillet_arrow(canvas, evt)) {
+                start_fillet_drag(canvas, evt);
+                return true;
             }
         }
         if (!evt.LeftDown()) return false;

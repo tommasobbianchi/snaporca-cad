@@ -72,7 +72,7 @@ public:
     void set_display_sketches(std::vector<DisplaySketch> ds) { m_display_sketches = std::move(ds); }
     bool has_display() const { return m_active || !m_display_sketches.empty()
                                       || (m_solid_bodies != nullptr && !m_solid_bodies->empty())
-                                      || m_ex_active || m_mv_active; }
+                                      || m_ex_active || m_mv_active || m_fl_active; }
 
     // Solid topology selection on the committed bodies: clicking a solid cycles
     // whole-solid -> face -> edge (Onshape-style) to target fillet/chamfer/extrude. With
@@ -124,6 +124,18 @@ public:
     void clear_extrude_gizmo();
     // (new_depth, second_side): second_side=false drives the primary depth, true the 2nd side.
     std::function<void(double depth, bool second)> on_extrude_depth_changed;
+
+    // Visual Fillet/Chamfer gizmo. The Dressup tool is a DesignPanel docked card, so the sketch
+    // tool is NOT active during it; when a solid EDGE is picked the panel passes the body centroid
+    // + current radius and the tool anchors a world-space radius arrow at the picked edge midpoint
+    // (from m_sel_edge_pts), perpendicular to the edge, pointing outward (away from the centroid).
+    // Dragging the arrow changes the radius live; a stationary click opens the inline editor; both
+    // fire on_fillet_radius_changed back to the panel, which writes the spin + refreshes the ghost.
+    // Returns true if it could anchor (needs a picked edge with >=2 sample points).
+    bool set_fillet_gizmo(const Vec3d& body_centroid, double radius);
+    void clear_fillet_gizmo();
+    bool filleting() const { return m_fl_active; }
+    std::function<void(double radius)> on_fillet_radius_changed;
 
     // Constrain mode: load an already-committed profile for entity picking +
     // constraint application (the geometry is solved in the kernel, not here).
@@ -683,6 +695,23 @@ private:
     void  drag_move_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt, int axis);
     void  open_move_editor(int axis);
     GLModel m_mv_arrow_model;
+
+    // Fillet/Chamfer radius gizmo state (single world-space arrow at the picked edge midpoint).
+    bool        m_fl_active{false};
+    Vec3d       m_fl_anchor{Vec3d::Zero()};    // edge midpoint (world, already body-transformed)
+    Vec3d       m_fl_dir{Vec3d::UnitZ()};      // unit radius direction (perp to edge, outward)
+    double      m_fl_radius{1.0};              // current radius (= dressup size)
+    bool        m_fl_drag{false};
+    int         m_fl_press_x{0}, m_fl_press_y{0};
+    double      m_fl_grab_proj{0.0};           // axis projection at grab (relative drag reference)
+    double      m_fl_grab_radius{1.0};         // radius at grab (relative drag reference)
+    void  render_fillet_gizmo();
+    bool  hit_test_fillet_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt) const;
+    double fillet_axis_proj(GLCanvas3D& canvas, const wxMouseEvent& evt) const;  // NaN if camera∥axis
+    void  start_fillet_drag(GLCanvas3D& canvas, const wxMouseEvent& evt);
+    void  drag_fillet_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt);
+    void  open_fillet_editor();
+    GLModel m_fl_arrow_model;
 };
 
 }} // namespace Slic3r::GUI

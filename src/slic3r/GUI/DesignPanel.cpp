@@ -980,6 +980,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_sel_solid_body = (level >= 1) ? body : -1;
         m_sel_solid_face = (level >= 2) ? face : -1;
         m_sel_solid_edge = (level == 3) ? edge : -1;
+        // If the Fillet/Chamfer card is open, re-anchor (or drop) the radius arrow on the new pick.
+        if (m_active == Tool::Dressup) update_fillet_gizmo();
         m_status->SetForegroundColour(wxNullColour);
         const int nb = int(m_doc.bodies.size());
         const wxString bodytag = (nb > 1) ? wxString::Format(_L("Body %d "), body + 1) : wxString();
@@ -1012,6 +1014,13 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_status->SetLabel(tag + wxString::Format(_L("moved (%.1f, %.1f, %.1f) mm"),
                                                   offset.x(), offset.y(), offset.z()));
         m_status->Refresh();
+    });
+
+    // Fillet/Chamfer radius gizmo: dragging (or editing) the edge-anchored arrow writes the
+    // Dress-up size and refreshes the ghost. SetValue is silent in wx, so refresh explicitly.
+    m_viewport->set_on_fillet_radius_changed([this](double radius) {
+        if (m_dressup_size) m_dressup_size->SetValue(radius);
+        refresh_preview();   // rebuilds the candidate fillet ghost at the new radius
     });
 
     // Esc exits the active sketch tool: drop the live session, restore Feature mode +
@@ -3190,6 +3199,19 @@ CadFeature DesignPanel::build_candidate(Tool t) const
 
 // Resolve the active Extrude's profile plane + a representative 2D centroid (arrow anchor)
 // and push them to the viewport gizmo. Self-gates: clears the gizmo unless Extrude is open.
+void DesignPanel::update_fillet_gizmo()
+{
+    if (!m_viewport) return;
+    // Only while the Fillet/Chamfer card is open AND a solid EDGE is the target. Face-group
+    // dress-up (no picked edge) keeps the docked card with no in-canvas handle. The body centroid
+    // comes from the transformed display mesh so it matches the (transformed) edge sample points.
+    const bool ok = (m_active == Tool::Dressup) && m_sel_solid_edge >= 0
+                    && m_sel_solid_body >= 0 && m_sel_solid_body < int(m_disp_body_meshes.size());
+    if (!ok) { m_viewport->clear_fillet_gizmo(); return; }
+    const Vec3d centroid = m_disp_body_meshes[m_sel_solid_body].bounding_box().center();
+    m_viewport->begin_fillet_gizmo(centroid, m_dressup_size->GetValue());
+}
+
 void DesignPanel::update_extrude_gizmo()
 {
     if (!m_viewport) return;
@@ -3315,6 +3337,8 @@ void DesignPanel::refresh_preview()
 
     // Refresh the in-canvas Extrude depth arrow (self-gates: only while the Extrude card is open).
     update_extrude_gizmo();
+    // Same for the Fillet/Chamfer radius arrow (self-gates: Dressup card + a picked edge).
+    update_fillet_gizmo();
 }
 
 void DesignPanel::open_tool(Tool t)
@@ -3374,6 +3398,7 @@ void DesignPanel::close_tool()
     s->Show(m_box_thread,  false, true);
     m_viewport->clear_preview();
     m_viewport->clear_extrude_gizmo();
+    m_viewport->clear_fillet_gizmo();
     m_form->Layout();
     m_form->FitInside();
 }

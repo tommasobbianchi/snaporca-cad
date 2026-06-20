@@ -117,6 +117,7 @@ private:
     // Feed the viewport's visual Extrude depth-arrow gizmo (C5b) with the current profile
     // plane + centroid + live depths while the Extrude card is open (self-gates on m_active).
     void       update_extrude_gizmo();
+    void       update_fillet_gizmo();     // edge-anchored radius arrow (Dressup card)
 
     CadDocument m_doc;
 
