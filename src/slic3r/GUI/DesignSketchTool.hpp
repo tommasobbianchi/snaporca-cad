@@ -32,11 +32,16 @@ public:
                       Ellipse, EllipseArc, BSpline,
                       // In-canvas edit-op TOOLBAR tools (drag-arrow + label, no numeric card):
                       Fillet, Chamfer, Offset, Mirror,
+                      // In-canvas transform TOOLBAR tools (pick targets + drag handle/label, no card):
+                      Move, Rotate, Scale, Array, PolarArray,
                       // In-canvas bounding-box transform for imported Text/SVG art:
                       TransformArt,
                       Constrain };
     bool is_edit_op_mode() const { return m_mode == Mode::Fillet || m_mode == Mode::Chamfer ||
                                           m_mode == Mode::Offset || m_mode == Mode::Mirror; }
+    bool is_transform_mode() const { return m_mode == Mode::Move || m_mode == Mode::Rotate ||
+                                            m_mode == Mode::Scale || m_mode == Mode::Array ||
+                                            m_mode == Mode::PolarArray; }
 
     void begin(const SketchPlane& plane, Mode mode = Mode::Polyline);
     // Re-open a committed entity sketch for full in-canvas editing: load its entities +
@@ -509,6 +514,37 @@ private:
     void   render_xform_gizmo();
     void   emit_xform();
     void   reset_xform();
+
+    // In-canvas transform gizmo state (Mode::Move/Rotate/Scale/Array/PolarArray). GUI-only,
+    // reset by set_tool/cancel. Pick one or more subject entities (m_tf_targets), then a
+    // single draggable handle drives the continuous parameter and a live translucent ghost
+    // previews the result; Array/PolarArray add a second editable label for the copy count.
+    // Mutating ops (Move/Rotate/Scale) drop the constraint classes the map invalidates;
+    // additive ops (Array/PolarArray) bind each copy to its source. See confirm_transform().
+    std::vector<int>          m_tf_targets;       // picked subject entity indices
+    Vec2d                     m_tf_pivot{0,0};    // rotate/scale/polar pivot = set centroid
+    Vec2d                     m_tf_delta{0,0};    // Move translation / Array per-step vector
+    double                    m_tf_angle{0.0};    // Rotate angle / PolarArray total sweep (rad)
+    double                    m_tf_scale{1.0};    // Scale factor
+    int                       m_tf_count{3};      // Array/PolarArray copy count (incl. original)
+    double                    m_tf_handle_r{1.0}; // ring/handle reference radius (set on pick)
+    std::vector<SketchEntity> m_tf_ghost;         // live result preview
+    int                       m_tf_handle{-1};    // 0 = primary drag handle grabbed, -1 = none
+    bool                      m_tf_dragging{false};
+    Vec2d                     m_tf_label_a{1e18,1e18};  // primary-param label centre (picking)
+    Vec2d                     m_tf_label_b{1e18,1e18};  // count label centre (Array/PolarArray)
+    bool                      tf_ready() const;   // >=1 target picked -> gizmo + ghost live
+    void                      tf_pick(int ei);    // accumulate a subject, seed defaults once
+    void                      compute_tf_pivot(); // centroid + extent of the target set
+    void                      recompute_tf_ghost();
+    Vec2d                     tf_handle_pos() const;   // world position of the drag handle
+    bool                      hit_test_tf_handle(const Vec2d& p, double tol) const;
+    void                      drag_tf_handle(const Vec2d& target);
+    void                      render_tf_gizmo(double unit_per_px);
+    void                      open_tf_editor_a();      // inline-edit the continuous parameter
+    void                      open_tf_editor_count();  // inline-edit the copy count
+    void                      confirm_transform();     // apply geometry + constraint web
+    void                      reset_tf();
 
     // DoF feedback state, refreshed by resolve_live() from the libslvs solve result.
     int               m_dof{-1};          // remaining DoF; 0 = fully constrained, <0 = unknown

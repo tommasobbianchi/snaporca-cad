@@ -195,6 +195,7 @@ void DesignSketchTool::set_tool(Mode mode)
     m_has_cursor = false;
     m_awaiting_length = false;
     reset_op();                 // drop any in-progress edit-op gizmo
+    reset_tf();                 // drop any in-progress transform gizmo
     m_selection.clear();
     if (on_selection_changed) on_selection_changed(0);
 }
@@ -223,6 +224,7 @@ void DesignSketchTool::cancel()
     m_open_feature = -1;
     reset_op();
     reset_xform();
+    reset_tf();
 }
 
 // Esc while active: layered exit (Onshape-like). Abort an in-progress entity first, then
@@ -1437,6 +1439,7 @@ void DesignSketchTool::keep_segment_as_drawn()
 void DesignSketchTool::finish()
 {
     if (op_ready()) confirm_op();      // apply a pending edit-op gizmo before committing
+    if (tf_ready()) confirm_transform(); // apply a pending transform gizmo before committing
     auto cb = on_commit_entities;
     std::vector<SketchEntity> ents = m_entities;
     std::vector<SketchEntityConstraintDef> cons = m_constraints;
@@ -2683,7 +2686,7 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
     // Edit-op tools (Fillet/Chamfer/Offset/Mirror) put their picks in m_selection for the
     // highlight, but their own arrow/label gizmo is the value affordance — don't also draw
     // the picked entity's characteristic quotes (Length/Angle/…) or the view gets cluttered.
-    if (is_edit_op_mode()) return;
+    if (is_edit_op_mode() || is_transform_mode()) return;
     int ei = -1;
     if (m_dragging_point && m_drag_ei >= 0)  ei = m_drag_ei;
     else if (m_dragging_handle)              ei = m_drag_handle.ei;
@@ -3449,6 +3452,385 @@ void DesignSketchTool::confirm_op()
     if (on_selection_changed) on_selection_changed(0);
 }
 
+// ---- In-canvas transform gizmo (Move/Rotate/Scale/Array/PolarArray) ----
+// These replace the docked numeric cards: pick subject entities in-canvas, then a single
+// draggable handle drives the continuous parameter (Move/Array offset, Rotate/Polar angle,
+// Scale factor) and an editable value label sets it exactly; Array/PolarArray expose a
+// second label for the copy count. A live translucent ghost previews the result. Confirm
+// applies the geometry and emits the per-op constraint web (mutating ops drop the classes
+// the map invalidates; additive ops bind each copy to its source) into m_constraints.
+
+void DesignSketchTool::reset_tf()
+{
+    m_tf_targets.clear();
+    m_tf_pivot = Vec2d(0, 0);
+    m_tf_delta = Vec2d(0, 0);
+    m_tf_angle = 0.0;
+    m_tf_scale = 1.0;
+    m_tf_count = 3;
+    m_tf_handle_r = 1.0;
+    m_tf_ghost.clear();
+    m_tf_handle = -1;
+    m_tf_dragging = false;
+    m_tf_label_a = Vec2d(1e18, 1e18);
+    m_tf_label_b = Vec2d(1e18, 1e18);
+}
+
+bool DesignSketchTool::tf_ready() const { return !m_tf_targets.empty(); }
+
+// Centroid of the picked subject set (the rotate/scale/polar pivot, and the array origin),
+// plus a reference radius (max distance from the pivot to any subject extremum) used to
+// size the rotate/polar handle ring and the scale handle's unit position.
+void DesignSketchTool::compute_tf_pivot()
+{
+    using T = SketchEntity::Type;
+    auto cen = [](const SketchEntity& e) -> Vec2d {
+        switch (e.type) {
+        case T::Line: return 0.5 * (e.p0 + e.p1);
+        case T::Arc: case T::Circle: case T::Ellipse: case T::EllipseArc: return e.center;
+        case T::BSpline:
+            if (!e.ctrl.empty()) { Vec2d s(0, 0); for (const auto& p : e.ctrl) s += p; return s / double(e.ctrl.size()); }
+            return 0.5 * (e.p0 + e.p1);
+        default: return e.p0;
+        }
+    };
+    Vec2d c(0, 0); int n = 0;
+    for (int ti : m_tf_targets)
+        if (ti >= 0 && ti < int(m_entities.size())) { c += cen(m_entities[ti]); ++n; }
+    if (n == 0) { m_tf_pivot = Vec2d(0, 0); m_tf_handle_r = 1.0; return; }
+    m_tf_pivot = c / double(n);
+    double r = 0.0;
+    for (int ti : m_tf_targets) {
+        if (ti < 0 || ti >= int(m_entities.size())) continue;
+        const SketchEntity& e = m_entities[ti];
+        auto upd = [&](const Vec2d& p) { r = std::max(r, (p - m_tf_pivot).norm()); };
+        switch (e.type) {
+        case T::Line: upd(e.p0); upd(e.p1); break;
+        case T::Arc: case T::Circle: case T::Ellipse: case T::EllipseArc:
+            upd(e.center + Vec2d(e.radius, 0)); upd(e.center - Vec2d(e.radius, 0)); break;
+        case T::BSpline: for (const auto& p : e.ctrl) upd(p); break;
+        default: upd(e.p0); break;
+        }
+    }
+    m_tf_handle_r = std::max(r, 1.0);
+}
+
+void DesignSketchTool::tf_pick(int ei)
+{
+    if (ei < 0 || ei >= int(m_entities.size())) return;
+    auto it = std::find(m_tf_targets.begin(), m_tf_targets.end(), ei);
+    if (it == m_tf_targets.end()) m_tf_targets.push_back(ei);   // toggle-select like Mirror
+    else                          m_tf_targets.erase(it);
+    compute_tf_pivot();
+    // Seed sensible starting parameters (mirrors the retired card defaults so the ghost is
+    // immediately visible). Only seed while still at the neutral value, so re-picking more
+    // targets keeps a value the user already dialled in.
+    if (!m_tf_targets.empty()) {
+        const double step = std::max(m_tf_handle_r * 1.5, 1.0);
+        switch (m_mode) {
+        case Mode::Move:
+            if (m_tf_delta.norm() < 1e-9) m_tf_delta = Vec2d(step, 0.0);
+            break;
+        case Mode::Array:
+            if (m_tf_delta.norm() < 1e-9) {
+                Vec2d d(step, 0.0);   // default: perpendicular to a single line, else +X
+                if (m_tf_targets.size() == 1) {
+                    const SketchEntity& e = m_entities[m_tf_targets[0]];
+                    if (e.type == SketchEntity::Type::Line) {
+                        Vec2d t = e.p1 - e.p0;
+                        if (t.norm() > 1e-9) { t.normalize(); d = Vec2d(-t.y(), t.x()) * step; }
+                    }
+                }
+                m_tf_delta = d;
+            }
+            break;
+        case Mode::Rotate:     if (std::abs(m_tf_angle) < 1e-9) m_tf_angle = M_PI / 4.0; break;       // 45°
+        case Mode::PolarArray: if (std::abs(m_tf_angle) < 1e-9) m_tf_angle = 2.0 * M_PI;  break;       // 360°
+        case Mode::Scale:      if (std::abs(m_tf_scale - 1.0) < 1e-9) m_tf_scale = 2.0;   break;
+        default: break;
+        }
+    }
+    recompute_tf_ghost();
+    m_selection = m_tf_targets;   // reuse the existing selection highlight
+    if (on_selection_changed) on_selection_changed(int(m_selection.size()));
+}
+
+void DesignSketchTool::recompute_tf_ghost()
+{
+    m_tf_ghost.clear();
+    if (m_tf_targets.empty()) return;
+    std::vector<SketchEntity> src;
+    for (int ti : m_tf_targets)
+        if (ti >= 0 && ti < int(m_entities.size())) src.push_back(m_entities[ti]);
+    if (src.empty()) return;
+    const int count = std::max(2, m_tf_count);
+    switch (m_mode) {
+    case Mode::Move:
+        m_tf_ghost = SketchEngine::transform_entities(src, m_tf_delta, 0.0, 1.0, Vec2d(0, 0));
+        break;
+    case Mode::Rotate:
+        m_tf_ghost = SketchEngine::transform_entities(src, Vec2d(0, 0), m_tf_angle, 1.0, m_tf_pivot);
+        break;
+    case Mode::Scale:
+        m_tf_ghost = SketchEngine::transform_entities(src, Vec2d(0, 0), 0.0, m_tf_scale, m_tf_pivot);
+        break;
+    case Mode::Array:
+        m_tf_ghost = SketchEngine::array_entities(src, count, m_tf_delta, 0.0, m_tf_pivot);
+        break;
+    case Mode::PolarArray:
+        m_tf_ghost = SketchEngine::array_entities(src, count, Vec2d(0, 0), m_tf_angle / double(count), m_tf_pivot);
+        break;
+    default: break;
+    }
+}
+
+// World position of the single drag handle: at the translated/spacing tip for the linear
+// ops, on the pivot-centred ring at the current angle for the rotational ops, and at the
+// scaled unit position along +X for Scale.
+Vec2d DesignSketchTool::tf_handle_pos() const
+{
+    switch (m_mode) {
+    case Mode::Move:
+    case Mode::Array:      return m_tf_pivot + m_tf_delta;
+    case Mode::Rotate:
+    case Mode::PolarArray: return m_tf_pivot + m_tf_handle_r * Vec2d(std::cos(m_tf_angle), std::sin(m_tf_angle));
+    case Mode::Scale:      return m_tf_pivot + Vec2d(m_tf_scale * m_tf_handle_r, 0.0);
+    default:               return m_tf_pivot;
+    }
+}
+
+bool DesignSketchTool::hit_test_tf_handle(const Vec2d& p, double tol) const
+{
+    if (!tf_ready()) return false;
+    return (tf_handle_pos() - p).norm() <= tol * 2.5;
+}
+
+void DesignSketchTool::drag_tf_handle(const Vec2d& target)
+{
+    switch (m_mode) {
+    case Mode::Move:
+    case Mode::Array:
+        m_tf_delta = target - m_tf_pivot;
+        break;
+    case Mode::Rotate:
+    case Mode::PolarArray: {
+        const Vec2d d = target - m_tf_pivot;
+        if (d.norm() > 1e-9) m_tf_angle = std::atan2(d.y(), d.x());
+        break;
+    }
+    case Mode::Scale: {
+        const double r = (target - m_tf_pivot).norm();
+        m_tf_scale = std::max(1e-3, r / std::max(m_tf_handle_r, 1e-9));
+        break;
+    }
+    default: break;
+    }
+    recompute_tf_ghost();
+}
+
+void DesignSketchTool::open_tf_editor_a()
+{
+    if (!on_inline_edit || !tf_ready()) return;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    double cur;
+    if (m_mode == Mode::Rotate || m_mode == Mode::PolarArray) cur = std::abs(m_tf_angle) * 180.0 / M_PI;
+    else if (m_mode == Mode::Scale)                           cur = m_tf_scale;
+    else                                                       cur = m_tf_delta.norm();
+    Vec2d dir = m_tf_delta; if (dir.norm() > 1e-9) dir.normalize(); else dir = Vec2d(1, 0);
+    const double sgn = (m_tf_angle < 0) ? -1.0 : 1.0;
+    on_inline_edit(px, cur,
+        [this, dir, sgn](double v) {
+            switch (m_mode) {
+            case Mode::Move: case Mode::Array:        m_tf_delta = dir * v; break;
+            case Mode::Rotate: case Mode::PolarArray: m_tf_angle = sgn * std::abs(v) * M_PI / 180.0; break;
+            case Mode::Scale:                         m_tf_scale = std::max(1e-3, v); break;
+            default: break;
+            }
+            recompute_tf_ghost();
+        },
+        []() {});
+}
+
+void DesignSketchTool::open_tf_editor_count()
+{
+    if (!on_inline_edit || !tf_ready()) return;
+    if (m_mode != Mode::Array && m_mode != Mode::PolarArray) return;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    on_inline_edit(px, double(std::max(2, m_tf_count)),
+        [this](double v) { m_tf_count = std::max(2, int(v + 0.5)); recompute_tf_ghost(); },
+        []() {});
+}
+
+void DesignSketchTool::render_tf_gizmo(double unit_per_px)
+{
+    m_tf_label_a = Vec2d(1e18, 1e18);
+    m_tf_label_b = Vec2d(1e18, 1e18);
+    if (!tf_ready()) return;
+    const ColorRGBA ghostc(0.30f, 0.88f, 0.66f, 0.55f);
+    draw_entities_preview(m_tf_ghost, ghostc);
+
+    const ColorRGBA dc(0.30f, 0.88f, 0.66f, 1.0f);
+    const ColorRGBA hot(1.0f, 0.85f, 0.2f, 1.0f);
+    const double th = std::max(15.0 * unit_per_px, 1e-4);
+    const Vec2d handle = tf_handle_pos();
+
+    // spoke from the pivot to the handle (+ arrowhead for the linear ops).
+    std::vector<std::pair<Vec2d, Vec2d>> segs;
+    segs.emplace_back(m_tf_pivot, handle);
+    if (m_mode == Mode::Move || m_mode == Mode::Array || m_mode == Mode::Scale) {
+        Vec2d dir = handle - m_tf_pivot; const double L = dir.norm();
+        if (L > 1e-9) {
+            dir /= L;
+            const double as = std::max(L * 0.15, th * 0.8);
+            const Vec2d nrm(-dir.y(), dir.x());
+            const Vec2d back = handle - dir * as;
+            segs.emplace_back(handle, back + nrm * (as * 0.5));
+            segs.emplace_back(handle, back - nrm * (as * 0.5));
+        }
+    }
+    draw_strokes(m_highlight_model, segs, 0.6, dc);
+
+    const double hs = 6.0 * unit_per_px;   // screen-constant handle marker
+    const std::vector<Vec2d> sq = { handle + Vec2d(-hs, -hs), handle + Vec2d(hs, -hs),
+                                    handle + Vec2d(hs, hs),   handle + Vec2d(-hs, hs) };
+    draw_fill(m_fill_model, sq, m_tf_dragging ? hot : dc);
+    draw_vertices(m_vertex_model, { m_tf_pivot }, dc, std::max(3.0 * unit_per_px, 1e-4));
+
+    // primary parameter label at the handle.
+    std::string txt_a;
+    if (m_mode == Mode::Rotate || m_mode == Mode::PolarArray) {
+        DimAnnot a; a.kind = DimType::Angle; a.value = std::abs(m_tf_angle) * 180.0 / M_PI;
+        txt_a = dim_text(a);
+    } else if (m_mode == Mode::Scale) {
+        char b[24]; std::snprintf(b, sizeof(b), "x%.2f", m_tf_scale);
+        for (char& ch : b) if (ch == ',') ch = '.';
+        txt_a = b;
+    } else {
+        DimAnnot a; a.kind = DimType::Distance; a.value = m_tf_delta.norm();
+        txt_a = dim_text(a);
+    }
+    Vec2d outw = handle - m_tf_pivot; if (outw.norm() > 1e-9) outw.normalize(); else outw = Vec2d(1, 0);
+    m_tf_label_a = handle + outw * (th * 1.2);
+    draw_text(m_line_model, txt_a, m_tf_label_a, th, dc);
+
+    if (m_mode == Mode::Array || m_mode == Mode::PolarArray) {
+        char cb[16]; std::snprintf(cb, sizeof(cb), "x%d", std::max(2, m_tf_count));
+        m_tf_label_b = m_tf_pivot + Vec2d(th * 1.5, th * 1.5);
+        draw_text(m_line_model, cb, m_tf_label_b, th, dc);
+    }
+}
+
+void DesignSketchTool::confirm_transform()
+{
+    if (!tf_ready()) { reset_tf(); return; }
+    using CT = SketchConstraintType;
+    const std::vector<int> targets = m_tf_targets;   // snapshot by value (m_entities grows)
+    auto is_target = [&](int e) {
+        return e >= 0 && std::find(targets.begin(), targets.end(), e) != targets.end();
+    };
+
+    if (m_mode == Mode::Move || m_mode == Mode::Rotate || m_mode == Mode::Scale) {
+        // MUTATING: map every subject in place, then drop the constraint classes the map
+        // invalidates for any constraint touching a subject. Surviving classes are
+        // satisfied by construction; the re-solve folds in the new placement.
+        const Mode mode = m_mode;
+        for (int ti : targets) {
+            if (ti < 0 || ti >= int(m_entities.size())) continue;
+            std::vector<SketchEntity> out;
+            if (mode == Mode::Move)
+                out = SketchEngine::transform_entities({ m_entities[ti] }, m_tf_delta, 0.0, 1.0, Vec2d(0, 0));
+            else if (mode == Mode::Rotate)
+                out = SketchEngine::transform_entities({ m_entities[ti] }, Vec2d(0, 0), m_tf_angle, 1.0, m_tf_pivot);
+            else
+                out = SketchEngine::transform_entities({ m_entities[ti] }, Vec2d(0, 0), 0.0, m_tf_scale, m_tf_pivot);
+            if (!out.empty()) m_entities[ti] = out[0];
+        }
+        auto& cs = m_constraints;
+        cs.erase(std::remove_if(cs.begin(), cs.end(), [&](const SketchEntityConstraintDef& d) {
+            if (!(is_target(d.ea) || is_target(d.eb) || is_target(d.ec))) return false;
+            const bool self = (d.ea == d.eb);   // self-length Distance survives translate/rotate
+            if (mode == Mode::Move) {
+                switch (d.type) {
+                case CT::Coincident: case CT::PointOnLine: case CT::PointOnObject:
+                case CT::Concentric: case CT::Symmetric:   case CT::Midpoint:
+                case CT::Fix:        case CT::LockX:        case CT::LockY:   return true;
+                case CT::Distance: return !self;
+                default:           return false;   // orientation/length preserved by translation
+                }
+            } else if (mode == Mode::Rotate) {
+                switch (d.type) {
+                case CT::EqualLength: case CT::Radius: case CT::Diameter: return false;
+                case CT::Distance: return !self;
+                default:           return true;    // orientation + position broken by rotation
+                }
+            } else {   // Scale (uniform / conformal)
+                switch (d.type) {
+                case CT::Horizontal: case CT::Vertical: case CT::Parallel:
+                case CT::Perpendicular: case CT::Angle: return false;
+                default:                                return true;   // size + position broken
+                }
+            }
+        }), cs.end());
+    } else if (m_mode == Mode::Array || m_mode == Mode::PolarArray) {
+        // ADDITIVE: append copies of each subject, then bind each copy to its source. Lines
+        // get Parallel+EqualLength (linear) or EqualLength only (polar — rotation breaks
+        // Parallel); arc/circle copies get a per-copy Radius (equal-radius under any rigid
+        // map) plus Concentric when the polar pivot is the source's own centre. Emit each
+        // web as a degrade ladder (try_add_constraints keeps the first set the solver
+        // accepts, else the geometry stays unconstrained).
+        const bool polar = (m_mode == Mode::PolarArray);
+        const int  count = std::max(2, m_tf_count);
+        for (int ti : targets) {
+            if (ti < 0 || ti >= int(m_entities.size())) continue;
+            const SketchEntity src = m_entities[ti];   // by value (m_entities grows below)
+            std::vector<SketchEntity> copies = polar
+                ? SketchEngine::array_entities({ src }, count, Vec2d(0, 0), m_tf_angle / double(count), m_tf_pivot)
+                : SketchEngine::array_entities({ src }, count, m_tf_delta, 0.0, m_tf_pivot);
+            if (copies.empty()) continue;
+            const int base = int(m_entities.size());
+            for (auto& c : copies) m_entities.push_back(c);
+            const int nc = int(copies.size());
+            const SketchEntity::Type st = src.type;
+            std::vector<std::vector<SketchEntityConstraintDef>> ladder;
+            if (st == SketchEntity::Type::Line) {
+                auto mk = [&](bool eq, bool par) {
+                    std::vector<SketchEntityConstraintDef> w;
+                    for (int k = 0; k < nc; ++k) {
+                        const int ci = base + k;
+                        if (par) { SketchEntityConstraintDef dp; dp.type = CT::Parallel;    dp.ea = ti; dp.eb = ci; w.push_back(dp); }
+                        if (eq)  { SketchEntityConstraintDef de; de.type = CT::EqualLength;  de.ea = ti; de.eb = ci; w.push_back(de); }
+                    }
+                    return w;
+                };
+                if (polar) ladder = { mk(true, false) };
+                else       ladder = { mk(true, true), mk(false, true) };
+            } else if (st == SketchEntity::Type::Arc || st == SketchEntity::Type::Circle) {
+                const bool can_conc = polar && (m_tf_pivot - src.center).norm() < 1e-6;
+                auto mk = [&](bool conc) {
+                    std::vector<SketchEntityConstraintDef> w;
+                    for (int k = 0; k < nc; ++k) {
+                        const int ci = base + k;
+                        SketchEntityConstraintDef dr; dr.type = CT::Radius; dr.ea = ci; dr.value = src.radius; w.push_back(dr);
+                        if (conc) {
+                            SketchEntityConstraintDef dco; dco.type = CT::Concentric;
+                            dco.ea = ti; dco.ra = SketchPointRole::Center; dco.eb = ci; dco.rb = SketchPointRole::Center;
+                            w.push_back(dco);
+                        }
+                    }
+                    return w;
+                };
+                ladder = can_conc ? std::vector<std::vector<SketchEntityConstraintDef>>{ mk(true), mk(false) }
+                                  : std::vector<std::vector<SketchEntityConstraintDef>>{ mk(false) };
+            }
+            for (auto& w : ladder) if (!w.empty() && try_add_constraints(w)) break;
+        }
+    }
+    reset_tf();
+    m_selection.clear();
+    resolve_live();
+    if (on_selection_changed) on_selection_changed(0);
+}
+
 void DesignSketchTool::render(GLCanvas3D& canvas)
 {
     (void)canvas;
@@ -3673,6 +4055,8 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     render_live_quotes(1.0 / std::max(camera.get_zoom(), 1e-6));
     if (is_edit_op_mode())
         render_op_gizmo(1.0 / std::max(camera.get_zoom(), 1e-6));
+    if (is_transform_mode())
+        render_tf_gizmo(1.0 / std::max(camera.get_zoom(), 1e-6));
 
     // In-progress entity preview for the active tool.
     const ColorRGBA preview = m_construction ? grey : orange;
@@ -4111,6 +4495,60 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
         if (evt.RightDown()) {
             if (m_op_a >= 0 || !m_mirror_targets.empty()) {
                 reset_op();
+                m_selection.clear();
+                if (on_selection_changed) on_selection_changed(0);
+            } else {
+                request_exit();
+            }
+            return true;
+        }
+        return false;
+    }
+
+    // In-canvas transform tools (Move/Rotate/Scale/Array/PolarArray): pick subject
+    // entities, then a single draggable handle + editable value label(s) drive a live
+    // ghost. A click on empty space confirms; right-click drops the gesture / exits.
+    if (is_transform_mode()) {
+        if (evt.Moving()) {
+            screen_to_plane(canvas, evt, m_cursor);
+            m_has_cursor = true;
+            return true;
+        }
+        if (m_tf_dragging && evt.Dragging() && evt.LeftIsDown()) {
+            Vec2d p; screen_to_plane(canvas, evt, p);
+            drag_tf_handle(p);
+            return true;
+        }
+        if (evt.LeftUp()) {
+            if (m_tf_dragging) { m_tf_dragging = false; return true; }
+            return false;
+        }
+        if (evt.LeftDown()) {
+            Vec2d p; screen_to_plane(canvas, evt, p);
+            const Linef3 r2 = canvas.mouse_ray(Point(evt.GetX() + 8, evt.GetY()));
+            const double tol = std::max(1e-3, (m_plane.project(r2.a, r2.vector()) - p).norm());
+            // 1) live gizmo: click a value label to type, or grab the handle to drag.
+            if (tf_ready()) {
+                const Linef3 rl = canvas.mouse_ray(Point(evt.GetX() + 24, evt.GetY()));
+                const double ltol = std::max(tol, (m_plane.project(rl.a, rl.vector()) - p).norm());
+                if ((m_tf_label_a - p).norm() <= ltol) { open_tf_editor_a();     return true; }
+                if ((m_tf_label_b - p).norm() <= ltol) { open_tf_editor_count(); return true; }
+                if (hit_test_tf_handle(p, tol))        { m_tf_dragging = true;   return true; }
+            }
+            // 2) entity pick (close enough to an entity edge).
+            double best = 1e30; int bi = -1;
+            for (size_t i = 0; i < m_entities.size(); ++i) {
+                const double d = entity_pick_dist(p, m_entities[i]);
+                if (d < best) { best = d; bi = int(i); }
+            }
+            if (bi >= 0 && best <= tol * 3.0) { tf_pick(bi); return true; }
+            // 3) empty click confirms a ready gesture.
+            if (tf_ready()) confirm_transform();
+            return true;
+        }
+        if (evt.RightDown()) {
+            if (!m_tf_targets.empty()) {
+                reset_tf();
                 m_selection.clear();
                 if (on_selection_changed) on_selection_changed(0);
             } else {

@@ -272,6 +272,18 @@ DesignPanel::DesignPanel(wxWindow* parent)
               _L("Pick an entity, then drag the arrow or click the distance; click empty to apply"));
         skbtn("design_mirror",     DesignSketchTool::Mode::Mirror,          _L("Mirror"),
               _L("Pick a mirror-axis line, then the entities to mirror; click empty to apply"));
+        // In-canvas transform tools: pick subjects, then drag the handle / click the label
+        // (plus a copy-count label for the arrays); click empty to apply. No docked card.
+        skbtn("design_move",       DesignSketchTool::Mode::Move,           _L("Move (translate)"),
+              _L("Pick entities, then drag the handle or click the distance; click empty to apply"));
+        skbtn("design_rotate",     DesignSketchTool::Mode::Rotate,         _L("Rotate (about centroid)"),
+              _L("Pick entities, then drag around the pivot or click the angle; click empty to apply"));
+        skbtn("design_scale",      DesignSketchTool::Mode::Scale,          _L("Scale (about centroid)"),
+              _L("Pick entities, then drag the handle or click the factor; click empty to apply"));
+        skbtn("design_array",      DesignSketchTool::Mode::Array,          _L("Linear array"),
+              _L("Pick entities, drag the spacing handle, click the count; click empty to apply"));
+        skbtn("design_polararray", DesignSketchTool::Mode::PolarArray,     _L("Polar array (about centroid)"),
+              _L("Pick entities, drag the sweep handle, click the count; click empty to apply"));
 
         m_sides = new wxSpinCtrl(m_toolbar, wxID_ANY, "6", wxDefaultPosition, wxSize(50, -1));
         m_sides->SetRange(3, 64);
@@ -340,16 +352,12 @@ DesignPanel::DesignPanel(wxWindow* parent)
             b->Bind(wxEVT_BUTTON, [this, op](wxCommandEvent&) { apply_edit_op(op); });
             cadd(b);
         };
-        // Mirror/Offset/Fillet/Chamfer are now first-class in-canvas SKETCH toolbar tools
-        // (drag-arrow + editable label, no docked card) — the old Constrain-mode buttons
-        // that popped a numeric card are retired. Trim/Extend/Array/… stay here for now.
+        // Mirror/Offset/Fillet/Chamfer AND Move/Rotate/Scale/Array/PolarArray are now
+        // first-class in-canvas SKETCH toolbar tools (drag handle + editable label, live
+        // ghost, no docked card) — the old Constrain-mode buttons that popped a numeric
+        // card are retired. Only the pick-only Trim/Extend remain here.
         ebtn("design_trim",       _L("Trim"),         EditOp::Trim);
         ebtn("design_extend",     _L("Extend"),       EditOp::Extend);
-        ebtn("design_array",      _L("Linear array"), EditOp::Array);
-        ebtn("design_polararray", _L("Polar array (about centroid)"), EditOp::PolarArray);
-        ebtn("design_move",       _L("Move (translate)"), EditOp::Move);
-        ebtn("design_rotate",     _L("Rotate (about centroid)"), EditOp::Rotate);
-        ebtn("design_scale",      _L("Scale (about centroid)"),  EditOp::Scale);
         add_sep(m_tb_constrain);
         auto* b_done = icon_btn("design_check", _L("Done constraining"));
         b_done->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
