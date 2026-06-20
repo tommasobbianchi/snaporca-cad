@@ -218,6 +218,10 @@ private:
     // Parts list: tree rows for each body (parallel to m_doc.bodies). Selecting one
     // highlights that body and makes it the target for the next op.
     std::vector<wxTreeItemId> m_tree_body_items;
+    // Per-body visibility (parallel to m_doc.bodies; index stable across recompute since
+    // bodies are appended in feature order). Empty/grown to all-visible by sync_body_visible().
+    std::vector<bool> m_body_visible;
+    void sync_body_visible();             // grow/shrink m_body_visible to bodies.size()
     int  tree_selection() const;          // selected feature row, or wxNOT_FOUND
     int  tree_body_selection() const;     // selected Parts-list body index, or -1
     void set_tree_selection(int row);

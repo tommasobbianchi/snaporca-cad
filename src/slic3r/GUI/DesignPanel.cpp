@@ -1100,11 +1100,13 @@ void DesignPanel::set_status_ok()
     m_status->SetLabel(wxString::Format(_L("OK — %zu triangles"),
                                         m_doc.display_mesh.its.indices.size()));
     if (m_viewport != nullptr) {
-        m_viewport->set_bodies(m_doc.display_body_meshes);
+        sync_body_visible();
+        m_viewport->set_bodies(m_doc.display_body_meshes, m_body_visible);
         // Point the solid-pick at the fresh body + tessellation (resets the whole/face/edge
         // selection, whose ids invalidate on every recompute). Null body is handled inside.
         m_viewport->set_solid_pick(&m_doc.bodies, &m_doc.display_mesh,
-                                   &m_doc.display_tri_face, &m_doc.display_tri_body);
+                                   &m_doc.display_tri_face, &m_doc.display_tri_body,
+                                   &m_body_visible);
     }
     sync_sketch_display();
 }
@@ -1443,13 +1445,16 @@ void DesignPanel::refresh_tree()
     // Parts list: a Bodies group listing each independent solid. Shown only with >1 body
     // (a single body is just "the solid"); selecting a row highlights it + targets it.
     if (m_doc.bodies.size() > 1) {
+        sync_body_visible();   // keep flags parallel before reading them for the row colour
         wxTreeItemId grp = m_tree->AppendItem(root, _L("Bodies"));
         m_tree->SetItemTextColour(grp, wxColour(0x9a, 0x9a, 0x9a));
         for (size_t b = 0; b < m_doc.bodies.size(); ++b) {
             // Label "Body N" (matches the viewport/status); the originating feature name is
             // kept on the CadBody for tooltips/debug but isn't shown as the row label.
+            const bool vis = b >= m_body_visible.size() || m_body_visible[b];
             wxTreeItemId id = m_tree->AppendItem(grp, wxString::Format(_L("Body %zu"), b + 1));
-            m_tree->SetItemTextColour(id, wxColour(0xE0, 0xE0, 0xE0));
+            // Hidden bodies are greyed so the show/hide state reads at a glance (eye toggle).
+            m_tree->SetItemTextColour(id, vis ? wxColour(0xE0, 0xE0, 0xE0) : wxColour(0x80, 0x80, 0x80));
             m_tree_body_items.push_back(id);
         }
         m_tree->Expand(grp);
@@ -1465,6 +1470,13 @@ int DesignPanel::tree_body_selection() const
     for (size_t i = 0; i < m_tree_body_items.size(); ++i)
         if (m_tree_body_items[i] == sel) return int(i);
     return -1;
+}
+
+void DesignPanel::sync_body_visible()
+{
+    // Keep the visibility vector parallel to bodies; newly-created bodies default visible.
+    // Bodies are appended in feature order, so existing indices keep their flag on resize.
+    m_body_visible.resize(m_doc.bodies.size(), true);
 }
 
 int DesignPanel::tree_selection() const
@@ -1516,6 +1528,32 @@ void DesignPanel::on_delete_feature()
 
 void DesignPanel::on_toggle_visibility()
 {
+    // A selected Body row toggles that body's visibility (per-body show/hide). The solid
+    // stays in the document; only its GLVolume + pickability flip. Falls through to the
+    // feature-level toggle below when a feature row (not a body row) is selected.
+    const int bsel = tree_body_selection();
+    if (bsel >= 0) {
+        sync_body_visible();
+        if (bsel < int(m_body_visible.size())) {
+            const bool now_visible = !m_body_visible[bsel];
+            m_body_visible[bsel] = now_visible;
+            if (m_viewport != nullptr) {
+                m_viewport->set_bodies(m_doc.display_body_meshes, m_body_visible);
+                m_viewport->set_solid_pick(&m_doc.bodies, &m_doc.display_mesh,
+                                           &m_doc.display_tri_face, &m_doc.display_tri_body,
+                                           &m_body_visible);
+            }
+            refresh_tree();
+            if (bsel < int(m_tree_body_items.size()))   // keep the row selected for repeat toggles
+                m_tree->SelectItem(m_tree_body_items[bsel]);
+            m_status->SetForegroundColour(wxNullColour);
+            m_status->SetLabel(wxString::Format(now_visible ? _L("Body %d shown")
+                                                            : _L("Body %d hidden"), bsel + 1));
+            m_status->Refresh();
+        }
+        return;
+    }
+
     int sel = tree_selection();
     if (sel == wxNOT_FOUND || sel >= int(m_doc.features.size())) {
         m_status->SetForegroundColour(wxColour(235, 110, 110));
@@ -1539,7 +1577,7 @@ void DesignPanel::on_toggle_visibility()
     set_tree_selection(sel);              // keep the toggled feature selected
     if (m_viewport != nullptr) {
         if (m_doc.display_mesh.its.indices.empty()) m_viewport->clear_mesh();
-        else                                        m_viewport->set_bodies(m_doc.display_body_meshes);
+        else                                        m_viewport->set_bodies(m_doc.display_body_meshes, m_body_visible);
     }
     sync_sketch_display();                // skips the hidden sketch + direct-renders
     m_status->SetForegroundColour(wxNullColour);
@@ -1805,7 +1843,7 @@ void DesignPanel::commit_entity_constraints(const std::vector<SketchEntityConstr
     m_doc.recompute();
     m_viewport->update_constrain_entities(m_doc.features[m_constrain_feat].entities);
     if (!m_doc.display_mesh.its.indices.empty())
-        m_viewport->set_bodies(m_doc.display_body_meshes);
+        m_viewport->set_bodies(m_doc.display_body_meshes, m_body_visible);
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(_L("Applied constraint"));
     m_status->Refresh();
@@ -1980,7 +2018,7 @@ void DesignPanel::delete_constraint(int idx)
     m_viewport->set_constraint_highlight({});
     m_viewport->update_constrain_entities(m_doc.features[m_constrain_feat].entities);
     if (!m_doc.display_mesh.its.indices.empty())
-        m_viewport->set_bodies(m_doc.display_body_meshes);
+        m_viewport->set_bodies(m_doc.display_body_meshes, m_body_visible);
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(_L("Constraint deleted"));
     m_status->Refresh();
@@ -2715,7 +2753,7 @@ void DesignPanel::after_edit_op()
     // leave a stale ghost of the pre-edit geometry beside the new position.
     sync_sketch_display();
     if (!m_doc.display_mesh.its.indices.empty())
-        m_viewport->set_bodies(m_doc.display_body_meshes);
+        m_viewport->set_bodies(m_doc.display_body_meshes, m_body_visible);
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(_L("Applied edit"));
     m_status->Refresh();
@@ -2822,7 +2860,7 @@ void DesignPanel::apply_constraint(SketchConstraintType type)
     m_doc.recompute();
     m_viewport->update_constrain_profile(m_doc.features[m_constrain_feat].profile.points);
     if (!m_doc.display_mesh.its.indices.empty())
-        m_viewport->set_bodies(m_doc.display_body_meshes);
+        m_viewport->set_bodies(m_doc.display_body_meshes, m_body_visible);
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(type == SketchConstraintType::Horizontal ? _L("Applied Horizontal")
                                                                 : _L("Applied Vertical"));

@@ -81,7 +81,8 @@ public:
     // pass nullptr to clear). Call after each recompute — selection resets (ids invalidate).
     // tri_face = per-triangle face id within its body; tri_body = per-triangle body index.
     void set_solid_pick(const std::vector<CadBody>* bodies, const TriangleMesh* mesh,
-                        const std::vector<int>* tri_face, const std::vector<int>* tri_body);
+                        const std::vector<int>* tri_face, const std::vector<int>* tri_body,
+                        const std::vector<bool>* visible = nullptr);
     void clear_solid_selection();
     // Select a whole body by index (from the Parts list) — Whole-level highlight, no face/edge.
     // body < 0 or out of range clears the selection.
@@ -626,6 +627,8 @@ private:
     const TriangleMesh*     m_solid_mesh{nullptr};
     const std::vector<int>* m_solid_tri_face{nullptr};
     const std::vector<int>* m_solid_tri_body{nullptr};
+    const std::vector<bool>* m_solid_visible{nullptr};  // per-body visibility; hidden bodies aren't pickable
+    bool body_pickable(int b) const;                    // false when the body is explicitly hidden
     SolidSel                m_solid_sel{SolidSel::None};
     int                     m_sel_body{-1};   // which body the face/edge selection is on
     int                     m_sel_face{-1};

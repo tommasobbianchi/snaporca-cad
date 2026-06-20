@@ -2190,15 +2190,26 @@ std::vector<SketchEntity> DesignSketchTool::selected_loop_entities() const
 // ---- Solid topology selection (whole -> face -> edge cycle) ----
 
 void DesignSketchTool::set_solid_pick(const std::vector<CadBody>* bodies, const TriangleMesh* mesh,
-                                      const std::vector<int>* tri_face, const std::vector<int>* tri_body)
+                                      const std::vector<int>* tri_face, const std::vector<int>* tri_body,
+                                      const std::vector<bool>* visible)
 {
     // Treat no bodies or an empty mesh as "no solid" so has_display()/picking stay off.
     if (bodies == nullptr || bodies->empty() || mesh == nullptr || mesh->its.indices.empty()) {
         m_solid_bodies = nullptr; m_solid_mesh = nullptr; m_solid_tri_face = nullptr; m_solid_tri_body = nullptr;
+        m_solid_visible = nullptr;
     } else {
         m_solid_bodies = bodies; m_solid_mesh = mesh; m_solid_tri_face = tri_face; m_solid_tri_body = tri_body;
+        m_solid_visible = visible;
     }
     clear_solid_selection();
+}
+
+// A body is pickable unless an explicit visibility vector marks it hidden.
+bool DesignSketchTool::body_pickable(int b) const
+{
+    if (b < 0) return false;
+    if (m_solid_visible == nullptr || b >= int(m_solid_visible->size())) return true;
+    return (*m_solid_visible)[b];
 }
 
 void DesignSketchTool::clear_solid_selection()
@@ -2210,7 +2221,10 @@ void DesignSketchTool::clear_solid_selection()
 
 void DesignSketchTool::select_body(int body)
 {
-    if (m_solid_bodies == nullptr || body < 0 || body >= int(m_solid_bodies->size())) {
+    // Hidden bodies aren't highlighted (the tint overlay would otherwise draw over a
+    // body whose GLVolume is off, leaving a ghost after a hide).
+    if (m_solid_bodies == nullptr || body < 0 || body >= int(m_solid_bodies->size())
+        || !body_pickable(body)) {
         clear_solid_selection();
         return;
     }
@@ -2239,9 +2253,11 @@ bool DesignSketchTool::handle_solid_click(GLCanvas3D& canvas, const wxMouseEvent
         const Vec3d v2 = its.vertices[idx(2)].cast<double>();
         double t;
         if (ray_triangle(ro, rd, v0, v1, v2, t) && t < best_t) {
+            const int cand_body = (m_solid_tri_body && i < m_solid_tri_body->size()) ? (*m_solid_tri_body)[i] : -1;
+            if (!body_pickable(cand_body)) continue;   // hidden bodies don't catch clicks
             best_t = t;
             best_face = (m_solid_tri_face && i < m_solid_tri_face->size()) ? (*m_solid_tri_face)[i] : -1;
-            best_body = (m_solid_tri_body && i < m_solid_tri_body->size()) ? (*m_solid_tri_body)[i] : -1;
+            best_body = cand_body;
         }
     }
     if (best_face < 0 || best_body < 0 || best_body >= int(m_solid_bodies->size()))

@@ -31,7 +31,9 @@ public:
 
     void set_mesh(const TriangleMesh& mesh);
     // Multi-body display: one GLVolume per body, each coloured distinctly (per-body colour).
-    void set_bodies(const std::vector<TriangleMesh>& body_meshes);
+    // `visible` (optional, indexed by body) hides bodies whose flag is false.
+    void set_bodies(const std::vector<TriangleMesh>& body_meshes,
+                    const std::vector<bool>& visible = {});
     void clear_mesh();
 
     void set_preview_mesh(const TriangleMesh& mesh);
@@ -77,7 +79,8 @@ public:
     // tessellation (with per-triangle face & body ids), and a callback fired on each
     // whole->face->edge cycle (level, body index, face id, edge id).
     void set_solid_pick(const std::vector<CadBody>* bodies, const TriangleMesh* mesh,
-                        const std::vector<int>* tri_face, const std::vector<int>* tri_body);
+                        const std::vector<int>* tri_face, const std::vector<int>* tri_body,
+                        const std::vector<bool>* visible = nullptr);
     void set_on_solid_selection_changed(std::function<void(int, int, int, int)> cb);
     void select_body(int body);   // Parts-list -> highlight a whole body by index
     // Visual Extrude depth-arrow gizmo (C5b): the panel feeds the profile plane + centroid +
@@ -148,6 +151,7 @@ private:
     Model       m_model;
     bool        m_first_frame{true};
     bool        m_body_selected{false};   // tree selected a body feature → tint the solid
+    std::vector<bool> m_body_visible;     // per-body visibility (empty => all visible)
 
     DesignSketchTool m_sketch_tool;
     std::unique_ptr<SketchInlineEditor> m_inline_editor;  // floating in-canvas value editor

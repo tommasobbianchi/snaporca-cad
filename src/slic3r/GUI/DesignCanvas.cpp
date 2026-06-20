@@ -142,11 +142,15 @@ void DesignCanvas::reload(bool keep_view)
     const auto& volumes = m_canvas->get_volumes().volumes;
     for (auto* v : volumes) {
         int obj_idx = v->object_idx();
-        if (obj_idx == 0)
+        if (obj_idx == 0) {
             // Object 0 holds one volume per body — colour each by its body index so
             // multiple coexisting solids are visually distinct (Onshape per-part colour).
-            v->set_color(m_body_selected ? sel_gold : body_palette(v->volume_idx()));
-        else if (obj_idx == 1)
+            const int b = v->volume_idx();
+            const bool hidden = (b >= 0 && b < int(m_body_visible.size())) && !m_body_visible[b];
+            v->is_active = !hidden;   // per-body visibility toggle
+            if (!hidden)
+                v->set_color(m_body_selected ? sel_gold : body_palette(b));
+        } else if (obj_idx == 1)
             v->set_color(ghost);
     }
 
@@ -180,11 +184,13 @@ void DesignCanvas::set_mesh(const TriangleMesh& mesh)
     reload(!m_first_frame);
 }
 
-void DesignCanvas::set_bodies(const std::vector<TriangleMesh>& body_meshes)
+void DesignCanvas::set_bodies(const std::vector<TriangleMesh>& body_meshes,
+                              const std::vector<bool>& visible)
 {
     // Object 0 carries one GLVolume per body so reload() can colour each distinctly.
     // Falls back to a single-volume object when there's only one body (identical look
     // to the old set_mesh path). Picking still uses the combined mesh via set_solid_pick.
+    m_body_visible = visible;   // empty => all visible; reload() reads this per volume
     if (body_meshes.empty()) { clear_mesh(); return; }
 
     ModelObject* obj = m_model.objects.empty() ? m_model.add_object()
@@ -373,9 +379,10 @@ void DesignCanvas::clear_loop_pick()
 }
 
 void DesignCanvas::set_solid_pick(const std::vector<CadBody>* bodies, const TriangleMesh* mesh,
-                                  const std::vector<int>* tri_face, const std::vector<int>* tri_body)
+                                  const std::vector<int>* tri_face, const std::vector<int>* tri_body,
+                                  const std::vector<bool>* visible)
 {
-    m_sketch_tool.set_solid_pick(bodies, mesh, tri_face, tri_body);
+    m_sketch_tool.set_solid_pick(bodies, mesh, tri_face, tri_body, visible);
 }
 
 void DesignCanvas::set_on_solid_selection_changed(std::function<void(int, int, int, int)> cb)
