@@ -754,18 +754,25 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body, const Cad
                       return t;
                   }();
         }
-        if (!have_body || f.mode == BooleanMode::New) {
+        // A face-extrude always grows FROM an existing body, so a "New" boolean must not
+        // wipe that source solid (CadDocument is single-body — replacing would delete the
+        // part the user extruded from). Fuse instead, so the new solid coexists with the
+        // source as one body (a coincident boss, or a disjoint lump in the same compound).
+        BooleanMode eff_mode = f.mode;
+        if (f.extrude_src_face >= 0 && have_body && eff_mode == BooleanMode::New)
+            eff_mode = BooleanMode::Add;
+        if (!have_body || eff_mode == BooleanMode::New) {
             result = tool;
             have_body = true;
-        } else if (f.mode == BooleanMode::Add) {
+        } else if (eff_mode == BooleanMode::Add) {
             BRepAlgoAPI_Fuse fuse(result, tool);
             if (!fuse.IsDone()) throw std::runtime_error("fuse failed");
             result = fuse.Shape();
-        } else if (f.mode == BooleanMode::Cut) {
+        } else if (eff_mode == BooleanMode::Cut) {
             BRepAlgoAPI_Cut cut(result, tool);
             if (!cut.IsDone()) throw std::runtime_error("cut failed");
             result = cut.Shape();
-        } else if (f.mode == BooleanMode::Intersect) {
+        } else if (eff_mode == BooleanMode::Intersect) {
             BRepAlgoAPI_Common common(result, tool);
             if (!common.IsDone()) throw std::runtime_error("intersect failed");
             result = common.Shape();

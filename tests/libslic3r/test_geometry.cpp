@@ -9,6 +9,7 @@
 #include "libslic3r/Point.hpp"
 #include "libslic3r/GeometryEngine.hpp"
 #include "libslic3r/SketchEngine.hpp"
+#include "libslic3r/CadDocument.hpp"
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/Polygon.hpp"
 #include "libslic3r/Polyline.hpp"
@@ -827,4 +828,33 @@ TEST_CASE("face-extrude pushes OUTWARD on a reversed cap face", "[design][faceex
     Bnd_Box bb; BRepBndLib::Add(fuse.Shape(), bb);
     double x0, y0, z0, x1, y1, z1; bb.Get(x0, y0, z0, x1, y1, z1);
     REQUIRE_THAT(z1 - z0, Catch::Matchers::WithinAbs(20.0, 0.1));   // 10 base + 10 outward
+}
+
+TEST_CASE("face-extrude New keeps the source solid (single-body)", "[design][faceextrude]")
+{
+    // Regression: a face-extrude with BooleanMode::New must NOT delete the body it grew
+    // from (CadDocument is single-body, so a naive New does result = tool and wipes the
+    // source). Build a box, face-extrude its top with New, and assert the result is 20
+    // tall (source box preserved + boss), not a 10mm slab that replaced the box.
+    Slic3r::CadDocument doc;
+    int sk = doc.add_sketch(Slic3r::SketchShape::Rectangle, Slic3r::SketchPlane::XY(),
+                            20.0, 20.0, 0.0, "Sketch1");
+    doc.add_extrude(sk, 10.0, false, Slic3r::BooleanMode::New, "Extrude1");
+    REQUIRE(doc.recompute());
+    REQUIRE_FALSE(doc.body.IsNull());
+
+    int n = GeometryEngine::face_count(doc.body), top = -1; double mz = -1e9;
+    for (int i = 0; i < n; ++i) {
+        Vec3d c = GeometryEngine::face_centroid_world(GeometryEngine::face_by_index(doc.body, i));
+        if (c.z() > mz) { mz = c.z(); top = i; }
+    }
+    REQUIRE(top >= 0);
+
+    doc.add_extrude_face(top, 10.0, false, Slic3r::BooleanMode::New, "FaceBoss");
+    REQUIRE(doc.recompute());
+    REQUIRE_FALSE(doc.body.IsNull());
+
+    Bnd_Box bb2; BRepBndLib::Add(doc.body, bb2);
+    double a0, b0, c0, a1, b1, c1; bb2.Get(a0, b0, c0, a1, b1, c1);
+    REQUIRE_THAT(c1 - c0, Catch::Matchers::WithinAbs(20.0, 0.1));   // source kept + boss, NOT replaced
 }
