@@ -858,3 +858,61 @@ TEST_CASE("face-extrude New keeps the source solid (single-body)", "[design][fac
     double a0, b0, c0, a1, b1, c1; bb2.Get(a0, b0, c0, a1, b1, c1);
     REQUIRE_THAT(c1 - c0, Catch::Matchers::WithinAbs(20.0, 0.1));   // source kept + boss, NOT replaced
 }
+
+// Z-extent (zmax - zmin) of a shape's bounding box — multi-body targeting checks.
+static double z_extent(const TopoDS_Shape& s)
+{
+    Bnd_Box bb; BRepBndLib::Add(s, bb);
+    double x0, y0, z0, x1, y1, z1; bb.Get(x0, y0, z0, x1, y1, z1);
+    return z1 - z0;
+}
+
+TEST_CASE("multi-body: two New extrudes make two bodies", "[design][multibody]")
+{
+    Slic3r::CadDocument doc;
+    int s1 = doc.add_sketch(Slic3r::SketchShape::Rectangle, Slic3r::SketchPlane::XY(), 20, 20, 0, "S1");
+    doc.add_extrude(s1, 10, false, Slic3r::BooleanMode::New, "E1");
+    int s2 = doc.add_sketch(Slic3r::SketchShape::Rectangle, Slic3r::SketchPlane::XY(), 10, 10, 0, "S2");
+    doc.add_extrude(s2, 5, false, Slic3r::BooleanMode::New, "E2");
+    REQUIRE(doc.recompute());
+    REQUIRE(doc.bodies.size() == 2);
+}
+
+TEST_CASE("multi-body: face-extrude New keeps source as a separate body", "[design][multibody]")
+{
+    Slic3r::CadDocument doc;
+    int s1 = doc.add_sketch(Slic3r::SketchShape::Rectangle, Slic3r::SketchPlane::XY(), 20, 20, 0, "S1");
+    doc.add_extrude(s1, 10, false, Slic3r::BooleanMode::New, "E1");
+    REQUIRE(doc.recompute());
+    REQUIRE(doc.bodies.size() == 1);
+
+    int n = GeometryEngine::face_count(doc.body), top = -1; double mz = -1e9;
+    for (int i = 0; i < n; ++i) {
+        Vec3d c = GeometryEngine::face_centroid_world(GeometryEngine::face_by_index(doc.body, i));
+        if (c.z() > mz) { mz = c.z(); top = i; }
+    }
+    REQUIRE(top >= 0);
+    doc.add_extrude_face(top, 10, false, Slic3r::BooleanMode::New, "boss");
+    REQUIRE(doc.recompute());
+    REQUIRE(doc.bodies.size() == 2);                   // source + new boss, both present
+}
+
+TEST_CASE("multi-body: target_body routes Add to the chosen body only", "[design][multibody]")
+{
+    Slic3r::CadDocument doc;
+    int s1 = doc.add_sketch(Slic3r::SketchShape::Rectangle, Slic3r::SketchPlane::XY(), 20, 20, 0, "S1");
+    doc.add_extrude(s1, 10, false, Slic3r::BooleanMode::New, "A");   // body 0 (z 0..10)
+    int s2 = doc.add_sketch(Slic3r::SketchShape::Rectangle, Slic3r::SketchPlane::XY(), 10, 10, 0, "S2");
+    doc.add_extrude(s2, 10, false, Slic3r::BooleanMode::New, "B");   // body 1 (z 0..10)
+    REQUIRE(doc.recompute());
+    REQUIRE(doc.bodies.size() == 2);
+
+    // Add a taller box fused into body 0 only.
+    int s3 = doc.add_sketch(Slic3r::SketchShape::Rectangle, Slic3r::SketchPlane::XY(), 20, 20, 0, "S3");
+    int e3 = doc.add_extrude(s3, 30, false, Slic3r::BooleanMode::Add, "C");
+    doc.features[e3].target_body = 0;
+    REQUIRE(doc.recompute());
+    REQUIRE(doc.bodies.size() == 2);                                  // Add did NOT make a new body
+    REQUIRE_THAT(z_extent(doc.bodies[0].shape), Catch::Matchers::WithinAbs(30.0, 0.1)); // grew
+    REQUIRE_THAT(z_extent(doc.bodies[1].shape), Catch::Matchers::WithinAbs(10.0, 0.1)); // untouched
+}

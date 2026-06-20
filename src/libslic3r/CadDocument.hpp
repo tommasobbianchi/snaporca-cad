@@ -76,6 +76,11 @@ struct CadFeature {
     int         up_to_face{-1};   // target solid-face id for UpToFace (C4-part2)
     int         extrude_src_face{-1}; // global face id on the current body to extrude as a profile; -1 = use sketch wire
     Vec3d       up_to_point{0,0,0}; // target for UpToVertex (C4-part2)
+    // Multi-body target: which body (index into CadDocument::bodies) this feature acts on.
+    // -1 = auto (last body). A New extrude appends a fresh body; Add/Cut/Intersect, dress-up,
+    // hole and face-extrude(non-New) mutate bodies[target]; face-extrude reads its source
+    // face from bodies[target] too. The source-face owner for face-extrude lives here.
+    int         target_body{-1};
 
     // Dress-up params (Fillet/Chamfer) — applied to the current body in order
     double      dressup_size{1.0};         // fillet radius or chamfer distance
@@ -100,11 +105,20 @@ struct CadFeature {
     double      thread_y{0};               // axis position on the plane (v/y axis)
 };
 
+// One independent solid in a multi-body document.
+struct CadBody {
+    TopoDS_Shape shape;
+    std::string  name;
+};
+
 // OCCT-only feature tree backing the Design tab. No GUI dependencies (lives in libslic3r).
 class CadDocument {
 public:
     std::vector<CadFeature> features;
-    TopoDS_Shape            body;          // current solid after replay
+    // Multi-body result of the last replay. A "New" extrude appends a body; other ops
+    // mutate a target body. Empty after a failed/empty recompute.
+    std::vector<CadBody>    bodies;
+    TopoDS_Shape            body;          // compound of all bodies (1 body => that body) — display/compat
     TriangleMesh            display_mesh;      // tessellation of body
     std::vector<int>        display_tri_face;  // per-triangle source-face id of display_mesh
     std::string             error;             // last recompute error ("" = ok)
@@ -176,8 +190,15 @@ public:
 private:
     TopoDS_Wire build_sketch_wire(const CadFeature& sketch) const;
     // Apply a single feature to (result, have_body), throwing std::runtime_error on
-    // failure. Shared by recompute() (replay) and preview() (single candidate).
-    void apply_feature(TopoDS_Shape& result, bool& have_body, const CadFeature& f) const;
+    // failure. `context` is the body whose faces/edges the feature reads (face-extrude
+    // source, up-to-face target, dress-up, hole) — it differs from `result` only when the
+    // feature builds a NEW body from an existing one (face-extrude New). Shared by route.
+    void apply_feature(TopoDS_Shape& result, bool& have_body,
+                       const TopoDS_Shape& context, const CadFeature& f) const;
+    // Route one feature into the bodies list: resolve its target body, decide whether it
+    // starts a new body (empty list, or an Extrude with mode New) vs mutates an existing
+    // one, then apply_feature. Shared by recompute() (replay all) and preview() (candidate).
+    void route_feature(std::vector<CadBody>& bodies, const CadFeature& f) const;
 };
 
 } // namespace Slic3r

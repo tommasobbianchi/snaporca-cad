@@ -21,6 +21,8 @@
 #include <GCE2d_MakeSegment.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
+#include <TopoDS_Compound.hxx>      // multi-body: compound of bodies for display/compat
+#include <BRep_Builder.hxx>
 #include <TopAbs_Orientation.hxx>   // outward-normal orientation for face-extrude
 #include <gp_Circ.hxx>
 #include <gp_Ax2.hxx>
@@ -526,6 +528,7 @@ static bool commit_or_rollback(CadDocument& doc, std::vector<CadFeature>& snapsh
     for (const auto& f : doc.features)
         if (f.enabled && f.type != CadFeatureType::Sketch) { has_solid_feature = true; break; }
     if (!has_solid_feature) {
+        doc.bodies.clear();
         doc.body         = TopoDS_Shape();
         doc.display_mesh = TriangleMesh{};
         doc.display_tri_face.clear();
@@ -682,7 +685,8 @@ TopoDS_Wire CadDocument::build_sketch_wire(const CadFeature& sketch) const
     return prof.to_occt_wire(sketch.plane);
 }
 
-void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body, const CadFeature& f) const
+void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body,
+                                const TopoDS_Shape& context, const CadFeature& f) const
 {
     switch (f.type) {
     case CadFeatureType::Sketch:
@@ -692,8 +696,10 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body, const Cad
         const double signed_d = f.flip ? -f.distance : f.distance;
         TopoDS_Shape tool;
         if (f.extrude_src_face >= 0) {
-            if (!have_body) throw std::runtime_error("face-extrude needs a body");
-            TopoDS_Face srcf = GeometryEngine::face_by_index(result, f.extrude_src_face);
+            // The source face is read from `context` (the owner body), which for a New
+            // face-extrude is the source solid while `result` is the empty new body.
+            if (context.IsNull()) throw std::runtime_error("face-extrude needs a body");
+            TopoDS_Face srcf = GeometryEngine::face_by_index(context, f.extrude_src_face);
             if (srcf.IsNull()) throw std::runtime_error("face-extrude: invalid face id");
             SketchPlane fpl = SketchPlane::from_face(srcf);
             // from_face takes the surface's geometric normal and IGNORES the topological
@@ -733,7 +739,7 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body, const Cad
                           case ExtrudeEnd::TwoSided:   t = SketchEngine::make_extrude_two_sided(wire, sk.plane, f.distance, f.distance2); break;
                           case ExtrudeEnd::ThroughAll: t = SketchEngine::make_extrude(wire, sk.plane, 1.0e5, true); break;
                           case ExtrudeEnd::UpToFace: {
-                              const TopoDS_Face tgt = GeometryEngine::face_by_index(result, f.up_to_face);
+                              const TopoDS_Face tgt = GeometryEngine::face_by_index(context, f.up_to_face);
                               double L = signed_d;
                               if (!tgt.IsNull()) {
                                   const Vec3d c = GeometryEngine::face_centroid_world(tgt);
@@ -754,25 +760,21 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body, const Cad
                       return t;
                   }();
         }
-        // A face-extrude always grows FROM an existing body, so a "New" boolean must not
-        // wipe that source solid (CadDocument is single-body — replacing would delete the
-        // part the user extruded from). Fuse instead, so the new solid coexists with the
-        // source as one body (a coincident boss, or a disjoint lump in the same compound).
-        BooleanMode eff_mode = f.mode;
-        if (f.extrude_src_face >= 0 && have_body && eff_mode == BooleanMode::New)
-            eff_mode = BooleanMode::Add;
-        if (!have_body || eff_mode == BooleanMode::New) {
+        // New / first-of-a-body => result becomes the tool (route_feature sends New extrudes
+        // here with an empty result, so a face-extrude New builds a fresh body from the source
+        // face in `context` without touching it). Add/Cut/Intersect boolean into `result`.
+        if (!have_body || f.mode == BooleanMode::New) {
             result = tool;
             have_body = true;
-        } else if (eff_mode == BooleanMode::Add) {
+        } else if (f.mode == BooleanMode::Add) {
             BRepAlgoAPI_Fuse fuse(result, tool);
             if (!fuse.IsDone()) throw std::runtime_error("fuse failed");
             result = fuse.Shape();
-        } else if (eff_mode == BooleanMode::Cut) {
+        } else if (f.mode == BooleanMode::Cut) {
             BRepAlgoAPI_Cut cut(result, tool);
             if (!cut.IsDone()) throw std::runtime_error("cut failed");
             result = cut.Shape();
-        } else if (eff_mode == BooleanMode::Intersect) {
+        } else if (f.mode == BooleanMode::Intersect) {
             BRepAlgoAPI_Common common(result, tool);
             if (!common.IsDone()) throw std::runtime_error("intersect failed");
             result = common.Shape();
@@ -869,16 +871,54 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body, const Cad
     }
 }
 
+// Compound of all body shapes (1 body => that body verbatim, so single-body display and
+// global face/edge ids are byte-identical to the pre-multi-body behaviour).
+static TopoDS_Shape compound_of(const std::vector<CadBody>& bodies)
+{
+    if (bodies.size() == 1) return bodies[0].shape;
+    TopoDS_Compound comp;
+    BRep_Builder bld;
+    bld.MakeCompound(comp);
+    for (const CadBody& b : bodies)
+        if (!b.shape.IsNull()) bld.Add(comp, b.shape);
+    return comp;
+}
+
+void CadDocument::route_feature(std::vector<CadBody>& bodies, const CadFeature& f) const
+{
+    // Resolve the target body: explicit target_body when valid, else the last body.
+    const int t = (f.target_body >= 0 && f.target_body < int(bodies.size()))
+                  ? f.target_body : int(bodies.size()) - 1;
+    const TopoDS_Shape context = (t >= 0) ? bodies[t].shape : TopoDS_Shape();
+    // A New extrude (or the very first solid feature) starts a fresh body; everything else
+    // mutates the target body in place.
+    const bool starts_new = bodies.empty()
+        || (f.type == CadFeatureType::Extrude && f.mode == BooleanMode::New);
+
+    if (starts_new) {
+        TopoDS_Shape result;            // empty -> apply_feature fills it (New path)
+        bool have_body = false;
+        apply_feature(result, have_body, context, f);
+        if (have_body && !result.IsNull())
+            bodies.push_back({ result, f.name.empty() ? std::string("Body") : f.name });
+    } else {
+        if (t < 0) throw std::runtime_error("feature needs a body");
+        TopoDS_Shape result = bodies[t].shape;   // shallow handle; apply_feature mutates it
+        bool have_body = true;
+        apply_feature(result, have_body, context, f);
+        bodies[t].shape = result;
+    }
+}
+
 bool CadDocument::recompute()
 {
     error.clear();
-    TopoDS_Shape result;
-    bool have_body = false;
+    std::vector<CadBody> built;
     try {
         for (const CadFeature& f : features) {
             if (!f.enabled) continue;
             if (f.type == CadFeatureType::Sketch) continue; // consumed by an extrude
-            apply_feature(result, have_body, f);
+            route_feature(built, f);
         }
     } catch (const Standard_Failure& e) {
         // OCCT raises Standard_Failure (NOT a std::exception) — must be caught
@@ -892,9 +932,10 @@ bool CadDocument::recompute()
         error = "unknown geometry error";
         return false;
     }
-    if (!have_body) { error = "no solid-producing features"; return false; }
+    if (built.empty()) { error = "no solid-producing features"; return false; }
 
-    body = result;
+    bodies = std::move(built);
+    body = compound_of(bodies);
     display_mesh = SketchEngine::tessellate(body, display_tri_face, linear_deflection, angular_deflection);
     if (display_mesh.its.indices.empty()) {
         error = "tessellation produced an empty mesh";
@@ -906,10 +947,9 @@ bool CadDocument::recompute()
 bool CadDocument::preview(const CadFeature& candidate, TriangleMesh& out_mesh, std::string& err) const
 {
     err.clear();
-    TopoDS_Shape result = body;            // start from the current committed body
-    bool have_body = !body.IsNull();
+    std::vector<CadBody> tmp = bodies;     // start from the current committed bodies
     try {
-        apply_feature(result, have_body, candidate);
+        route_feature(tmp, candidate);     // candidate may append a new body or mutate one
     } catch (const Standard_Failure& e) {
         err = e.GetMessageString() ? e.GetMessageString() : "OCCT operation failed";
         return false;
@@ -920,11 +960,11 @@ bool CadDocument::preview(const CadFeature& candidate, TriangleMesh& out_mesh, s
         err = "unknown geometry error";
         return false;
     }
-    if (!have_body || result.IsNull()) {
+    if (tmp.empty()) {
         err = "preview produced no geometry";
         return false;
     }
-    out_mesh = SketchEngine::tessellate(result, linear_deflection, angular_deflection);
+    out_mesh = SketchEngine::tessellate(compound_of(tmp), linear_deflection, angular_deflection);
     if (out_mesh.its.indices.empty()) {
         err = "preview produced an empty mesh";
         return false;
