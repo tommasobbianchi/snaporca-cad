@@ -139,15 +139,24 @@ DesignPanel::DesignPanel(wxWindow* parent)
     const wxColour tb_bg(0x36, 0x36, 0x3C);
     const wxColour tb_hover(0x4D, 0x4D, 0x54);
     auto icon_btn = [this, tb_bg, tb_hover](const char* icon, const wxString& tip) {
-        auto* b = new ScalableButton(m_toolbar, wxID_ANY, icon, "", wxSize(34, 34),
-                                     wxDefaultPosition, wxBU_EXACTFIT | wxBORDER_NONE, false, 22);
+        // Prepare-toolbar-sized buttons (40px cell / 28px glyph) so the Design
+        // ribbon matches the rest of the app instead of feeling tiny.
+        auto* b = new ScalableButton(m_toolbar, wxID_ANY, icon, "", wxSize(40, 40),
+                                     wxDefaultPosition, wxBU_EXACTFIT | wxBORDER_NONE, false, 28);
         b->SetToolTip(tip);
         b->SetBackgroundColour(tb_bg);
-        // Subtle hover affordance (no theme-native highlight on a borderless button).
-        b->Bind(wxEVT_ENTER_WINDOW, [b, tb_hover](wxMouseEvent& e) {
-            b->SetBackgroundColour(tb_hover); b->Refresh(); e.Skip(); });
-        b->Bind(wxEVT_LEAVE_WINDOW, [b, tb_bg](wxMouseEvent& e) {
-            b->SetBackgroundColour(tb_bg); b->Refresh(); e.Skip(); });
+        m_tool_btns.push_back(b);
+        // Hover affordance, honouring the active-tool teal state.
+        b->Bind(wxEVT_ENTER_WINDOW, [this, b, tb_hover](wxMouseEvent& e) {
+            b->SetBackgroundColour(b == m_active_tool_btn ? wxColour(0x52, 0xC7, 0xB8) : tb_hover);
+            b->Refresh(); e.Skip(); });
+        b->Bind(wxEVT_LEAVE_WINDOW, [this, b, tb_bg](wxMouseEvent& e) {
+            b->SetBackgroundColour(b == m_active_tool_btn ? wxColour(0x00, 0x96, 0x88) : tb_bg);
+            b->Refresh(); e.Skip(); });
+        // Mark this tool active (teal) on press — a separate event from the
+        // button's command handler, so it never swallows the click action.
+        b->Bind(wxEVT_LEFT_DOWN, [this, b](wxMouseEvent& e) {
+            set_active_tool_btn(b); e.Skip(); });
         return b;
     };
     // Small grey group caption (Onshape-style section hint) for each toolbar mode.
@@ -223,7 +232,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         });
         fadd(b_extrude);
 
-        auto* b_revolve = icon_btn("design_extrude", _L("Revolve"));
+        auto* b_revolve = icon_btn("design_revolve", _L("Revolve"));
         b_revolve->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
             m_revolve_sketch_ref = resolve_extrude_sketch();
             if (m_revolve_sketch_ref < 0) {
@@ -236,7 +245,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         });
         fadd(b_revolve);
 
-        auto* b_sweep = icon_btn("design_extrude", _L("Sweep"));
+        auto* b_sweep = icon_btn("design_sweep", _L("Sweep"));
         b_sweep->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
             m_sweep_profile_ref = resolve_extrude_sketch();
             m_sweep_path_ref    = -1;   // fresh sweep: default the picker to the first sketch
@@ -250,7 +259,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         });
         fadd(b_sweep);
 
-        auto* b_pattern = icon_btn("design_extrude", _L("Pattern"));
+        auto* b_pattern = icon_btn("design_pattern", _L("Pattern"));
         b_pattern->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
             // Pattern replicates an existing body — needs at least one solid.
             if (m_doc.bodies.empty()) {
@@ -263,14 +272,14 @@ DesignPanel::DesignPanel(wxWindow* parent)
         });
         fadd(b_pattern);
 
-        auto* b_plane = icon_btn("design_sketch", _L("Plane"));
+        auto* b_plane = icon_btn("design_plane", _L("Plane"));
         b_plane->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
             populate_plane_choices(m_plane_base);   // refresh base list w/ existing datum planes
             open_tool(Tool::Plane);
         });
         fadd(b_plane);
 
-        auto* b_loft = icon_btn("design_extrude", _L("Loft"));
+        auto* b_loft = icon_btn("design_loft", _L("Loft"));
         b_loft->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
             // Loft skins 2+ profile sketches; need at least two to be meaningful.
             int n = 0;
@@ -287,7 +296,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         });
         fadd(b_loft);
 
-        auto* b_draft = icon_btn("design_dressup", _L("Draft (taper a face)"));
+        auto* b_draft = icon_btn("design_draft", _L("Draft (taper a face)"));
         b_draft->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Draft); });
         fadd(b_draft);
 
@@ -357,7 +366,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
             open_tool(Tool::Thread);
         });
         fadd(b_thread);
-        auto* b_shell = icon_btn("design_dressup", _L("Shell (hollow to a wall thickness)"));
+        auto* b_shell = icon_btn("design_shell", _L("Shell (hollow to a wall thickness)"));
         b_shell->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Shell); });
         fadd(b_shell);
         add_sep(m_tb_feature);
@@ -1586,6 +1595,19 @@ DesignPanel::DesignPanel(wxWindow* parent)
     set_ui_mode(UiMode::Feature);
 }
 
+void DesignPanel::set_active_tool_btn(ScalableButton* b)
+{
+    // Onshape-style: the active tool's button gets the Orca accent (teal); the
+    // rest revert to the ribbon surface. nullptr clears the whole strip.
+    m_active_tool_btn = b;
+    const wxColour bg(0x36, 0x36, 0x3C), teal(0x00, 0x96, 0x88);
+    for (auto* btn : m_tool_btns) {
+        if (btn == nullptr) continue;
+        btn->SetBackgroundColour(btn == b ? teal : bg);
+        btn->Refresh();
+    }
+}
+
 void DesignPanel::set_ui_mode(UiMode m)
 {
     m_ui_mode = m;
@@ -1594,6 +1616,7 @@ void DesignPanel::set_ui_mode(UiMode m)
     s->Show(m_tb_sketch,    m == UiMode::Sketch,    true);
     s->Show(m_tb_constrain, m == UiMode::Constrain, true);
     m_toolbar->Layout();
+    set_active_tool_btn(nullptr);   // no tool selected right after a mode switch
     // Phase 3: the docked Sketch card (plane/orientation) shows for the whole Sketch
     // session and hides on Finish/Constrain.
     if (m_box_sketch_session != nullptr && m_form != nullptr && m_form->GetSizer() != nullptr) {
@@ -4506,6 +4529,7 @@ void DesignPanel::open_tool(Tool t)
 void DesignPanel::close_tool()
 {
     m_active = Tool::None;
+    set_active_tool_btn(nullptr);   // clear the active-tool teal highlight
     if (m_viewport) m_viewport->set_body_translucent(false);   // restore the opaque solid
     wxSizer* s = m_form->GetSizer();
     s->Show(m_box_sketch,  false, true);

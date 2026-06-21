@@ -188,6 +188,10 @@ private:
     wxSizer*  m_tb_feature{nullptr};
     wxSizer*  m_tb_sketch{nullptr};
     wxSizer*  m_tb_constrain{nullptr};
+    // All tool buttons, for the active-tool teal highlight (Onshape-style).
+    std::vector<ScalableButton*> m_tool_btns;
+    ScalableButton*              m_active_tool_btn{nullptr};
+    void set_active_tool_btn(ScalableButton* b);   // nullptr clears the highlight
     wxCheckBox*       m_construction{nullptr};   // sketch-mode construction toggle
     wxSpinCtrl*       m_sides{nullptr};          // polygon sides
     wxCheckBox*       m_poly_circ{nullptr};      // polygon circumscribed toggle
