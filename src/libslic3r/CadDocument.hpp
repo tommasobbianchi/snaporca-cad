@@ -12,7 +12,7 @@
 
 namespace Slic3r {
 
-enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread };
+enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell };
 enum class SketchShape    { Rectangle, Circle };
 enum class BooleanMode    { New, Add, Cut, Intersect };
 
@@ -103,6 +103,10 @@ struct CadFeature {
                                            // true = tapped bore cut into the current body
     double      thread_x{0};               // axis position on the plane (u/x axis)
     double      thread_y{0};               // axis position on the plane (v/y axis)
+
+    // Shell params (hollow the current body to a wall thickness, removing one open face)
+    double      shell_thickness{2};        // wall thickness (inward offset)
+    int         shell_face{-1};            // global face id to remove (open the shell); -1 = none
 };
 
 // One independent solid in a multi-body document.
@@ -161,6 +165,7 @@ public:
     int  add_thread(double radius, double pitch, double height, double depth,
                     bool internal, double x, double y, const SketchPlane& plane,
                     const std::string& name);
+    int  add_shell(double thickness, int face, int target_body, const std::string& name);
     void clear();
     bool recompute();   // replay features -> body + display_mesh; false on error
 

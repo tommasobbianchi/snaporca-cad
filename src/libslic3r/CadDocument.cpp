@@ -14,6 +14,8 @@
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
+#include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepLib.hxx>
 #include <Geom_CylindricalSurface.hxx>
@@ -505,6 +507,18 @@ int CadDocument::add_thread(double radius, double pitch, double height, double d
     return int(features.size()) - 1;
 }
 
+int CadDocument::add_shell(double thickness, int face, int target_body, const std::string& name)
+{
+    CadFeature f;
+    f.type            = CadFeatureType::Shell;
+    f.name            = name;
+    f.shell_thickness = thickness;
+    f.shell_face      = face;
+    f.target_body     = target_body;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
 void CadDocument::clear()
 {
     features.clear();
@@ -868,6 +882,23 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body,
             result = rod;
             have_body = true;
         }
+        break;
+    }
+    case CadFeatureType::Shell: {
+        if (!have_body) throw std::runtime_error("shell needs a body");
+        // Hollow the body to a wall thickness; the picked face (if any) is removed so the
+        // shell is open there. MakeThickSolidByJoin with a NEGATIVE offset shells inward.
+        TopTools_ListOfShape remove;
+        if (f.shell_face >= 0) {
+            TopoDS_Face fc = GeometryEngine::face_by_index(result, f.shell_face);
+            if (!fc.IsNull()) remove.Append(fc);
+        }
+        BRepOffsetAPI_MakeThickSolid mts;
+        mts.MakeThickSolidByJoin(result, remove, -std::abs(f.shell_thickness), 1.0e-3);
+        mts.Build();
+        if (!mts.IsDone()) throw std::runtime_error("shell failed");
+        result = mts.Shape();
+        if (result.IsNull()) throw std::runtime_error("shell produced no geometry");
         break;
     }
     }

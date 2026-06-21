@@ -202,6 +202,9 @@ DesignPanel::DesignPanel(wxWindow* parent)
         auto* b_thread = icon_btn("design_thread", _L("Thread"));
         b_thread->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Thread); });
         fadd(b_thread);
+        auto* b_shell = icon_btn("design_dressup", _L("Shell (hollow to a wall thickness)"));
+        b_shell->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Shell); });
+        fadd(b_shell);
         add_sep(m_tb_feature);
         auto* b_text = icon_btn("design_text", _L("Text"));
         b_text->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_text(); });
@@ -657,6 +660,35 @@ DesignPanel::DesignPanel(wxWindow* parent)
     }
     root->Add(m_box_thread, 0, wxEXPAND);
 
+    // --- Shell (hollow the current body to a wall thickness, removing one picked face) ---
+    auto* sform = new wxFlexGridSizer(2, 6, 8);
+    m_shell_thickness = make_spin(m_form, 2.0, 0.01, 100000.0);
+    sform->Add(new wxStaticText(m_form, wxID_ANY, _L("Thickness")), 0, wxALIGN_CENTER_VERTICAL);
+    sform->Add(m_shell_thickness);
+    m_shell_face_label = new wxStaticText(m_form, wxID_ANY, _L("(all faces — closed hollow)"));
+    sform->Add(new wxStaticText(m_form, wxID_ANY, _L("Open face")), 0, wxALIGN_CENTER_VERTICAL);
+    sform->Add(m_shell_face_label, 0, wxALIGN_CENTER_VERTICAL);
+
+    m_box_shell = new wxBoxSizer(wxVERTICAL);
+    m_box_shell->Add(card_header("design_dressup", _L("Shell"), m_hdr_shell), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_shell->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
+    m_box_shell->Add(new wxStaticText(m_form, wxID_ANY,
+                        _L("Pick a solid face to open it, then set the wall thickness.")),
+                     0, wxLEFT | wxRIGHT, 12);
+    m_box_shell->Add(sform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        m_confirm_btns.push_back(ok);
+        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
+        row->Add(ok, 0, wxRIGHT, 8);
+        row->Add(no, 0);
+        m_box_shell->Add(row, 0, wxALL, 12);
+    }
+    root->Add(m_box_shell, 0, wxEXPAND);
+
     // --- Docked value-entry card (Onshape Button->Dialog->Confirm for dimensions) ---
     m_box_value = new wxBoxSizer(wxVERTICAL);
     {
@@ -730,6 +762,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_tree_images->Add(create_scaled_bitmap("design_dressup", nullptr, 16)); // 2 Fillet/Chamfer
     m_tree_images->Add(create_scaled_bitmap("design_hole",    nullptr, 16)); // 3 Hole
     m_tree_images->Add(create_scaled_bitmap("design_thread",  nullptr, 16)); // 4 Thread
+    m_tree_images->Add(create_scaled_bitmap("design_dressup", nullptr, 16)); // 5 Shell
     m_tree->AssignImageList(m_tree_images);
     root->Add(m_tree, 0, wxEXPAND | wxALL, 12);
 
@@ -833,6 +866,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     root->Show(m_box_dressup, false, true);
     root->Show(m_box_hole,    false, true);
     root->Show(m_box_thread,  false, true);
+    root->Show(m_box_shell,   false, true);
     root->Show(m_box_value,   false, true);
     root->Show(m_box_sketch_session, false, true);
     root->Show(m_box_constraints,    false, true);
@@ -982,6 +1016,14 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_sel_solid_edge = (level == 3) ? edge : -1;
         // If the Fillet/Chamfer card is open, re-anchor (or drop) the radius arrow on the new pick.
         if (m_active == Tool::Dressup) update_fillet_gizmo();
+        // If the Shell card is open, a face pick chooses the open face: update the label + gizmo
+        // + ghost so the hollow updates live.
+        if (m_active == Tool::Shell) {
+            m_shell_face_label->SetLabel(m_sel_solid_face >= 0
+                ? wxString::Format(_L("Face %d"), m_sel_solid_face)
+                : _L("(all faces — closed hollow)"));
+            refresh_preview();   // rebuilds the shell ghost + re-anchors the thickness gizmo
+        }
         m_status->SetForegroundColour(wxNullColour);
         const int nb = int(m_doc.bodies.size());
         const wxString bodytag = (nb > 1) ? wxString::Format(_L("Body %d "), body + 1) : wxString();
@@ -1040,6 +1082,13 @@ DesignPanel::DesignPanel(wxWindow* parent)
         if (m_thread_y)      m_thread_y->SetValue(y);
         if (m_thread_radius) m_thread_radius->SetValue(radius);
         if (m_thread_height) m_thread_height->SetValue(height);
+        refresh_preview();
+    });
+
+    // Shell gizmo: dragging/editing the inward thickness arrow writes the Shell-card thickness
+    // and refreshes the ghost (SetValue is silent in wx).
+    m_viewport->set_on_shell_thickness_changed([this](double thickness) {
+        if (m_shell_thickness) m_shell_thickness->SetValue(thickness);
         refresh_preview();
     });
 
@@ -1446,6 +1495,26 @@ void DesignPanel::on_add_thread()
     refresh_tree();
 }
 
+void DesignPanel::on_add_shell()
+{
+    if (m_doc.body.IsNull()) {
+        m_status->SetLabel(_L("Shell needs a body — add a solid first"));
+        return;
+    }
+    const int face = (m_sel_solid_face >= 0) ? m_sel_solid_face : -1;
+
+    m_feature_counter++;
+    m_doc.add_shell(m_shell_thickness->GetValue(), face, m_sel_solid_body,
+                    "Shell" + std::to_string(m_feature_counter));
+
+    if (!m_doc.recompute())
+        m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
+    else
+        set_status_ok();
+
+    refresh_tree();
+}
+
 int DesignPanel::tree_icon_for(CadFeatureType t)
 {
     switch (t) {
@@ -1455,6 +1524,7 @@ int DesignPanel::tree_icon_for(CadFeatureType t)
     case CadFeatureType::Chamfer: return 2;
     case CadFeatureType::Hole:    return 3;
     case CadFeatureType::Thread:  return 4;
+    case CadFeatureType::Shell:   return 5;
     }
     return 0;
 }
@@ -3033,6 +3103,13 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
         m_thread_x->SetValue(f.thread_x);
         m_thread_y->SetValue(f.thread_y);
         break;
+    case CadFeatureType::Shell:
+        m_shell_thickness->SetValue(f.shell_thickness);
+        m_sel_solid_face = f.shell_face;
+        m_shell_face_label->SetLabel(f.shell_face >= 0
+            ? wxString::Format(_L("Face %d"), f.shell_face)
+            : _L("(all faces — closed hollow)"));
+        break;
     }
 }
 
@@ -3095,6 +3172,11 @@ void DesignPanel::on_edit_feature()
         m_edit_index = sel;
         load_feature_into_dialog(f);
         open_tool(Tool::Thread);
+        break;
+    case CadFeatureType::Shell:
+        m_edit_index = sel;
+        load_feature_into_dialog(f);
+        open_tool(Tool::Shell);
         break;
     }
 }
@@ -3208,6 +3290,12 @@ CadFeature DesignPanel::build_candidate(Tool t) const
         f.thread_x        = m_thread_x->GetValue();
         f.thread_y        = m_thread_y->GetValue();
         break;
+    case Tool::Shell:
+        f.type            = CadFeatureType::Shell;
+        f.shell_thickness = m_shell_thickness->GetValue();
+        // A picked solid face opens the shell there; -1 = closed hollow.
+        f.shell_face      = (m_sel_solid_face >= 0) ? m_sel_solid_face : -1;
+        break;
     case Tool::None:
         break;
     }
@@ -3255,6 +3343,30 @@ void DesignPanel::update_thread_gizmo()
     m_viewport->begin_thread_gizmo(plane,
                                    m_thread_x->GetValue(), m_thread_y->GetValue(),
                                    m_thread_radius->GetValue(), m_thread_height->GetValue());
+}
+
+// Anchor an inward thickness arrow at the picked open face's centroid (along -outward-normal).
+// Self-gates: clears unless the Shell card is open AND a face is picked. The face centroid/normal
+// come from the kernel shape, then carry the body's display-only Move transform.
+void DesignPanel::update_shell_gizmo()
+{
+    if (!m_viewport) return;
+    const int b = m_sel_solid_body;
+    const bool ok = (m_active == Tool::Shell) && m_sel_solid_face >= 0
+                    && b >= 0 && b < int(m_doc.bodies.size());
+    if (!ok) { m_viewport->clear_shell_gizmo(); return; }
+    const TopoDS_Face fc = GeometryEngine::face_by_index(m_doc.bodies[b].shape, m_sel_solid_face);
+    if (fc.IsNull()) { m_viewport->clear_shell_gizmo(); return; }
+    Vec3d c = GeometryEngine::face_centroid_world(fc);
+    Vec3d n = GeometryEngine::face_normal_world(fc);
+    sync_body_xform();
+    if (b < int(m_body_xform.size())) {
+        c = m_body_xform[b] * c;
+        n = m_body_xform[b].linear() * n;
+    }
+    if (n.norm() < 1e-9) { m_viewport->clear_shell_gizmo(); return; }
+    // Arrow points inward (into the wall): -outward normal.
+    m_viewport->begin_shell_gizmo(c, (-n).normalized(), m_shell_thickness->GetValue());
 }
 
 void DesignPanel::update_extrude_gizmo()
@@ -3388,6 +3500,8 @@ void DesignPanel::refresh_preview()
     update_hole_gizmo();
     // Same for the Thread footprint circle + radius/length arrows (self-gates: Thread card).
     update_thread_gizmo();
+    // Same for the Shell thickness arrow on the picked face (self-gates: Shell card + a face).
+    update_shell_gizmo();
 }
 
 void DesignPanel::open_tool(Tool t)
@@ -3399,6 +3513,7 @@ void DesignPanel::open_tool(Tool t)
     s->Show(m_box_dressup, t == Tool::Dressup, true);
     s->Show(m_box_hole,    t == Tool::Hole,    true);
     s->Show(m_box_thread,  t == Tool::Thread,  true);
+    s->Show(m_box_shell,   t == Tool::Shell,   true);
 
     if (t == Tool::Extrude) {
         if (m_extrude_face_src >= 0)
@@ -3428,6 +3543,7 @@ void DesignPanel::open_tool(Tool t)
                             m_dressup_type->GetSelection() == 0 ? _L("Fillet") : _L("Chamfer"))); break;
     case Tool::Hole:    m_hdr_hole->SetLabel(title(_L("Hole")));       break;
     case Tool::Thread:  m_hdr_thread->SetLabel(title(_L("Thread")));   break;
+    case Tool::Shell:   m_hdr_shell->SetLabel(title(_L("Shell")));     break;
     case Tool::None:    break;
     }
 
@@ -3445,11 +3561,13 @@ void DesignPanel::close_tool()
     s->Show(m_box_dressup, false, true);
     s->Show(m_box_hole,    false, true);
     s->Show(m_box_thread,  false, true);
+    s->Show(m_box_shell,   false, true);
     m_viewport->clear_preview();
     m_viewport->clear_extrude_gizmo();
     m_viewport->clear_fillet_gizmo();
     m_viewport->clear_hole_gizmo();
     m_viewport->clear_thread_gizmo();
+    m_viewport->clear_shell_gizmo();
     m_form->Layout();
     m_form->FitInside();
 }
@@ -3474,6 +3592,7 @@ void DesignPanel::confirm_tool()
     case Tool::Dressup: on_add_dressup(); break;
     case Tool::Hole:    on_add_hole();    break;
     case Tool::Thread:  on_add_thread();  break;
+    case Tool::Shell:   on_add_shell();   break;
     case Tool::None:    return;
     }
     close_tool(); // also clears the preview ghost; the committed body is now shown

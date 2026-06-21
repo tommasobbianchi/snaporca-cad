@@ -3146,6 +3146,100 @@ void DesignSketchTool::open_thread_editor(int which)
     }
 }
 
+// ---- Shell gizmo ----------------------------------------------------------------------------
+// A single inward thickness arrow at the picked open-face centroid (mirrors the fillet radius
+// arrow). RELATIVE drag (like fillet), reusing hole_axis_proj for the projection.
+void DesignSketchTool::set_shell_gizmo(const Vec3d& face_centroid, const Vec3d& inward_dir,
+                                       double thickness)
+{
+    m_sh_anchor    = face_centroid;
+    if (inward_dir.norm() > 1e-9) m_sh_dir = inward_dir.normalized();
+    m_sh_thickness = std::max(0.01, thickness);
+    if (!m_sh_active) m_sh_drag = false;   // re-pushed every preview: preserve an in-progress drag
+    m_sh_active = true;
+}
+
+void DesignSketchTool::clear_shell_gizmo()
+{
+    m_sh_active = false;
+    m_sh_drag   = false;
+}
+
+void DesignSketchTool::render_shell_gizmo()
+{
+    if (!m_sh_active) return;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const Vec3d right = cam.get_dir_right().normalized();
+    const Vec3d up    = cam.get_dir_up().normalized();
+    const double upp  = 1.0 / std::max(cam.get_zoom(), 1e-6);
+    const double th   = std::max(15.0 * upp, 1e-4);
+    const double L    = std::max(m_sh_thickness, 40.0 * upp);   // WYSIWYG, floored to a handle
+    const Vec3d tipw  = m_sh_anchor + m_sh_dir * L;
+
+    const SketchPlane saved = m_plane;
+    SketchPlane bb; bb.origin = m_sh_anchor; bb.x_axis = right; bb.y_axis = up; bb.normal = cam.get_dir_forward().normalized();
+    m_plane = bb;
+    const ColorRGBA teal(0.20f, 0.80f, 0.75f, 1.0f);
+
+    const Vec2d tip2((tipw - m_sh_anchor).dot(right), (tipw - m_sh_anchor).dot(up));
+    if (tip2.norm() > 1e-6) {
+        const Vec2d u = tip2.normalized();
+        const Vec2d nrm(-u.y(), u.x());
+        std::vector<std::pair<Vec2d, Vec2d>> segs;
+        segs.emplace_back(Vec2d(0, 0), tip2);
+        const double as = std::max(tip2.norm() * 0.20, th * 0.9);
+        const Vec2d back = tip2 - u * as;
+        segs.emplace_back(tip2, back + nrm * (as * 0.5));
+        segs.emplace_back(tip2, back - nrm * (as * 0.5));
+        glsafe(::glDisable(GL_DEPTH_TEST));
+        draw_strokes(m_sh_stroke_model, segs, std::max(0.7 * upp, 1e-4), teal);
+        DimAnnot da; da.kind = DimType::Distance; da.value = m_sh_thickness;
+        draw_text(m_line_model, dim_text(da), tip2 + u * (th * 1.4), th, teal);
+    }
+    m_plane = saved;
+}
+
+bool DesignSketchTool::hit_test_shell_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt) const
+{
+    if (!m_sh_active) return false;
+    const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = r.a, rd = r.b - r.a;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const double upp = 1.0 / std::max(cam.get_zoom(), 1e-6);
+    const double L   = std::max(m_sh_thickness, 40.0 * upp);
+    return ray_segment_dist3(ro, rd, m_sh_anchor, m_sh_anchor + m_sh_dir * L) <= 12.0 * upp;
+}
+
+void DesignSketchTool::start_shell_drag(GLCanvas3D& canvas, const wxMouseEvent& evt)
+{
+    m_sh_drag      = true;
+    m_sh_press_x   = evt.GetX();
+    m_sh_press_y   = evt.GetY();
+    m_sh_grab_val  = m_sh_thickness;
+    const double p = hole_axis_proj(canvas, evt, m_sh_anchor, m_sh_dir);
+    m_sh_grab_proj = std::isnan(p) ? 0.0 : p;
+}
+
+void DesignSketchTool::drag_shell_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt)
+{
+    const double proj = hole_axis_proj(canvas, evt, m_sh_anchor, m_sh_dir);
+    if (std::isnan(proj)) return;
+    m_sh_thickness = std::max(0.01, m_sh_grab_val + (proj - m_sh_grab_proj));
+    if (on_shell_thickness_changed) on_shell_thickness_changed(m_sh_thickness);
+}
+
+void DesignSketchTool::open_shell_editor()
+{
+    if (!on_inline_edit) return;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    on_inline_edit(px, m_sh_thickness,
+        [this](double v) {
+            m_sh_thickness = std::max(0.01, v);
+            if (on_shell_thickness_changed) on_shell_thickness_changed(m_sh_thickness);
+        },
+        []() {});
+}
+
 // Closed loops + the entity indices that form each one. A circle/ellipse is its own loop;
 // line/arc chains are walked endpoint-to-endpoint. Entity membership lets a single loop be
 // highlighted and extruded on its own.
@@ -4902,6 +4996,7 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         if (m_fl_active) render_fillet_gizmo();
         if (m_hl_active) render_hole_gizmo();
         if (m_th_active) render_thread_gizmo();
+        if (m_sh_active) render_shell_gizmo();
         shader->stop_using();
         glsafe(::glEnable(GL_CULL_FACE));
         glsafe(::glEnable(GL_DEPTH_TEST));
@@ -5635,6 +5730,24 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             if (evt.LeftDown()) {
                 const int which = hit_test_thread_handle(canvas, evt);
                 if (which >= 0) { start_thread_drag(canvas, evt, which); return true; }
+            }
+        }
+        // Shell gizmo: drag the inward thickness arrow; stationary click opens the inline editor.
+        if (m_sh_active) {
+            if (m_sh_drag && evt.Dragging() && evt.LeftIsDown()) {
+                drag_shell_arrow(canvas, evt);
+                return true;
+            }
+            if (evt.LeftUp() && m_sh_drag) {
+                m_sh_drag = false;
+                const bool moved = std::abs(evt.GetX() - m_sh_press_x) +
+                                   std::abs(evt.GetY() - m_sh_press_y) > 3;
+                if (!moved) open_shell_editor();
+                return true;
+            }
+            if (evt.LeftDown() && hit_test_shell_arrow(canvas, evt)) {
+                start_shell_drag(canvas, evt);
+                return true;
             }
         }
         if (!evt.LeftDown()) return false;

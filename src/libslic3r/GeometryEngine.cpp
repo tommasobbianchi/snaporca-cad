@@ -3,6 +3,7 @@
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepLProp_SLProps.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <stdexcept>
@@ -316,6 +317,18 @@ Vec3d GeometryEngine::face_centroid_world(const TopoDS_Face& face)
     BRepGProp::SurfaceProperties(face, props);
     gp_Pnt c = props.CentreOfMass();
     return Vec3d(c.X(), c.Y(), c.Z());
+}
+
+Vec3d GeometryEngine::face_normal_world(const TopoDS_Face& face)
+{
+    BRepAdaptor_Surface surf(face);
+    const double u = 0.5 * (surf.FirstUParameter() + surf.LastUParameter());
+    const double v = 0.5 * (surf.FirstVParameter() + surf.LastVParameter());
+    BRepLProp_SLProps props(surf, u, v, 1, 1e-6);
+    gp_Dir n(0.0, 0.0, 1.0);
+    if (props.IsNormalDefined()) n = props.Normal();
+    if (face.Orientation() == TopAbs_REVERSED) n.Reverse();   // outward (account for face winding)
+    return Vec3d(n.X(), n.Y(), n.Z());
 }
 
 int GeometryEngine::edge_count(const TopoDS_Shape& shape)

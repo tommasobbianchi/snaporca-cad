@@ -109,6 +109,11 @@ public:
     void clear_thread_gizmo();
     bool threading() const;
     void set_on_thread_changed(std::function<void(double, double, double, double)> cb);
+    // Visual Shell gizmo: inward thickness arrow at the picked open-face centroid.
+    void begin_shell_gizmo(const Vec3d& face_centroid, const Vec3d& inward_dir, double thickness);
+    void clear_shell_gizmo();
+    bool shelling() const;
+    void set_on_shell_thickness_changed(std::function<void(double)> cb);
     // Visual Extrude depth-arrow gizmo (C5b): the panel feeds the profile plane + centroid +
     // live depths/flags while its Extrude card is open; drag/edit fire the depth callback.
     void set_extrude_gizmo(const SketchPlane& plane, const Vec2d& centroid,

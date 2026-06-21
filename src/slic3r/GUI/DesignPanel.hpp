@@ -35,7 +35,7 @@ public:
     explicit DesignPanel(wxWindow* parent);
 
 private:
-    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread };
+    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell };
 
     // Onshape-style contextual top toolbar: only the active mode's tool group is
     // shown (Feature = sketch/extrude/dress/hole/thread; Sketch = entity tools;
@@ -49,6 +49,7 @@ private:
     void on_add_dressup();
     void on_add_hole();
     void on_add_thread();
+    void on_add_shell();
     // Import rigid 2D art (Text / SVG) as a new Sketch feature carrying
     // imported_regions (no solver entities). on_add_text/on_import_svg gather
     // input; add_imported_sketch builds the feature, refreshes tree + display.
@@ -120,6 +121,7 @@ private:
     void       update_fillet_gizmo();     // edge-anchored radius arrow (Dressup card)
     void       update_hole_gizmo();       // footprint circle + diameter/depth arrows (Hole card)
     void       update_thread_gizmo();     // footprint circle + radius/length arrows (Thread card)
+    void       update_shell_gizmo();      // inward thickness arrow on the picked face (Shell card)
 
     CadDocument m_doc;
 
@@ -129,6 +131,7 @@ private:
     wxSizer*  m_box_dressup{nullptr};
     wxSizer*  m_box_hole{nullptr};
     wxSizer*  m_box_thread{nullptr};
+    wxSizer*  m_box_shell{nullptr};
 
     // Onshape-style dialog-card title rows (icon + bold feature name), retitled
     // per tool in open_tool() (edit-mode shows the feature's actual name).
@@ -141,6 +144,7 @@ private:
     wxStaticText* m_hdr_dressup{nullptr};
     wxStaticText* m_hdr_hole{nullptr};
     wxStaticText* m_hdr_thread{nullptr};
+    wxStaticText* m_hdr_shell{nullptr};
 
     wxScrolledWindow* m_form{nullptr};
     DesignCanvas*     m_viewport{nullptr};
@@ -202,6 +206,9 @@ private:
     wxCheckBox*       m_thread_internal{nullptr};
     wxSpinCtrlDouble* m_thread_x{nullptr};
     wxSpinCtrlDouble* m_thread_y{nullptr};
+
+    wxSpinCtrlDouble* m_shell_thickness{nullptr};
+    wxStaticText*     m_shell_face_label{nullptr};   // shows the picked face to remove
 
     // Onshape-style docked value-entry card (Angle/Radius/Diameter/Offset/Fillet).
     wxSizer*          m_box_value{nullptr};

@@ -75,6 +75,8 @@ public:
     static std::vector<TopoDS_Edge> edges_of_face(const TopoDS_Face& face);
     // Centre of mass (world) of a face — used to compute the extrude length for "up to face".
     static Vec3d face_centroid_world(const TopoDS_Face& face);
+    // Outward unit normal of a face at its UV midpoint (orientation-aware) — for the shell gizmo.
+    static Vec3d face_normal_world(const TopoDS_Face& face);
     // Sample an edge into a world-space polyline (>=2 pts) for pick-distance + highlight.
     static std::vector<Vec3d> sample_edge_world(const TopoDS_Edge& edge, double chord_tol = 0.05);
     // 0-based edge index into TopExp::MapShapes(shape, TopAbs_EDGE, map).

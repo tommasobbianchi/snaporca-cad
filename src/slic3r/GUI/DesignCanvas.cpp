@@ -465,6 +465,26 @@ void DesignCanvas::set_on_thread_changed(std::function<void(double, double, doub
     m_sketch_tool.on_thread_changed = std::move(cb);
 }
 
+void DesignCanvas::begin_shell_gizmo(const Vec3d& face_centroid, const Vec3d& inward_dir,
+                                     double thickness)
+{
+    m_sketch_tool.set_shell_gizmo(face_centroid, inward_dir, thickness);
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }   // llvmpipe: force repaint
+}
+
+void DesignCanvas::clear_shell_gizmo()
+{
+    m_sketch_tool.clear_shell_gizmo();
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
+bool DesignCanvas::shelling() const { return m_sketch_tool.shelling(); }
+
+void DesignCanvas::set_on_shell_thickness_changed(std::function<void(double)> cb)
+{
+    m_sketch_tool.on_shell_thickness_changed = std::move(cb);
+}
+
 void DesignCanvas::set_on_solid_selection_changed(std::function<void(int, int, int, int)> cb)
 {
     m_sketch_tool.on_solid_selection_changed = std::move(cb);

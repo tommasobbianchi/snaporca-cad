@@ -73,7 +73,7 @@ public:
     bool has_display() const { return m_active || !m_display_sketches.empty()
                                       || (m_solid_bodies != nullptr && !m_solid_bodies->empty())
                                       || m_ex_active || m_mv_active || m_fl_active
-                                      || m_hl_active || m_th_active; }
+                                      || m_hl_active || m_th_active || m_sh_active; }
 
     // Solid topology selection on the committed bodies: clicking a solid cycles
     // whole-solid -> face -> edge (Onshape-style) to target fillet/chamfer/extrude. With
@@ -161,6 +161,15 @@ public:
     void clear_thread_gizmo();
     bool threading() const { return m_th_active; }
     std::function<void(double x, double y, double radius, double height)> on_thread_changed;
+
+    // Visual Shell gizmo. The panel passes the picked open-face centroid + an inward direction
+    // (-outward normal) + the current wall thickness; the tool anchors a single thickness arrow
+    // there (mirrors the fillet radius arrow). Dragging sets the thickness live; a stationary
+    // click opens the inline editor; both fire on_shell_thickness_changed.
+    void set_shell_gizmo(const Vec3d& face_centroid, const Vec3d& inward_dir, double thickness);
+    void clear_shell_gizmo();
+    bool shelling() const { return m_sh_active; }
+    std::function<void(double thickness)> on_shell_thickness_changed;
 
     // Constrain mode: load an already-committed profile for entity picking +
     // constraint application (the geometry is solved in the kernel, not here).
@@ -782,6 +791,22 @@ private:
     void   drag_thread_handle(GLCanvas3D& canvas, const wxMouseEvent& evt);
     void   open_thread_editor(int which);
     GLModel m_th_stroke_model;
+
+    // Shell gizmo state (single inward thickness arrow at the picked face centroid).
+    bool        m_sh_active{false};
+    Vec3d       m_sh_anchor{Vec3d::Zero()};    // picked face centroid (world)
+    Vec3d       m_sh_dir{Vec3d::UnitZ()};      // inward unit direction (-outward normal)
+    double      m_sh_thickness{2.0};
+    bool        m_sh_drag{false};
+    int         m_sh_press_x{0}, m_sh_press_y{0};
+    double      m_sh_grab_proj{0.0};
+    double      m_sh_grab_val{2.0};
+    void   render_shell_gizmo();
+    bool   hit_test_shell_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt) const;
+    void   start_shell_drag(GLCanvas3D& canvas, const wxMouseEvent& evt);
+    void   drag_shell_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt);
+    void   open_shell_editor();
+    GLModel m_sh_stroke_model;
 };
 
 }} // namespace Slic3r::GUI
