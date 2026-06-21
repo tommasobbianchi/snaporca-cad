@@ -119,6 +119,7 @@ private:
     void       update_extrude_gizmo();
     void       update_fillet_gizmo();     // edge-anchored radius arrow (Dressup card)
     void       update_hole_gizmo();       // footprint circle + diameter/depth arrows (Hole card)
+    void       update_thread_gizmo();     // footprint circle + radius/length arrows (Thread card)
 
     CadDocument m_doc;
 

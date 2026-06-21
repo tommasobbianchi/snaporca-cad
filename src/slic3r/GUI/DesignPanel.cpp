@@ -1033,6 +1033,16 @@ DesignPanel::DesignPanel(wxWindow* parent)
         refresh_preview();   // rebuilds the candidate hole ghost at the new position/size
     });
 
+    // Thread gizmo: dragging/editing the centre, radius, or length handle writes the Thread-card
+    // spins and refreshes the ghost (SetValue is silent in wx).
+    m_viewport->set_on_thread_changed([this](double x, double y, double radius, double height) {
+        if (m_thread_x)      m_thread_x->SetValue(x);
+        if (m_thread_y)      m_thread_y->SetValue(y);
+        if (m_thread_radius) m_thread_radius->SetValue(radius);
+        if (m_thread_height) m_thread_height->SetValue(height);
+        refresh_preview();
+    });
+
     // Esc exits the active sketch tool: drop the live session, restore Feature mode +
     // the committed-sketch overlay (an in-progress draw is discarded). The tool's layered
     // request_exit only calls this once it's an idle Select session.
@@ -3235,6 +3245,18 @@ void DesignPanel::update_hole_gizmo()
                                  m_hole_through->GetValue());
 }
 
+// Push the active Thread card's plane + position + radius/length to the viewport gizmo.
+// Self-gates: clears the gizmo unless the Thread card is open.
+void DesignPanel::update_thread_gizmo()
+{
+    if (!m_viewport) return;
+    if (m_active != Tool::Thread) { m_viewport->clear_thread_gizmo(); return; }
+    const SketchPlane plane = plane_from_index(m_thread_plane->GetSelection());
+    m_viewport->begin_thread_gizmo(plane,
+                                   m_thread_x->GetValue(), m_thread_y->GetValue(),
+                                   m_thread_radius->GetValue(), m_thread_height->GetValue());
+}
+
 void DesignPanel::update_extrude_gizmo()
 {
     if (!m_viewport) return;
@@ -3364,6 +3386,8 @@ void DesignPanel::refresh_preview()
     update_fillet_gizmo();
     // Same for the Hole footprint circle + diameter/depth arrows (self-gates: Hole card).
     update_hole_gizmo();
+    // Same for the Thread footprint circle + radius/length arrows (self-gates: Thread card).
+    update_thread_gizmo();
 }
 
 void DesignPanel::open_tool(Tool t)
@@ -3425,6 +3449,7 @@ void DesignPanel::close_tool()
     m_viewport->clear_extrude_gizmo();
     m_viewport->clear_fillet_gizmo();
     m_viewport->clear_hole_gizmo();
+    m_viewport->clear_thread_gizmo();
     m_form->Layout();
     m_form->FitInside();
 }

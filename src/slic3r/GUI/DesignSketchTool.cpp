@@ -2964,6 +2964,188 @@ void DesignSketchTool::open_hole_editor(int which)
     // which == 0 (centre): no scalar to edit inline — it's a drag-only reposition handle.
 }
 
+// ---- Thread gizmo ---------------------------------------------------------------------------
+// Mirrors the hole gizmo: footprint circle on the plane at the nominal radius + a radial radius
+// arrow (R label) + a normal-axis length arrow (always shown) + a draggable centre marker.
+// Reuses hole_axis_proj() for the relative axis drags.
+void DesignSketchTool::set_thread_gizmo(const SketchPlane& plane, double x, double y,
+                                        double radius, double height)
+{
+    m_th_plane  = plane;
+    m_th_x      = x;
+    m_th_y      = y;
+    m_th_radius = std::max(0.01, radius);
+    m_th_height = std::max(0.01, height);
+    if (!m_th_active) m_th_drag = -1;   // re-pushed every preview: preserve an in-progress drag
+    m_th_active = true;
+}
+
+void DesignSketchTool::clear_thread_gizmo()
+{
+    m_th_active = false;
+    m_th_drag   = -1;
+}
+
+void DesignSketchTool::render_thread_gizmo()
+{
+    if (!m_th_active) return;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const Vec3d right = cam.get_dir_right().normalized();
+    const Vec3d up    = cam.get_dir_up().normalized();
+    const double upp  = 1.0 / std::max(cam.get_zoom(), 1e-6);
+    const double th   = std::max(15.0 * upp, 1e-4);
+
+    const Vec3d centre = m_th_plane.to_world(Vec2d(m_th_x, m_th_y));
+    const Vec3d nrm    = m_th_plane.normal.normalized();
+    const Vec3d ddir   = m_th_plane.x_axis.normalized();     // radius arrow runs along plane u
+    const double r     = std::max(0.01, m_th_radius);
+
+    const SketchPlane saved = m_plane;
+
+    // (1) Footprint circle on the plane at the nominal radius.
+    {
+        m_plane = m_th_plane;
+        std::vector<std::pair<Vec2d, Vec2d>> segs;
+        const int N = 48;
+        for (int i = 0; i < N; ++i) {
+            const double a0 = (2.0 * M_PI * i) / N, a1 = (2.0 * M_PI * (i + 1)) / N;
+            segs.emplace_back(Vec2d(m_th_x + r * std::cos(a0), m_th_y + r * std::sin(a0)),
+                              Vec2d(m_th_x + r * std::cos(a1), m_th_y + r * std::sin(a1)));
+        }
+        glsafe(::glDisable(GL_DEPTH_TEST));
+        draw_strokes(m_th_stroke_model, segs, std::max(0.6 * upp, 1e-4), ColorRGBA(0.55f, 0.80f, 0.30f, 1.0f));
+        m_plane = saved;
+    }
+
+    // (2) Billboarded handles.
+    SketchPlane bb; bb.origin = centre; bb.x_axis = right; bb.y_axis = up; bb.normal = cam.get_dir_forward().normalized();
+    m_plane = bb;
+    const ColorRGBA green(0.55f, 0.80f, 0.30f, 1.0f);
+    const ColorRGBA blue (0.30f, 0.55f, 1.0f, 1.0f);
+
+    auto arrow_to = [&](const Vec3d& tipw, const ColorRGBA& col, const DimAnnot& da) {
+        const Vec2d tip2((tipw - centre).dot(right), (tipw - centre).dot(up));
+        if (tip2.norm() <= 1e-6) return;
+        const Vec2d u = tip2.normalized();
+        const Vec2d nrm2(-u.y(), u.x());
+        std::vector<std::pair<Vec2d, Vec2d>> segs;
+        segs.emplace_back(Vec2d(0, 0), tip2);
+        const double as = std::max(tip2.norm() * 0.20, th * 0.9);
+        const Vec2d back = tip2 - u * as;
+        segs.emplace_back(tip2, back + nrm2 * (as * 0.5));
+        segs.emplace_back(tip2, back - nrm2 * (as * 0.5));
+        glsafe(::glDisable(GL_DEPTH_TEST));
+        draw_strokes(m_th_stroke_model, segs, std::max(0.7 * upp, 1e-4), col);
+        draw_text(m_line_model, dim_text(da), tip2 + u * (th * 1.4), th, col);
+    };
+
+    {   // Radius arrow (R label), floored to a grabbable handle.
+        const double L = std::max(r, 40.0 * upp);
+        DimAnnot da; da.kind = DimType::Radius; da.value = m_th_radius;
+        arrow_to(centre + ddir * L, green, da);
+    }
+    {   // Length arrow along +normal.
+        const double L = std::max(m_th_height, 40.0 * upp);
+        DimAnnot da; da.kind = DimType::Distance; da.value = m_th_height;
+        arrow_to(centre + nrm * L, blue, da);
+    }
+    {   // Centre marker.
+        const double s = 7.0 * upp;
+        std::vector<std::pair<Vec2d, Vec2d>> segs;
+        segs.emplace_back(Vec2d(-s, -s), Vec2d(s, -s));
+        segs.emplace_back(Vec2d( s, -s), Vec2d(s,  s));
+        segs.emplace_back(Vec2d( s,  s), Vec2d(-s, s));
+        segs.emplace_back(Vec2d(-s,  s), Vec2d(-s, -s));
+        glsafe(::glDisable(GL_DEPTH_TEST));
+        draw_strokes(m_th_stroke_model, segs, std::max(0.7 * upp, 1e-4), green);
+    }
+
+    m_plane = saved;
+}
+
+int DesignSketchTool::hit_test_thread_handle(GLCanvas3D& canvas, const wxMouseEvent& evt) const
+{
+    if (!m_th_active) return -1;
+    const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = r.a, rd = r.b - r.a;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const double upp = 1.0 / std::max(cam.get_zoom(), 1e-6);
+
+    const Vec3d centre = m_th_plane.to_world(Vec2d(m_th_x, m_th_y));
+    const Vec3d nrm    = m_th_plane.normal.normalized();
+    const Vec3d ddir   = m_th_plane.x_axis.normalized();
+    const double rad   = std::max(m_th_radius, 40.0 * upp);
+    const double hL    = std::max(m_th_height, 40.0 * upp);
+    const double tol   = 12.0 * upp;
+
+    if (ray_segment_dist3(ro, rd, centre, centre) <= tol) return 0;   // centre wins at the base
+    int best = -1; double bestd = tol;
+    const double dR = ray_segment_dist3(ro, rd, centre, centre + ddir * rad);
+    if (dR < bestd) { bestd = dR; best = 1; }
+    const double dH = ray_segment_dist3(ro, rd, centre, centre + nrm * hL);
+    if (dH < bestd) { bestd = dH; best = 2; }
+    return best;
+}
+
+void DesignSketchTool::start_thread_drag(GLCanvas3D& canvas, const wxMouseEvent& evt, int which)
+{
+    m_th_drag    = which;
+    m_th_press_x = evt.GetX();
+    m_th_press_y = evt.GetY();
+    const Vec3d centre = m_th_plane.to_world(Vec2d(m_th_x, m_th_y));
+    if (which == 0) {
+        const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+        m_th_grab_uv = m_th_plane.project(r.a, r.b - r.a);
+        m_th_grab_x  = m_th_x;
+        m_th_grab_y  = m_th_y;
+    } else {
+        const Vec3d dir = (which == 1) ? m_th_plane.x_axis.normalized() : m_th_plane.normal.normalized();
+        const double p  = hole_axis_proj(canvas, evt, centre, dir);
+        m_th_grab_proj  = std::isnan(p) ? 0.0 : p;
+        m_th_grab_val   = (which == 1) ? m_th_radius : m_th_height;
+    }
+}
+
+void DesignSketchTool::drag_thread_handle(GLCanvas3D& canvas, const wxMouseEvent& evt)
+{
+    if (m_th_drag == 0) {
+        const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+        const Vec2d uv = m_th_plane.project(r.a, r.b - r.a);
+        m_th_x = m_th_grab_x + (uv.x() - m_th_grab_uv.x());
+        m_th_y = m_th_grab_y + (uv.y() - m_th_grab_uv.y());
+    } else {
+        const Vec3d centre = m_th_plane.to_world(Vec2d(m_th_x, m_th_y));
+        const Vec3d dir = (m_th_drag == 1) ? m_th_plane.x_axis.normalized() : m_th_plane.normal.normalized();
+        const double proj = hole_axis_proj(canvas, evt, centre, dir);
+        if (std::isnan(proj)) return;
+        const double v = std::max(0.01, m_th_grab_val + (proj - m_th_grab_proj));
+        if (m_th_drag == 1) m_th_radius = v;
+        else                m_th_height = v;
+    }
+    if (on_thread_changed) on_thread_changed(m_th_x, m_th_y, m_th_radius, m_th_height);
+}
+
+void DesignSketchTool::open_thread_editor(int which)
+{
+    if (!on_inline_edit) return;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    if (which == 1) {
+        on_inline_edit(px, m_th_radius,
+            [this](double v) {
+                m_th_radius = std::max(0.01, v);
+                if (on_thread_changed) on_thread_changed(m_th_x, m_th_y, m_th_radius, m_th_height);
+            },
+            []() {});
+    } else if (which == 2) {
+        on_inline_edit(px, m_th_height,
+            [this](double v) {
+                m_th_height = std::max(0.01, v);
+                if (on_thread_changed) on_thread_changed(m_th_x, m_th_y, m_th_radius, m_th_height);
+            },
+            []() {});
+    }
+}
+
 // Closed loops + the entity indices that form each one. A circle/ellipse is its own loop;
 // line/arc chains are walked endpoint-to-endpoint. Entity membership lets a single loop be
 // highlighted and extruded on its own.
@@ -4719,6 +4901,7 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         if (m_mv_active) render_move_gizmo();
         if (m_fl_active) render_fillet_gizmo();
         if (m_hl_active) render_hole_gizmo();
+        if (m_th_active) render_thread_gizmo();
         shader->stop_using();
         glsafe(::glEnable(GL_CULL_FACE));
         glsafe(::glEnable(GL_DEPTH_TEST));
@@ -5434,6 +5617,24 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             if (evt.LeftDown()) {
                 const int which = hit_test_hole_handle(canvas, evt);
                 if (which >= 0) { start_hole_drag(canvas, evt, which); return true; }
+            }
+        }
+        // Thread gizmo: same interaction as the hole gizmo (centre / radius / length handles).
+        if (m_th_active) {
+            if (m_th_drag >= 0 && evt.Dragging() && evt.LeftIsDown()) {
+                drag_thread_handle(canvas, evt);
+                return true;
+            }
+            if (evt.LeftUp() && m_th_drag >= 0) {
+                const int which = m_th_drag; m_th_drag = -1;
+                const bool moved = std::abs(evt.GetX() - m_th_press_x) +
+                                   std::abs(evt.GetY() - m_th_press_y) > 3;
+                if (!moved) open_thread_editor(which);
+                return true;
+            }
+            if (evt.LeftDown()) {
+                const int which = hit_test_thread_handle(canvas, evt);
+                if (which >= 0) { start_thread_drag(canvas, evt, which); return true; }
             }
         }
         if (!evt.LeftDown()) return false;

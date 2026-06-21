@@ -73,7 +73,7 @@ public:
     bool has_display() const { return m_active || !m_display_sketches.empty()
                                       || (m_solid_bodies != nullptr && !m_solid_bodies->empty())
                                       || m_ex_active || m_mv_active || m_fl_active
-                                      || m_hl_active; }
+                                      || m_hl_active || m_th_active; }
 
     // Solid topology selection on the committed bodies: clicking a solid cycles
     // whole-solid -> face -> edge (Onshape-style) to target fillet/chamfer/extrude. With
@@ -150,6 +150,17 @@ public:
     void clear_hole_gizmo();
     bool holing() const { return m_hl_active; }
     std::function<void(double x, double y, double diameter, double depth)> on_hole_changed;
+
+    // Visual Thread gizmo. Same docked-card story as Hole: the panel feeds the thread plane +
+    // axis position + nominal radius + length; the tool draws an on-plane footprint circle plus a
+    // radial radius arrow and a normal-axis length arrow (always shown — a thread has no "through")
+    // and a draggable centre. Pitch/depth/internal stay in the card. Drag is live; a stationary
+    // click on an arrow opens its inline editor; every change fires on_thread_changed.
+    void set_thread_gizmo(const SketchPlane& plane, double x, double y,
+                          double radius, double height);
+    void clear_thread_gizmo();
+    bool threading() const { return m_th_active; }
+    std::function<void(double x, double y, double radius, double height)> on_thread_changed;
 
     // Constrain mode: load an already-committed profile for entity picking +
     // constraint application (the geometry is solved in the kernel, not here).
@@ -751,6 +762,26 @@ private:
     void   drag_hole_handle(GLCanvas3D& canvas, const wxMouseEvent& evt);
     void   open_hole_editor(int which);
     GLModel m_hl_stroke_model;
+
+    // Thread gizmo state (mirrors the hole gizmo; radius arrow uses an R label, length arrow is
+    // always shown). Handles: 0 = centre (thread_x/y), 1 = radius, 2 = length.
+    bool        m_th_active{false};
+    SketchPlane m_th_plane;
+    double      m_th_x{0.0}, m_th_y{0.0};
+    double      m_th_radius{5.0};
+    double      m_th_height{10.0};
+    int         m_th_drag{-1};                 // 0=centre, 1=radius, 2=length, -1=none
+    int         m_th_press_x{0}, m_th_press_y{0};
+    double      m_th_grab_proj{0.0};
+    double      m_th_grab_val{0.0};
+    Vec2d       m_th_grab_uv{0.0, 0.0};
+    double      m_th_grab_x{0.0}, m_th_grab_y{0.0};
+    void   render_thread_gizmo();
+    int    hit_test_thread_handle(GLCanvas3D& canvas, const wxMouseEvent& evt) const;  // 0/1/2/-1
+    void   start_thread_drag(GLCanvas3D& canvas, const wxMouseEvent& evt, int which);
+    void   drag_thread_handle(GLCanvas3D& canvas, const wxMouseEvent& evt);
+    void   open_thread_editor(int which);
+    GLModel m_th_stroke_model;
 };
 
 }} // namespace Slic3r::GUI
