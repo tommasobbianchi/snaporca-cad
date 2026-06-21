@@ -35,7 +35,7 @@ public:
     explicit DesignPanel(wxWindow* parent);
 
 private:
-    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve, Sweep, Pattern };
+    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane };
 
     // Onshape-style contextual top toolbar: only the active mode's tool group is
     // shown (Feature = sketch/extrude/dress/hole/thread; Sketch = entity tools;
@@ -53,6 +53,7 @@ private:
     void on_add_revolve();
     void on_add_sweep();
     void on_add_pattern();
+    void on_add_plane();
     void on_add_shell();
     // Import rigid 2D art (Text / SVG) as a new Sketch feature carrying
     // imported_regions (no solver entities). on_add_text/on_import_svg gather
@@ -122,6 +123,10 @@ private:
     SketchPlane thread_plane() const;
     CadFeature build_candidate(Tool t) const;
     int        resolve_extrude_sketch() const;
+    // Plane pickers: fill a choice with XY/XZ/YZ + the document's datum planes, and
+    // map a choice row back to the actual SketchPlane (rows 0-2 base, 3+ datum).
+    void        populate_plane_choices(wxChoice* c) const;
+    SketchPlane plane_from_choice(int row) const;
     // True when Extrude should build only the click-selected loop (a region of the
     // resolved sketch is selected and it carries entities).
     bool       extrude_uses_loop() const;
@@ -146,6 +151,7 @@ private:
     wxSizer*  m_box_revolve{nullptr};
     wxSizer*  m_box_sweep{nullptr};
     wxSizer*  m_box_pattern{nullptr};
+    wxSizer*  m_box_plane{nullptr};
 
     // Onshape-style dialog-card title rows (icon + bold feature name), retitled
     // per tool in open_tool() (edit-mode shows the feature's actual name).
@@ -162,6 +168,7 @@ private:
     wxStaticText* m_hdr_revolve{nullptr};
     wxStaticText* m_hdr_sweep{nullptr};
     wxStaticText* m_hdr_pattern{nullptr};
+    wxStaticText* m_hdr_plane{nullptr};
 
     wxScrolledWindow* m_form{nullptr};
     DesignCanvas*     m_viewport{nullptr};
@@ -213,6 +220,11 @@ private:
     wxSpinCtrlDouble* m_pattern_spacing{nullptr};   // linear step (mm)
     wxChoice*         m_pattern_dir{nullptr};        // linear direction: 0 = plane X, 1 = plane Y
     wxSpinCtrlDouble* m_pattern_angle{nullptr};     // circular total angle (deg)
+    // Datum plane controls (derive a selectable sketch plane: offset + tilt from a base).
+    wxChoice*         m_plane_base{nullptr};         // 0=XY,1=XZ,2=YZ, 3+N = Nth datum plane
+    wxSpinCtrlDouble* m_plane_offset{nullptr};       // offset along base normal (mm)
+    wxSpinCtrlDouble* m_plane_tilt{nullptr};         // tilt about a base axis (deg)
+    wxChoice*         m_plane_tilt_axis{nullptr};    // 0 = base X, 1 = base Y
     // Plate loop selection (click a committed sketch loop): the Sketch feature + the
     // clicked closed-region index, so Extrude builds just that one loop. -1 = none.
     int               m_sel_sketch_feat{-1};

@@ -9,10 +9,11 @@
 #include <TopoDS_Wire.hxx>
 #include <string>
 #include <vector>
+#include <utility>
 
 namespace Slic3r {
 
-enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve, Sweep, Pattern };
+enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane };
 enum class SketchShape    { Rectangle, Circle };
 enum class BooleanMode    { New, Add, Cut, Intersect };
 
@@ -133,6 +134,15 @@ struct CadFeature {
     double      pattern_spacing{20};       // linear step (mm)
     int         pattern_dir{0};            // linear direction: 0 = plane X, 1 = plane Y
     double      pattern_angle{360};        // circular total angle (degrees)
+
+    // Datum/reference plane: a derived SketchPlane the document offers as a selectable
+    // sketch plane (no solid). plane_base selects the reference (0=XY,1=XZ,2=YZ, or 3+N
+    // = the Nth earlier datum plane); plane_offset shifts along the base normal;
+    // plane_angle tilts plane_angle° about the base axis plane_axis (0=base X, 1=base Y).
+    int         plane_base{0};
+    double      plane_offset{20};
+    double      plane_angle_tilt{0};       // degrees (named *_tilt to avoid clash w/ revolve)
+    int         plane_axis{0};             // tilt axis: 0 = base X, 1 = base Y
 };
 
 // One independent solid in a multi-body document.
@@ -203,6 +213,13 @@ public:
     int  add_sweep(int profile_sketch_ref, int path_sketch_ref, BooleanMode mode,
                    const std::string& name);
     int  add_shell(double thickness, int face, int target_body, const std::string& name);
+    // Datum plane: derived from base (0=XY/1=XZ/2=YZ/3+N=Nth earlier datum), offset
+    // along its normal, optional tilt about a base axis. Produces no solid.
+    int  add_plane(int base, double offset, double angle_tilt, int axis,
+                   const std::string& name);
+    // Every datum plane currently in the recipe, in feature order, as (name, plane).
+    // Used by the GUI to populate plane pickers (after the 3 base planes).
+    std::vector<std::pair<std::string, SketchPlane>> resolve_datum_planes() const;
     void clear();
     bool recompute();   // replay features -> body + display_mesh; false on error
 

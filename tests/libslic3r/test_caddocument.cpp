@@ -1114,3 +1114,50 @@ TEST_CASE("thread standards table carries correct ISO/UTS measures", "[CadDocume
     // Unknown designation -> nullptr.
     REQUIRE(find_thread_standard("M7.3 bogus") == nullptr);
 }
+
+TEST_CASE("datum plane: offset + tilt resolution and sketching on it", "[CadDocument]")
+{
+    using Catch::Matchers::WithinRel;
+    using Catch::Matchers::WithinAbs;
+
+    // Parallel offset plane 30 mm above XY (normal +Z, origin at z=30).
+    CadDocument doc;
+    int p0 = doc.add_plane(0 /*XY*/, 30.0, 0.0, 0, "Plane1");
+    REQUIRE(p0 == 0);
+
+    auto planes = doc.resolve_datum_planes();
+    REQUIRE(planes.size() == 1);
+    REQUIRE(planes[0].first == "Plane1");
+    CHECK_THAT(planes[0].second.origin.z(), WithinAbs(30.0, 1e-9));
+    CHECK_THAT(planes[0].second.normal.z(), WithinAbs(1.0, 1e-9));
+
+    // A second datum plane tilted 90 deg about the base (XY) X axis: its normal
+    // rotates from +Z toward -Y (Rodrigues about +X: +Z -> -Y).
+    doc.add_plane(0 /*XY*/, 0.0, 90.0, 0 /*about X*/, "Plane2");
+    planes = doc.resolve_datum_planes();
+    REQUIRE(planes.size() == 2);
+    CHECK_THAT(planes[1].second.normal.y(), WithinAbs(-1.0, 1e-9));
+    CHECK_THAT(planes[1].second.normal.z(), WithinAbs(0.0, 1e-9));
+
+    // Sketch a 10x10 square ON Plane1 and extrude 4 mm: the solid must sit in z=[30,34].
+    SketchPlane sp = planes[0].second;
+    SketchProfile prof;
+    prof.points = {{-5,-5},{5,-5},{5,5},{-5,5}};
+    prof.closed = true;
+    int sk = doc.add_sketch_profile(prof, sp, "S");
+    doc.add_extrude(sk, 4.0, false, BooleanMode::New, "E");
+    REQUIRE(doc.recompute());
+
+    Bnd_Box bb;
+    BRepBndLib::Add(doc.body, bb);
+    double xmin,ymin,zmin,xmax,ymax,zmax;
+    bb.Get(xmin,ymin,zmin,xmax,ymax,zmax);
+    CHECK_THAT(zmin, WithinAbs(30.0, 1e-6));
+    CHECK_THAT(zmax, WithinAbs(34.0, 1e-6));
+    CHECK_THAT(double(doc.display_mesh.volume()), WithinRel(400.0, 0.02));
+
+    // A datum-plane-only document has no solid -> recompute is a benign failure.
+    CadDocument only_plane;
+    only_plane.add_plane(0, 10.0, 0.0, 0, "P");
+    REQUIRE_FALSE(only_plane.recompute());
+}

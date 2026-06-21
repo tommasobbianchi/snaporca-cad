@@ -589,6 +589,63 @@ int CadDocument::add_shell(double thickness, int face, int target_body, const st
     return int(features.size()) - 1;
 }
 
+int CadDocument::add_plane(int base, double offset, double angle_tilt, int axis,
+                           const std::string& name)
+{
+    CadFeature f;
+    f.type             = CadFeatureType::Plane;
+    f.name             = name;
+    f.plane_base       = base;
+    f.plane_offset     = offset;
+    f.plane_angle_tilt = angle_tilt;
+    f.plane_axis       = axis;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
+// Derive a SketchPlane: shift `base` along its normal by `offset`, then tilt
+// `angle_deg` about the base's X (axis 0) or Y (axis 1) axis (Rodrigues rotation).
+static SketchPlane offset_angle_plane(const SketchPlane& base, double offset,
+                                      double angle_deg, int axis)
+{
+    SketchPlane p;
+    p.origin = base.origin + base.normal * offset;
+    Vec3d n = base.normal, x = base.x_axis, y = base.y_axis;
+    if (std::abs(angle_deg) > 1e-9) {
+        const double a = angle_deg * M_PI / 180.0;
+        const Vec3d  k = (axis == 1) ? base.y_axis : base.x_axis; // unit rotation axis
+        auto rot = [&](const Vec3d& v) -> Vec3d {   // -> Vec3d forces eval (no dangling Eigen expr)
+            return v * std::cos(a) + k.cross(v) * std::sin(a)
+                   + k * (k.dot(v)) * (1.0 - std::cos(a));
+        };
+        n = rot(n);
+        if (axis == 1) x = rot(x);   // tilt about Y rotates X + normal, Y fixed
+        else           y = rot(y);   // tilt about X rotates Y + normal, X fixed
+    }
+    p.normal = n.normalized();
+    p.x_axis = x.normalized();
+    p.y_axis = y.normalized();
+    return p;
+}
+
+std::vector<std::pair<std::string, SketchPlane>> CadDocument::resolve_datum_planes() const
+{
+    std::vector<std::pair<std::string, SketchPlane>> out;
+    for (const CadFeature& f : features) {
+        if (f.type != CadFeatureType::Plane || !f.enabled) continue;
+        SketchPlane base;
+        if      (f.plane_base == 1) base = SketchPlane::XZ();
+        else if (f.plane_base == 2) base = SketchPlane::YZ();
+        else if (f.plane_base >= 3) {
+            const int di = f.plane_base - 3;   // index into earlier datum planes
+            if (di < int(out.size())) base = out[di].second;   // else XY default
+        }
+        out.emplace_back(f.name,
+            offset_angle_plane(base, f.plane_offset, f.plane_angle_tilt, f.plane_axis));
+    }
+    return out;
+}
+
 void CadDocument::clear()
 {
     features.clear();
@@ -1140,6 +1197,7 @@ static TriangleMesh tessellate_bodies(const std::vector<CadBody>& bodies,
 
 void CadDocument::route_feature(std::vector<CadBody>& bodies, const CadFeature& f) const
 {
+    if (f.type == CadFeatureType::Plane) return;   // datum plane: not part of the body pipeline
     // Resolve the target body: explicit target_body when valid, else the last body.
     const int t = (f.target_body >= 0 && f.target_body < int(bodies.size()))
                   ? f.target_body : int(bodies.size()) - 1;
@@ -1174,6 +1232,7 @@ bool CadDocument::recompute()
         for (const CadFeature& f : features) {
             if (!f.enabled) continue;
             if (f.type == CadFeatureType::Sketch) continue; // consumed by an extrude
+            if (f.type == CadFeatureType::Plane)  continue; // datum: no solid, derived on demand
             route_feature(built, f);
         }
     } catch (const Standard_Failure& e) {

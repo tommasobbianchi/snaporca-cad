@@ -174,7 +174,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     auto select_tool = [this](DesignSketchTool::Mode mode, const wxString& hint) {
         if (!m_viewport) return;
         if (!m_viewport->is_sketching()) {
-            const SketchPlane plane = plane_from_index(m_draw_plane->GetSelection());
+            const SketchPlane plane = plane_from_choice(m_draw_plane->GetSelection());
             m_viewport->begin_sketch(plane, mode);
             m_construction->SetValue(false);   // a fresh session starts non-construction
         } else {
@@ -193,6 +193,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     {
         auto* b_sketch = icon_btn("design_sketch", _L("Sketch"));
         b_sketch->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            populate_plane_choices(m_draw_plane);   // surface datum planes in the picker
             set_ui_mode(UiMode::Sketch);
             m_status->SetForegroundColour(wxNullColour);
             m_status->SetLabel(_L("Pick a plane and a sketch tool, then draw"));
@@ -262,6 +263,13 @@ DesignPanel::DesignPanel(wxWindow* parent)
             open_tool(Tool::Pattern);
         });
         fadd(b_pattern);
+
+        auto* b_plane = icon_btn("design_sketch", _L("Plane"));
+        b_plane->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            populate_plane_choices(m_plane_base);   // refresh base list w/ existing datum planes
+            open_tool(Tool::Plane);
+        });
+        fadd(b_plane);
 
         auto* b_dressup = icon_btn("design_dressup", _L("Fillet / Chamfer"));
         b_dressup->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Dressup); });
@@ -937,6 +945,48 @@ DesignPanel::DesignPanel(wxWindow* parent)
     }
     root->Add(m_box_pattern, 0, wxEXPAND);
 
+    // --- Plane (datum/reference plane: offset + tilt from a base plane; no solid) ---
+    m_box_plane = new wxBoxSizer(wxVERTICAL);
+    m_box_plane->Add(card_header("design_sketch", _L("Plane"), m_hdr_plane), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_plane->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
+    {
+        auto* plform = new wxFlexGridSizer(2, 6, 8);
+
+        m_plane_base = new wxChoice(m_form, wxID_ANY);
+        populate_plane_choices(m_plane_base);   // XY/XZ/YZ + any existing datum planes
+        plform->Add(new wxStaticText(m_form, wxID_ANY, _L("Base")), 0, wxALIGN_CENTER_VERTICAL);
+        plform->Add(m_plane_base);
+
+        m_plane_offset = make_spin(m_form, 20.0, -100000.0, 100000.0);
+        plform->Add(new wxStaticText(m_form, wxID_ANY, _L("Offset")), 0, wxALIGN_CENTER_VERTICAL);
+        plform->Add(m_plane_offset);
+
+        m_plane_tilt = make_spin(m_form, 0.0, -180.0, 180.0);
+        plform->Add(new wxStaticText(m_form, wxID_ANY, _L("Tilt°")), 0, wxALIGN_CENTER_VERTICAL);
+        plform->Add(m_plane_tilt);
+
+        m_plane_tilt_axis = new wxChoice(m_form, wxID_ANY);
+        m_plane_tilt_axis->Append("Base X");
+        m_plane_tilt_axis->Append("Base Y");
+        m_plane_tilt_axis->SetSelection(0);
+        plform->Add(new wxStaticText(m_form, wxID_ANY, _L("Tilt axis")), 0, wxALIGN_CENTER_VERTICAL);
+        plform->Add(m_plane_tilt_axis);
+
+        m_box_plane->Add(plform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    }
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        m_confirm_btns.push_back(ok);
+        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
+        row->Add(ok, 0, wxRIGHT, 8);
+        row->Add(no, 0);
+        m_box_plane->Add(row, 0, wxALL, 12);
+    }
+    root->Add(m_box_plane, 0, wxEXPAND);
+
     // --- Shell (hollow the current body to a wall thickness, removing one picked face) ---
     auto* sform = new wxFlexGridSizer(2, 6, 8);
     m_shell_thickness = make_spin(m_form, 2.0, 0.01, 100000.0);
@@ -1143,6 +1193,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     root->Show(m_box_revolve, false, true);
     root->Show(m_box_sweep, false, true);
     root->Show(m_box_pattern, false, true);
+    root->Show(m_box_plane, false, true);
     root->Show(m_box_dressup, false, true);
     root->Show(m_box_hole,    false, true);
     root->Show(m_box_thread,  false, true);
@@ -1628,7 +1679,7 @@ void DesignPanel::add_imported_sketch(
         }
     }
     if (!on_face)
-        f.plane = m_draw_plane ? plane_from_index(m_draw_plane->GetSelection())
+        f.plane = m_draw_plane ? plane_from_choice(m_draw_plane->GetSelection())
                                : SketchPlane::XY();
 
     // Drop the live face selection (its body is now remembered on import_face_body): otherwise
@@ -1669,7 +1720,7 @@ void DesignPanel::on_add_sketch()
 {
     SketchShape shape = (m_shape->GetSelection() == 1) ? SketchShape::Circle
                                                         : SketchShape::Rectangle;
-    SketchPlane plane = plane_from_index(m_plane->GetSelection());
+    SketchPlane plane = plane_from_choice(m_plane->GetSelection());
     m_feature_counter++;
     m_doc.add_sketch(shape, plane, m_width->GetValue(), m_height->GetValue(),
                      m_radius->GetValue(), "Sketch" + std::to_string(m_feature_counter));
@@ -1940,6 +1991,37 @@ void DesignPanel::on_add_pattern()
     refresh_tree();
 }
 
+void DesignPanel::populate_plane_choices(wxChoice* c) const
+{
+    if (!c) return;
+    const int keep = c->GetSelection();
+    c->Clear();
+    c->Append("XY"); c->Append("XZ"); c->Append("YZ");
+    for (const auto& dp : m_doc.resolve_datum_planes())
+        c->Append(wxString::FromUTF8(dp.first));
+    c->SetSelection((keep >= 0 && keep < int(c->GetCount())) ? keep : 0);
+}
+
+SketchPlane DesignPanel::plane_from_choice(int row) const
+{
+    if (row < 3) return plane_from_index(row);   // 0=XY,1=XZ,2=YZ
+    auto datums = m_doc.resolve_datum_planes();
+    const int di = row - 3;
+    return (di >= 0 && di < int(datums.size())) ? datums[di].second : SketchPlane::XY();
+}
+
+void DesignPanel::on_add_plane()
+{
+    m_feature_counter++;
+    m_doc.add_plane(m_plane_base->GetSelection(), m_plane_offset->GetValue(),
+                    m_plane_tilt->GetValue(), m_plane_tilt_axis->GetSelection(),
+                    "Plane" + std::to_string(m_feature_counter));
+    m_doc.recompute();   // datum-only docs yield no body; that is expected/benign
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(_L("Plane added — pick it as a sketch plane"));
+    refresh_tree();
+}
+
 void DesignPanel::on_add_shell()
 {
     if (m_doc.body.IsNull()) {
@@ -1973,6 +2055,7 @@ int DesignPanel::tree_icon_for(CadFeatureType t)
     case CadFeatureType::Revolve: return 1;
     case CadFeatureType::Sweep:   return 1;
     case CadFeatureType::Pattern: return 1;
+    case CadFeatureType::Plane:   return 0;   // datum plane: sketch-family icon
     }
     return 0;
 }
@@ -3580,6 +3663,13 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
         m_pattern_dir->SetSelection(f.pattern_dir);
         m_pattern_angle->SetValue(f.pattern_angle);
         break;
+    case CadFeatureType::Plane:
+        populate_plane_choices(m_plane_base);
+        m_plane_base->SetSelection(f.plane_base);
+        m_plane_offset->SetValue(f.plane_offset);
+        m_plane_tilt->SetValue(f.plane_angle_tilt);
+        m_plane_tilt_axis->SetSelection(f.plane_axis);
+        break;
     default: break;
     }
 }
@@ -3664,6 +3754,11 @@ void DesignPanel::on_edit_feature()
         load_feature_into_dialog(f);
         open_tool(Tool::Pattern);
         break;
+    case CadFeatureType::Plane:
+        m_edit_index = sel;
+        load_feature_into_dialog(f);
+        open_tool(Tool::Plane);
+        break;
     default: break;
     }
 }
@@ -3717,7 +3812,7 @@ CadFeature DesignPanel::build_candidate(Tool t) const
     case Tool::Sketch:
         f.type   = CadFeatureType::Sketch;
         f.shape  = (m_shape->GetSelection() == 0) ? SketchShape::Rectangle : SketchShape::Circle;
-        f.plane  = plane_from_index(m_plane->GetSelection());
+        f.plane  = plane_from_choice(m_plane->GetSelection());
         f.width  = m_width->GetValue();
         f.height = m_height->GetValue();
         f.radius = m_radius->GetValue();
@@ -3813,6 +3908,13 @@ CadFeature DesignPanel::build_candidate(Tool t) const
         f.pattern_spacing  = m_pattern_spacing->GetValue();
         f.pattern_dir      = m_pattern_dir->GetSelection();
         f.pattern_angle    = m_pattern_angle->GetValue();
+        break;
+    case Tool::Plane:
+        f.type             = CadFeatureType::Plane;
+        f.plane_base       = m_plane_base->GetSelection();
+        f.plane_offset     = m_plane_offset->GetValue();
+        f.plane_angle_tilt = m_plane_tilt->GetValue();
+        f.plane_axis       = m_plane_tilt_axis->GetSelection();
         break;
     case Tool::None:
         break;
@@ -3953,12 +4055,12 @@ void DesignPanel::refresh_preview()
 {
     if (m_active == Tool::None) { m_viewport->clear_preview(); return; }
 
-    if (m_active == Tool::Sketch) {
-        // A sketch carries no 3D solid; there is no ghost to show. It is always valid
-        // for positive dims, so just enable Confirm and clear any stale ghost.
+    if (m_active == Tool::Sketch || m_active == Tool::Plane) {
+        // A sketch / datum plane carries no 3D solid; there is no ghost to show. Always
+        // valid, so just enable Confirm and clear any stale ghost.
         m_viewport->clear_preview();
         m_status->SetForegroundColour(wxColour(120, 210, 120));
-        m_status->SetLabel(_L("Sketch ready"));
+        m_status->SetLabel(m_active == Tool::Plane ? _L("Plane ready") : _L("Sketch ready"));
         for (wxButton* b : m_confirm_btns) if (b) b->Enable(true);
         m_status->Refresh();
         return;
@@ -4038,6 +4140,7 @@ void DesignPanel::open_tool(Tool t)
     s->Show(m_box_revolve, t == Tool::Revolve, true);
     s->Show(m_box_sweep,   t == Tool::Sweep,   true);
     s->Show(m_box_pattern, t == Tool::Pattern, true);
+    s->Show(m_box_plane,   t == Tool::Plane,   true);
 
     if (t == Tool::Revolve && m_revolve_sketch_ref >= 0
         && m_revolve_sketch_ref < int(m_doc.features.size()))
@@ -4105,6 +4208,7 @@ void DesignPanel::open_tool(Tool t)
     case Tool::Revolve: m_hdr_revolve->SetLabel(title(_L("Revolve"))); break;
     case Tool::Sweep:   m_hdr_sweep->SetLabel(title(_L("Sweep")));     break;
     case Tool::Pattern: m_hdr_pattern->SetLabel(title(_L("Pattern"))); break;
+    case Tool::Plane:   m_hdr_plane->SetLabel(title(_L("Plane")));     break;
     case Tool::None:    break;
     }
 
@@ -4127,6 +4231,7 @@ void DesignPanel::close_tool()
     s->Show(m_box_revolve, false, true);
     s->Show(m_box_sweep,   false, true);
     s->Show(m_box_pattern, false, true);
+    s->Show(m_box_plane,   false, true);
     m_viewport->clear_preview();
     m_viewport->clear_extrude_gizmo();
     m_viewport->clear_fillet_gizmo();
@@ -4164,6 +4269,7 @@ void DesignPanel::confirm_tool()
     case Tool::Revolve: on_add_revolve(); break;
     case Tool::Sweep:   on_add_sweep();   break;
     case Tool::Pattern: on_add_pattern(); break;
+    case Tool::Plane:   on_add_plane();   break;
     case Tool::None:    return;
     }
     close_tool(); // also clears the preview ghost; the committed body is now shown
