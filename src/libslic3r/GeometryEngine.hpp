@@ -84,6 +84,20 @@ public:
     static TopoDS_Edge  edge_by_index(const TopoDS_Shape& shape, int index);
     static int          edge_index_of(const TopoDS_Shape& shape, const TopoDS_Edge& edge);
 
+    // Analysis of a cylindrical face for the Thread tool (a hole bore or a cylinder's lateral
+    // surface): axis (base at the lower axial end + unit direction), radius, axial extent, and
+    // whether it is a bore (face normal points toward the axis = internal thread). ok=false if
+    // the face is not a cylinder.
+    struct CylinderFace {
+        bool   ok{false};
+        Vec3d  base{0, 0, 0};
+        Vec3d  axis{0, 0, 1};
+        double radius{0};
+        double height{0};
+        bool   internal{false};
+    };
+    static CylinderFace cylinder_of_face(const TopoDS_Face& face);
+
 private:
     static std::vector<TopoDS_Edge> collect_edges(const TopoDS_Shape& solid, FaceGroup faces);
     static FaceGroup classify_face(const TopoDS_Face& face, const TopoDS_Shape& solid);

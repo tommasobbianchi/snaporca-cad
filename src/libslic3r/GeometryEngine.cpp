@@ -4,6 +4,7 @@
 #include <BRep_Tool.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepLProp_SLProps.hxx>
+#include <gp_Cylinder.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <stdexcept>
@@ -329,6 +330,42 @@ Vec3d GeometryEngine::face_normal_world(const TopoDS_Face& face)
     if (props.IsNormalDefined()) n = props.Normal();
     if (face.Orientation() == TopAbs_REVERSED) n.Reverse();   // outward (account for face winding)
     return Vec3d(n.X(), n.Y(), n.Z());
+}
+
+GeometryEngine::CylinderFace GeometryEngine::cylinder_of_face(const TopoDS_Face& face)
+{
+    CylinderFace cf;
+    if (face.IsNull()) return cf;
+    BRepAdaptor_Surface surf(face);
+    if (surf.GetType() != GeomAbs_Cylinder) return cf;
+
+    const gp_Cylinder cyl = surf.Cylinder();
+    const gp_Ax1      ax  = cyl.Axis();
+    const Vec3d axis(ax.Direction().X(), ax.Direction().Y(), ax.Direction().Z());
+    const Vec3d apt (ax.Location().X(),  ax.Location().Y(),  ax.Location().Z());
+    cf.radius = cyl.Radius();
+
+    // Axial extent: V is the axial parameter on a cylinder; bound the face's two ends and
+    // order them so `axis` points base -> top.
+    const double umid = 0.5 * (surf.FirstUParameter() + surf.LastUParameter());
+    const gp_Pnt e0 = surf.Value(umid, surf.FirstVParameter());
+    const gp_Pnt e1 = surf.Value(umid, surf.LastVParameter());
+    double t0 = (Vec3d(e0.X(), e0.Y(), e0.Z()) - apt).dot(axis);
+    double t1 = (Vec3d(e1.X(), e1.Y(), e1.Z()) - apt).dot(axis);
+    if (t1 < t0) std::swap(t0, t1);
+    cf.base   = apt + axis * t0;
+    cf.axis   = axis;
+    cf.height = t1 - t0;
+
+    // Internal (bore) vs external: compare the face's outward normal at its centre to the
+    // outward radial direction. A bore's normal points toward the axis (dot < 0).
+    const gp_Pnt sp = surf.Value(umid, 0.5 * (surf.FirstVParameter() + surf.LastVParameter()));
+    const Vec3d  S(sp.X(), sp.Y(), sp.Z());
+    const Vec3d  axpt   = cf.base + axis * (S - cf.base).dot(axis);
+    const Vec3d  radial = (S - axpt).normalized();
+    cf.internal = face_normal_world(face).dot(radial) < 0.0;
+    cf.ok = true;
+    return cf;
 }
 
 int GeometryEngine::edge_count(const TopoDS_Shape& shape)

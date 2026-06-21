@@ -233,7 +233,40 @@ DesignPanel::DesignPanel(wxWindow* parent)
         });
         fadd(b_hole);
         auto* b_thread = icon_btn("design_thread", _L("Thread"));
-        b_thread->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Thread); });
+        b_thread->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            // #3: invoke on a picked CYLINDRICAL face — a hole bore (internal thread) or a
+            // cylinder's lateral surface (external) — deriving axis, radius and internal/
+            // external from it. Otherwise fall back to the plane dropdown.
+            m_thread_on_face   = false;
+            m_thread_face_body = -1;
+            if (m_sel_solid_face >= 0 && m_sel_solid_body >= 0
+                && m_sel_solid_body < int(m_doc.bodies.size())) {
+                const TopoDS_Face face = GeometryEngine::face_by_index(
+                    m_doc.bodies[m_sel_solid_body].shape, m_sel_solid_face);
+                const GeometryEngine::CylinderFace cf = GeometryEngine::cylinder_of_face(face);
+                if (cf.ok) {
+                    SketchPlane p;                       // plane on the axis (origin at the base)
+                    p.origin = cf.base;
+                    p.normal = cf.axis;
+                    const Vec3d ref = std::abs(cf.axis.z()) < 0.9 ? Vec3d(0, 0, 1) : Vec3d(1, 0, 0);
+                    p.x_axis = ref.cross(cf.axis).normalized();
+                    p.y_axis = cf.axis.cross(p.x_axis).normalized();
+                    m_thread_face_plane = p;
+                    m_thread_on_face    = true;
+                    m_thread_face_body  = m_sel_solid_body;
+                    if (m_thread_radius)   m_thread_radius->SetValue(cf.radius);
+                    if (m_thread_height)   m_thread_height->SetValue(cf.height);
+                    if (m_thread_internal) m_thread_internal->SetValue(cf.internal);
+                    if (m_thread_x) m_thread_x->SetValue(0.0);   // on the axis
+                    if (m_thread_y) m_thread_y->SetValue(0.0);
+                } else if (m_sel_solid_face >= 0) {
+                    m_status->SetForegroundColour(wxColour(235, 110, 110));
+                    m_status->SetLabel(_L("Pick a cylindrical face (hole bore or cylinder) for a thread"));
+                    m_status->Refresh();
+                }
+            }
+            open_tool(Tool::Thread);
+        });
         fadd(b_thread);
         auto* b_shell = icon_btn("design_dressup", _L("Shell (hollow to a wall thickness)"));
         b_shell->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Shell); });
@@ -1556,6 +1589,12 @@ void DesignPanel::on_add_hole()
     refresh_tree();
 }
 
+SketchPlane DesignPanel::thread_plane() const
+{
+    return m_thread_on_face ? m_thread_face_plane
+                            : plane_from_index(m_thread_plane->GetSelection());
+}
+
 void DesignPanel::on_add_thread()
 {
     bool internal = m_thread_internal->GetValue();
@@ -1563,13 +1602,16 @@ void DesignPanel::on_add_thread()
         m_status->SetLabel(_L("Internal thread needs a body — add a solid first"));
         return;
     }
-    SketchPlane plane = plane_from_index(m_thread_plane->GetSelection());
+    SketchPlane plane = thread_plane();
 
     m_feature_counter++;
-    m_doc.add_thread(m_thread_radius->GetValue(), m_thread_pitch->GetValue(),
+    const int tidx = m_doc.add_thread(m_thread_radius->GetValue(), m_thread_pitch->GetValue(),
                      m_thread_height->GetValue(), m_thread_depth->GetValue(),
                      internal, m_thread_x->GetValue(), m_thread_y->GetValue(),
                      plane, "Thread" + std::to_string(m_feature_counter));
+    // On-surface internal thread taps the body the cylindrical face belongs to.
+    if (m_thread_on_face && tidx >= 0 && tidx < int(m_doc.features.size()))
+        m_doc.features[tidx].target_body = m_thread_face_body;
 
     if (!m_doc.recompute())
         m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
@@ -3372,7 +3414,7 @@ CadFeature DesignPanel::build_candidate(Tool t) const
         break;
     case Tool::Thread:
         f.type            = CadFeatureType::Thread;
-        f.plane           = plane_from_index(m_thread_plane->GetSelection());
+        f.plane           = thread_plane();
         f.thread_radius   = m_thread_radius->GetValue();
         f.thread_pitch    = m_thread_pitch->GetValue();
         f.thread_height   = m_thread_height->GetValue();
@@ -3380,6 +3422,7 @@ CadFeature DesignPanel::build_candidate(Tool t) const
         f.thread_internal = m_thread_internal->GetValue();
         f.thread_x        = m_thread_x->GetValue();
         f.thread_y        = m_thread_y->GetValue();
+        if (m_thread_on_face) f.target_body = m_thread_face_body;   // tap the right body
         break;
     case Tool::Shell:
         f.type            = CadFeatureType::Shell;
@@ -3430,7 +3473,7 @@ void DesignPanel::update_thread_gizmo()
 {
     if (!m_viewport) return;
     if (m_active != Tool::Thread) { m_viewport->clear_thread_gizmo(); return; }
-    const SketchPlane plane = plane_from_index(m_thread_plane->GetSelection());
+    const SketchPlane plane = thread_plane();
     m_viewport->begin_thread_gizmo(plane,
                                    m_thread_x->GetValue(), m_thread_y->GetValue(),
                                    m_thread_radius->GetValue(), m_thread_height->GetValue());

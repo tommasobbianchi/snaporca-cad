@@ -114,6 +114,8 @@ private:
     void       do_undo_redo(bool redo);
     // The plane the Hole tool drills on: a picked face (inward, centred) or the dropdown.
     SketchPlane hole_plane() const;
+    // The plane the Thread tool builds on: a picked cylindrical face (axis) or the dropdown.
+    SketchPlane thread_plane() const;
     CadFeature build_candidate(Tool t) const;
     int        resolve_extrude_sketch() const;
     // True when Extrude should build only the click-selected loop (a region of the
@@ -217,6 +219,11 @@ private:
     wxCheckBox*       m_thread_internal{nullptr};
     wxSpinCtrlDouble* m_thread_x{nullptr};
     wxSpinCtrlDouble* m_thread_y{nullptr};
+    // #3: when the Thread tool is opened on a picked cylindrical face (a hole bore or a
+    // cylinder), thread that surface — plane on its axis, radius/internal derived from it.
+    bool              m_thread_on_face{false};
+    SketchPlane       m_thread_face_plane;
+    int               m_thread_face_body{-1};
 
     wxSpinCtrlDouble* m_shell_thickness{nullptr};
     wxStaticText*     m_shell_face_label{nullptr};   // shows the picked face to remove
