@@ -28,6 +28,7 @@
 
 #include "slic3r/GUI/wxExtensions.hpp"   // ScalableButton, create_scaled_bitmap
 #include "Widgets/Label.hpp"             // HarmonyOS Sans fonts (Head_*/Body_*) shared with the rest of Orca
+#include "Widgets/DropDown.hpp"          // Orca-themed combo dropdown (white/teal selector) for the tool flyouts
 #include "libslic3r/SketchImport.hpp"    // text_to_regions / svg_to_regions
 #include "libslic3r/ThreadStandards.hpp" // ISO metric / Unified imperial thread tables
 #include "libslic3r/Model.hpp"
@@ -401,27 +402,52 @@ DesignPanel::DesignPanel(wxWindow* parent)
             b->Bind(wxEVT_BUTTON, [select_tool, mode, hint](wxCommandEvent&) { select_tool(mode, hint); });
             sadd(b);
         };
-        // Onshape-style family flyout: the button shows the current variant's
-        // icon; clicking drops a menu of the variants. Picking one activates it
-        // and becomes the button's icon; a small chevron marks it as a group.
+        // Onshape-style family flyout, rendered with Orca's themed DropDown
+        // (white/teal selector, #DBDBDB border, HarmonyOS Body_14) — same widget
+        // as the settings combo dropdowns. The button shows the current variant's
+        // icon; clicking drops the variants; a small chevron marks it as a group.
         struct SkVar { const char* icon; DesignSketchTool::Mode mode; wxString tip; wxString hint; };
+        struct ToolFlyout {
+            std::vector<wxString> texts, tips;
+            std::vector<wxBitmap> icons;
+            std::vector<DesignSketchTool::Mode> modes;
+            std::vector<wxString> hints;
+            std::vector<std::string> icon_names;
+            ScalableButton* btn = nullptr;
+            DropDown drop;                 // declared LAST: destroyed before the vectors it references
+            ToolFlyout() : drop(texts, tips, icons) {}
+        };
         auto dropdown = [&](const char* def_icon, const wxString& grp, std::vector<SkVar> vars) {
             auto* b = icon_btn(def_icon, grp);
-            auto vp = std::make_shared<std::vector<SkVar>>(std::move(vars));
-            b->Bind(wxEVT_BUTTON, [this, b, vp, select_tool](wxCommandEvent&) {
-                wxMenu menu;
-                for (const SkVar& v : *vp) {
-                    int id = wxWindow::NewControlId();
-                    wxMenuItem* mi = menu.Append(id, v.tip);
-                    mi->SetBitmap(create_scaled_bitmap(v.icon, m_form, 18));
-                    menu.Bind(wxEVT_MENU, [this, b, v, select_tool](wxCommandEvent&) {
-                        b->SetBitmap_(std::string(v.icon));
-                        select_tool(v.mode, v.hint);
-                        set_active_tool_btn(b);
-                    }, id);
+            auto fo = std::make_shared<ToolFlyout>();
+            for (auto& v : vars) {
+                fo->texts.push_back(v.tip);
+                fo->tips.push_back(v.hint);
+                fo->icons.push_back(create_scaled_bitmap(v.icon, m_form, 18));
+                fo->modes.push_back(v.mode);
+                fo->hints.push_back(v.hint);
+                fo->icon_names.emplace_back(v.icon);
+            }
+            fo->btn = b;
+            fo->drop.Create(b);
+            fo->drop.SetUseContentWidth(true, false);
+            fo->drop.Invalidate(true);
+            ToolFlyout* fp = fo.get();
+            fo->drop.Bind(wxEVT_COMBOBOX, [this, fp, select_tool](wxCommandEvent& e) {
+                int i = e.GetInt();
+                if (i >= 0 && i < (int) fp->modes.size()) {
+                    fp->btn->SetBitmap_(fp->icon_names[i]);
+                    select_tool(fp->modes[i], fp->hints[i]);
+                    set_active_tool_btn(fp->btn);
                 }
-                b->PopupMenu(&menu);
             });
+            b->Bind(wxEVT_BUTTON, [b, fp](wxCommandEvent&) {
+                // Drop the flyout just below the button (autoPosition() is private).
+                wxPoint pos = b->ClientToScreen(wxPoint(0, -6));
+                fp->drop.Position(pos, wxSize(0, b->GetSize().y + 12));
+                fp->drop.Popup();
+            });
+            m_flyout_keepalive.push_back(fo);
             sadd(b);
             auto* chev = new wxStaticText(m_toolbar, wxID_ANY, wxString::FromUTF8("\xE2\x96\xBE"));
             chev->SetForegroundColour(wxColour(0x81, 0x81, 0x83));

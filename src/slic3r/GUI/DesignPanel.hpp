@@ -6,6 +6,7 @@
 #include <wx/treebase.h>   // wxTreeItemId
 
 #include <vector>
+#include <memory>
 #include <functional>
 
 #include "libslic3r/CadDocument.hpp"
@@ -192,6 +193,8 @@ private:
     std::vector<ScalableButton*> m_tool_btns;
     ScalableButton*              m_active_tool_btn{nullptr};
     void set_active_tool_btn(ScalableButton* b);   // nullptr clears the highlight
+    // Owns the themed DropDown flyouts (and the item vectors they hold by ref).
+    std::vector<std::shared_ptr<void>> m_flyout_keepalive;
     wxCheckBox*       m_construction{nullptr};   // sketch-mode construction toggle
     wxSpinCtrl*       m_sides{nullptr};          // polygon sides
     wxCheckBox*       m_poly_circ{nullptr};      // polygon circumscribed toggle
