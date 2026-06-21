@@ -25,6 +25,7 @@
 
 #include "slic3r/GUI/wxExtensions.hpp"   // ScalableButton, create_scaled_bitmap
 #include "libslic3r/SketchImport.hpp"    // text_to_regions / svg_to_regions
+#include "libslic3r/ThreadStandards.hpp" // ISO metric / Unified imperial thread tables
 #include "libslic3r/Model.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
 #include "slic3r/GUI/Plater.hpp"
@@ -699,6 +700,17 @@ DesignPanel::DesignPanel(wxWindow* parent)
     tform->Add(new wxStaticText(m_form, wxID_ANY, _L("Thread plane")), 0, wxALIGN_CENTER_VERTICAL);
     tform->Add(m_thread_plane);
 
+    // Standard designation picker — fills pitch/depth (and nominal radius) from the
+    // ISO metric / Unified imperial tables. "Custom" leaves the manual spins alone.
+    m_thread_std = new wxChoice(m_form, wxID_ANY);
+    m_thread_std->Append(_L("Custom"));
+    for (const ThreadSpec& s : thread_standards())
+        m_thread_std->Append(s.name);
+    m_thread_std->SetSelection(0);
+    m_thread_std->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { apply_thread_standard(); });
+    tform->Add(new wxStaticText(m_form, wxID_ANY, _L("Standard")), 0, wxALIGN_CENTER_VERTICAL);
+    tform->Add(m_thread_std);
+
     m_thread_radius = make_spin(m_form, 5.0);
     tform->Add(new wxStaticText(m_form, wxID_ANY, _L("Radius")), 0, wxALIGN_CENTER_VERTICAL);
     tform->Add(m_thread_radius);
@@ -725,6 +737,12 @@ DesignPanel::DesignPanel(wxWindow* parent)
 
     m_thread_internal = new wxCheckBox(m_form, wxID_ANY, _L("Internal (tapped bore)"));
     m_thread_internal->SetValue(false);
+    // External rod uses the major radius; an internal tapped bore uses the minor
+    // (tap-drill) radius — re-derive the nominal radius when the role flips.
+    m_thread_internal->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent& e) {
+        apply_thread_standard();
+        e.Skip();
+    });
     tform->Add(new wxStaticText(m_form, wxID_ANY, _L("Internal")), 0, wxALIGN_CENTER_VERTICAL);
     tform->Add(m_thread_internal);
 
@@ -1612,6 +1630,34 @@ SketchPlane DesignPanel::thread_plane() const
 {
     return m_thread_on_face ? m_thread_face_plane
                             : plane_from_index(m_thread_plane->GetSelection());
+}
+
+void DesignPanel::apply_thread_standard()
+{
+    if (!m_thread_std) return;
+    const int sel = m_thread_std->GetSelection();
+    if (sel <= 0) return;   // 0 = "Custom" → leave the manual spins untouched
+
+    const ThreadSpec* s = find_thread_standard(
+        m_thread_std->GetString(sel).utf8_string());
+    if (!s) return;
+
+    // Pitch and depth are the defining "measures" of the standard — always apply.
+    if (m_thread_pitch) m_thread_pitch->SetValue(s->pitch_mm);
+    if (m_thread_depth) m_thread_depth->SetValue(s->thread_depth_mm());
+
+    // Nominal radius: external rod = major radius; internal tapped bore = minor
+    // (tap-drill) radius. On a picked cylindrical face the radius comes from the
+    // real geometry, so don't override it there.
+    if (!m_thread_on_face && m_thread_radius) {
+        const bool internal = m_thread_internal && m_thread_internal->GetValue();
+        const double d = internal ? s->minor_diameter_mm() : s->major_diameter_mm;
+        m_thread_radius->SetValue(0.5 * d);
+    }
+
+    if (m_status)
+        m_status->SetLabel(wxString::Format(_L("Thread standard: %s  (pitch %.3g mm)"),
+                                            m_thread_std->GetString(sel), s->pitch_mm));
 }
 
 void DesignPanel::on_add_thread()
@@ -3249,6 +3295,7 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
         m_thread_internal->SetValue(f.thread_internal);
         m_thread_x->SetValue(f.thread_x);
         m_thread_y->SetValue(f.thread_y);
+        if (m_thread_std) m_thread_std->SetSelection(0);   // Custom: spins reflect the stored feature
         break;
     case CadFeatureType::Shell:
         m_shell_thickness->SetValue(f.shell_thickness);

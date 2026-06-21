@@ -394,6 +394,8 @@ set(lisbslic3r_sources
     SketchImport.hpp
     CadDocument.cpp
     CadDocument.hpp
+    ThreadStandards.cpp
+    ThreadStandards.hpp
     SLAPrint.cpp
     SLAPrint.hpp
     SLAPrintSteps.cpp

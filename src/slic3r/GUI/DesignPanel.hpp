@@ -49,6 +49,7 @@ private:
     void on_add_dressup();
     void on_add_hole();
     void on_add_thread();
+    void apply_thread_standard();   // fill pitch/depth/radius from m_thread_std selection
     void on_add_shell();
     // Import rigid 2D art (Text / SVG) as a new Sketch feature carrying
     // imported_regions (no solver entities). on_add_text/on_import_svg gather
@@ -216,6 +217,7 @@ private:
     double            m_hole_umin{0}, m_hole_umax{0}, m_hole_vmin{0}, m_hole_vmax{0};
 
     wxChoice*         m_thread_plane{nullptr};
+    wxChoice*         m_thread_std{nullptr};   // standard designation (M6, 1/4-20 UNC, ...)
     wxSpinCtrlDouble* m_thread_radius{nullptr};
     wxSpinCtrlDouble* m_thread_pitch{nullptr};
     wxSpinCtrlDouble* m_thread_height{nullptr};

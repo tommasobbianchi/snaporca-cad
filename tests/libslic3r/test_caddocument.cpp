@@ -3,6 +3,7 @@
 #include "libslic3r/CadDocument.hpp"
 #include "libslic3r/SketchEngine.hpp"
 #include "libslic3r/SketchImport.hpp"
+#include "libslic3r/ThreadStandards.hpp"
 #include "libslic3r/Utils.hpp"
 
 #include <cmath>
@@ -934,4 +935,54 @@ TEST_CASE("internal thread cuts a visible groove into the bore wall", "[CadDocum
     REQUIRE(v_thread > 0.0);
     REQUIRE(v_thread < v_hole);
     REQUIRE((v_hole - v_thread) > 20.0);
+}
+
+TEST_CASE("thread standards table carries correct ISO/UTS measures", "[CadDocument]")
+{
+    using namespace Slic3r;
+
+    // Table is non-empty and every entry is self-consistent.
+    const auto& table = thread_standards();
+    REQUIRE(table.size() > 40);
+    for (const ThreadSpec& s : table) {
+        REQUIRE(s.major_diameter_mm > 0.0);
+        REQUIRE(s.pitch_mm > 0.0);
+        REQUIRE(s.minor_diameter_mm() < s.major_diameter_mm);
+        REQUIRE(s.minor_diameter_mm() > 0.0);
+        // 60deg V cut depth = 0.6134 * pitch.
+        REQUIRE(s.thread_depth_mm() == Approx(0.6134 * s.pitch_mm));
+    }
+
+    // ISO metric coarse: known nominal/pitch pairs.
+    const ThreadSpec* m6 = find_thread_standard("M6");
+    REQUIRE(m6 != nullptr);
+    REQUIRE(m6->major_diameter_mm == Approx(6.0));
+    REQUIRE(m6->pitch_mm == Approx(1.0));
+    REQUIRE(m6->series == ThreadSpec::Series::MetricCoarse);
+    REQUIRE_FALSE(m6->imperial());
+    REQUIRE(m6->thread_depth_mm() == Approx(0.6134));
+    // Tapped minor (tap-drill) diameter D - 1.0825*P = 6 - 1.0825 = 4.9175.
+    REQUIRE(m6->minor_diameter_mm() == Approx(4.9175));
+
+    const ThreadSpec* m3 = find_thread_standard("M3");
+    REQUIRE(m3 != nullptr);
+    REQUIRE(m3->pitch_mm == Approx(0.5));
+
+    // Imperial UNC: 1/4-20 -> 0.25in major, pitch = 25.4/20 = 1.27 mm.
+    const ThreadSpec* q = find_thread_standard("1/4-20 UNC");
+    REQUIRE(q != nullptr);
+    REQUIRE(q->major_diameter_mm == Approx(6.35));
+    REQUIRE(q->pitch_mm == Approx(1.27));
+    REQUIRE(q->series == ThreadSpec::Series::UNC);
+    REQUIRE(q->imperial());
+
+    // Imperial UNF fine variant has a finer pitch than its UNC sibling.
+    const ThreadSpec* qf = find_thread_standard("1/4-28 UNF");
+    REQUIRE(qf != nullptr);
+    REQUIRE(qf->major_diameter_mm == Approx(6.35));
+    REQUIRE(qf->pitch_mm == Approx(25.4 / 28.0));
+    REQUIRE(qf->pitch_mm < q->pitch_mm);
+
+    // Unknown designation -> nullptr.
+    REQUIRE(find_thread_standard("M7.3 bogus") == nullptr);
 }
