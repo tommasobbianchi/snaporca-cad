@@ -112,6 +112,8 @@ private:
     // Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y) from the viewport. With a tool/dialog open it
     // cancels that (Esc-like); otherwise it undoes/redoes the committed feature history.
     void       do_undo_redo(bool redo);
+    // The plane the Hole tool drills on: a picked face (inward, centred) or the dropdown.
+    SketchPlane hole_plane() const;
     CadFeature build_candidate(Tool t) const;
     int        resolve_extrude_sketch() const;
     // True when Extrude should build only the click-selected loop (a region of the
@@ -200,6 +202,12 @@ private:
     wxCheckBox*       m_hole_through{nullptr};
     wxSpinCtrlDouble* m_hole_x{nullptr};
     wxSpinCtrlDouble* m_hole_y{nullptr};
+    // #2: when the Hole tool is opened on a picked solid face, drill on that face centred
+    // on it (origin = face centroid, normal = inward). m_hole_x/y then read as the offset
+    // from the face centre. Falls back to the m_hole_plane dropdown when no face is picked.
+    bool              m_hole_on_face{false};
+    SketchPlane       m_hole_face_plane;
+    int               m_hole_face_body{-1};
 
     wxChoice*         m_thread_plane{nullptr};
     wxSpinCtrlDouble* m_thread_radius{nullptr};

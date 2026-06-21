@@ -81,6 +81,20 @@ static int index_from_plane(const SketchPlane& p)
     return 0;                                   // XY
 }
 
+// #2: a sketch plane on `face` with origin at the face centroid and normal pointing INTO the
+// solid, so a positioned hole drills inward and its (x,y) read as the offset from the face
+// centre. A hole is rotationally symmetric, so the arbitrary in-plane basis is harmless.
+static SketchPlane face_plane_inward(const TopoDS_Face& face)
+{
+    SketchPlane p;
+    p.origin = GeometryEngine::face_centroid_world(face);
+    p.normal = (-GeometryEngine::face_normal_world(face)).normalized();   // inward
+    const Vec3d ref = std::abs(p.normal.z()) < 0.9 ? Vec3d(0, 0, 1) : Vec3d(1, 0, 0);
+    p.x_axis = ref.cross(p.normal).normalized();
+    p.y_axis = p.normal.cross(p.x_axis).normalized();
+    return p;
+}
+
 DesignPanel::DesignPanel(wxWindow* parent)
     : wxPanel(parent, wxID_ANY)
 {
@@ -197,7 +211,26 @@ DesignPanel::DesignPanel(wxWindow* parent)
         b_dressup->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Dressup); });
         fadd(b_dressup);
         auto* b_hole = icon_btn("design_hole", _L("Hole"));
-        b_hole->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Hole); });
+        b_hole->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            // #2: drill on the picked solid face, centred on it (origin = face centroid,
+            // normal = inward). Otherwise fall back to the plane dropdown. m_hole_x/y then
+            // read as the offset from the face centre (editable for precise placement).
+            m_hole_on_face   = false;
+            m_hole_face_body = -1;
+            if (m_sel_solid_face >= 0 && m_sel_solid_body >= 0
+                && m_sel_solid_body < int(m_doc.bodies.size())) {
+                const TopoDS_Face face = GeometryEngine::face_by_index(
+                    m_doc.bodies[m_sel_solid_body].shape, m_sel_solid_face);
+                if (!face.IsNull()) {
+                    m_hole_face_plane = face_plane_inward(face);
+                    m_hole_on_face    = true;
+                    m_hole_face_body  = m_sel_solid_body;
+                    if (m_hole_x) m_hole_x->SetValue(0.0);   // start at the face centre
+                    if (m_hole_y) m_hole_y->SetValue(0.0);
+                }
+            }
+            open_tool(Tool::Hole);
+        });
         fadd(b_hole);
         auto* b_thread = icon_btn("design_thread", _L("Thread"));
         b_thread->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Thread); });
@@ -1489,13 +1522,19 @@ void DesignPanel::on_add_dressup()
     refresh_tree();
 }
 
+SketchPlane DesignPanel::hole_plane() const
+{
+    return m_hole_on_face ? m_hole_face_plane
+                          : plane_from_index(m_hole_plane->GetSelection());
+}
+
 void DesignPanel::on_add_hole()
 {
     if (m_doc.body.IsNull()) {
         m_status->SetLabel(_L("Add a solid (sketch + extrude) first"));
         return;
     }
-    SketchPlane plane   = plane_from_index(m_hole_plane->GetSelection());
+    SketchPlane plane   = hole_plane();
     double      dia     = m_hole_diameter->GetValue();
     double      depth   = m_hole_depth->GetValue();
     bool        through = m_hole_through->GetValue();
@@ -1503,8 +1542,11 @@ void DesignPanel::on_add_hole()
     double      py      = m_hole_y->GetValue();
 
     m_feature_counter++;
-    m_doc.add_hole(dia, depth, through, px, py, plane,
-                   "Hole" + std::to_string(m_feature_counter));
+    const int hidx = m_doc.add_hole(dia, depth, through, px, py, plane,
+                                    "Hole" + std::to_string(m_feature_counter));
+    // On-face holes drill the body the face belongs to (even after the pick was cleared).
+    if (m_hole_on_face && hidx >= 0 && hidx < int(m_doc.features.size()))
+        m_doc.features[hidx].target_body = m_hole_face_body;
 
     if (!m_doc.recompute())
         m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
@@ -3320,12 +3362,13 @@ CadFeature DesignPanel::build_candidate(Tool t) const
         break;
     case Tool::Hole:
         f.type          = CadFeatureType::Hole;
-        f.plane         = plane_from_index(m_hole_plane->GetSelection());
+        f.plane         = hole_plane();
         f.hole_diameter = m_hole_diameter->GetValue();
         f.hole_depth    = m_hole_depth->GetValue();
         f.hole_through  = m_hole_through->GetValue();
         f.hole_x        = m_hole_x->GetValue();
         f.hole_y        = m_hole_y->GetValue();
+        if (m_hole_on_face) f.target_body = m_hole_face_body;   // preview the right body
         break;
     case Tool::Thread:
         f.type            = CadFeatureType::Thread;
@@ -3374,7 +3417,7 @@ void DesignPanel::update_hole_gizmo()
 {
     if (!m_viewport) return;
     if (m_active != Tool::Hole) { m_viewport->clear_hole_gizmo(); return; }
-    const SketchPlane plane = plane_from_index(m_hole_plane->GetSelection());
+    const SketchPlane plane = hole_plane();
     m_viewport->begin_hole_gizmo(plane,
                                  m_hole_x->GetValue(), m_hole_y->GetValue(),
                                  m_hole_diameter->GetValue(), m_hole_depth->GetValue(),
