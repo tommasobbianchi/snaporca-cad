@@ -15,6 +15,10 @@
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <BRepOffsetAPI_DraftAngle.hxx>
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
+#include <gp_Pln.hxx>
 #include <TopTools_ListOfShape.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepLib.hxx>
@@ -598,6 +602,18 @@ int CadDocument::add_shell(double thickness, int face, int target_body, const st
     f.shell_thickness = thickness;
     f.shell_face      = face;
     f.target_body     = target_body;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
+int CadDocument::add_draft(double angle, int face, int target_body, const std::string& name)
+{
+    CadFeature f;
+    f.type        = CadFeatureType::Draft;
+    f.name        = name;
+    f.draft_angle = angle;
+    f.draft_face  = face;
+    f.target_body = target_body;
     features.push_back(f);
     return int(features.size()) - 1;
 }
@@ -1196,6 +1212,30 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body,
         if (!mts.IsDone()) throw std::runtime_error("shell failed");
         result = mts.Shape();
         if (result.IsNull()) throw std::runtime_error("shell produced no geometry");
+        break;
+    }
+    case CadFeatureType::Draft: {
+        if (!have_body) throw std::runtime_error("draft needs a body");
+        if (f.draft_face < 0) throw std::runtime_error("draft needs a picked face");
+        TopoDS_Face fc = GeometryEngine::face_by_index(result, f.draft_face);
+        if (fc.IsNull()) throw std::runtime_error("draft: face not found");
+        // Neutral plane = horizontal plane through the body's bbox bottom, pull direction +Z.
+        // The face pivots about the line where it meets the neutral plane and tilts by the angle.
+        // ponytail: neutral plane / pull direction fixed to world up; pick-based neutral plane
+        // deferred (same as the datum-plane pick types, snaporca-dgv).
+        Bnd_Box bb; BRepBndLib::Add(result, bb);
+        Standard_Real xmin, ymin, zmin, xmax, ymax, zmax;
+        bb.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+        gp_Dir pull(0, 0, 1);
+        gp_Pln neutral(gp_Pnt(0, 0, zmin), pull);
+        BRepOffsetAPI_DraftAngle draft(result);
+        draft.Add(fc, pull, f.draft_angle * M_PI / 180.0, neutral);
+        if (!draft.AddDone())
+            throw std::runtime_error("draft: face cannot be drafted (is it parallel to the base?)");
+        draft.Build();
+        if (!draft.IsDone()) throw std::runtime_error("draft failed");
+        result = draft.Shape();
+        if (result.IsNull()) throw std::runtime_error("draft produced no geometry");
         break;
     }
     }

@@ -289,6 +289,10 @@ DesignPanel::DesignPanel(wxWindow* parent)
         });
         fadd(b_loft);
 
+        auto* b_draft = icon_btn("design_dressup", _L("Draft (taper a face)"));
+        b_draft->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Draft); });
+        fadd(b_draft);
+
         auto* b_dressup = icon_btn("design_dressup", _L("Fillet / Chamfer"));
         b_dressup->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Dressup); });
         fadd(b_dressup);
@@ -1072,6 +1076,35 @@ DesignPanel::DesignPanel(wxWindow* parent)
     }
     root->Add(m_box_shell, 0, wxEXPAND);
 
+    // --- Draft (taper a single picked solid face about the body bottom) ---
+    auto* drform = new wxFlexGridSizer(2, 6, 8);
+    m_draft_angle = make_spin(m_form, 5.0, -89.0, 89.0);
+    drform->Add(new wxStaticText(m_form, wxID_ANY, _L("Angle (°)")), 0, wxALIGN_CENTER_VERTICAL);
+    drform->Add(m_draft_angle);
+    m_draft_face_label = new wxStaticText(m_form, wxID_ANY, _L("(pick a side face)"));
+    drform->Add(new wxStaticText(m_form, wxID_ANY, _L("Face")), 0, wxALIGN_CENTER_VERTICAL);
+    drform->Add(m_draft_face_label, 0, wxALIGN_CENTER_VERTICAL);
+
+    m_box_draft = new wxBoxSizer(wxVERTICAL);
+    m_box_draft->Add(card_header("design_dressup", _L("Draft"), m_hdr_draft), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_draft->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
+    m_box_draft->Add(new wxStaticText(m_form, wxID_ANY,
+                        _L("Pick a side face, then set the draft angle. The face pivots about the body base.")),
+                     0, wxLEFT | wxRIGHT, 12);
+    m_box_draft->Add(drform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        m_confirm_btns.push_back(ok);
+        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
+        row->Add(ok, 0, wxRIGHT, 8);
+        row->Add(no, 0);
+        m_box_draft->Add(row, 0, wxALL, 12);
+    }
+    root->Add(m_box_draft, 0, wxEXPAND);
+
     // --- Docked value-entry card (Onshape Button->Dialog->Confirm for dimensions) ---
     m_box_value = new wxBoxSizer(wxVERTICAL);
     {
@@ -1251,6 +1284,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     root->Show(m_box_pattern, false, true);
     root->Show(m_box_plane, false, true);
     root->Show(m_box_loft, false, true);
+    root->Show(m_box_draft, false, true);
     root->Show(m_box_dressup, false, true);
     root->Show(m_box_hole,    false, true);
     root->Show(m_box_thread,  false, true);
@@ -1413,6 +1447,13 @@ DesignPanel::DesignPanel(wxWindow* parent)
                 ? wxString::Format(_L("Face %d"), m_sel_solid_face)
                 : _L("(all faces — closed hollow)"));
             refresh_preview();   // rebuilds the shell ghost + re-anchors the thickness gizmo
+        }
+        // Draft card open: a face pick chooses the face to taper; update label + ghost live.
+        if (m_active == Tool::Draft) {
+            m_draft_face_label->SetLabel(m_sel_solid_face >= 0
+                ? wxString::Format(_L("Face %d"), m_sel_solid_face)
+                : _L("(pick a side face)"));
+            refresh_preview();
         }
         m_status->SetForegroundColour(wxNullColour);
         const int nb = int(m_doc.bodies.size());
@@ -2127,6 +2168,31 @@ void DesignPanel::on_add_shell()
     refresh_tree();
 }
 
+void DesignPanel::on_add_draft()
+{
+    if (m_doc.body.IsNull()) {
+        m_status->SetLabel(_L("Draft needs a body — add a solid first"));
+        return;
+    }
+    if (m_sel_solid_face < 0) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Draft needs a picked face — click a side face first"));
+        m_status->Refresh();
+        return;
+    }
+
+    m_feature_counter++;
+    m_doc.add_draft(m_draft_angle->GetValue(), m_sel_solid_face, m_sel_solid_body,
+                    "Draft" + std::to_string(m_feature_counter));
+
+    if (!m_doc.recompute())
+        m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
+    else
+        set_status_ok();
+
+    refresh_tree();
+}
+
 int DesignPanel::tree_icon_for(CadFeatureType t)
 {
     switch (t) {
@@ -2142,6 +2208,7 @@ int DesignPanel::tree_icon_for(CadFeatureType t)
     case CadFeatureType::Pattern: return 1;
     case CadFeatureType::Plane:   return 0;   // datum plane: sketch-family icon
     case CadFeatureType::Loft:    return 1;
+    case CadFeatureType::Draft:   return 5;   // dressup-family icon
     }
     return 0;
 }
@@ -3761,6 +3828,13 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
         m_loft_ruled->SetValue(f.loft_ruled);
         m_loft_mode->SetSelection(static_cast<int>(f.mode));
         break;
+    case CadFeatureType::Draft:
+        m_draft_angle->SetValue(f.draft_angle);
+        m_sel_solid_face = f.draft_face;
+        m_draft_face_label->SetLabel(f.draft_face >= 0
+            ? wxString::Format(_L("Face %d"), f.draft_face)
+            : _L("(pick a side face)"));
+        break;
     default: break;
     }
 }
@@ -3854,6 +3928,11 @@ void DesignPanel::on_edit_feature()
         m_edit_index = sel;
         load_feature_into_dialog(f);
         open_tool(Tool::Loft);
+        break;
+    case CadFeatureType::Draft:
+        m_edit_index = sel;
+        load_feature_into_dialog(f);
+        open_tool(Tool::Draft);
         break;
     default: break;
     }
@@ -3979,6 +4058,11 @@ CadFeature DesignPanel::build_candidate(Tool t) const
         f.shell_thickness = m_shell_thickness->GetValue();
         // A picked solid face opens the shell there; -1 = closed hollow.
         f.shell_face      = (m_sel_solid_face >= 0) ? m_sel_solid_face : -1;
+        break;
+    case Tool::Draft:
+        f.type        = CadFeatureType::Draft;
+        f.draft_angle = m_draft_angle->GetValue();
+        f.draft_face  = (m_sel_solid_face >= 0) ? m_sel_solid_face : -1;
         break;
     case Tool::Revolve:
         f.type          = CadFeatureType::Revolve;
@@ -4248,6 +4332,7 @@ void DesignPanel::open_tool(Tool t)
     s->Show(m_box_pattern, t == Tool::Pattern, true);
     s->Show(m_box_plane,   t == Tool::Plane,   true);
     s->Show(m_box_loft,    t == Tool::Loft,    true);
+    s->Show(m_box_draft,   t == Tool::Draft,   true);
 
     if (t == Tool::Revolve && m_revolve_sketch_ref >= 0
         && m_revolve_sketch_ref < int(m_doc.features.size()))
@@ -4332,6 +4417,7 @@ void DesignPanel::open_tool(Tool t)
     case Tool::Pattern: m_hdr_pattern->SetLabel(title(_L("Pattern"))); break;
     case Tool::Plane:   m_hdr_plane->SetLabel(title(_L("Plane")));     break;
     case Tool::Loft:    m_hdr_loft->SetLabel(title(_L("Loft")));       break;
+    case Tool::Draft:   m_hdr_draft->SetLabel(title(_L("Draft")));     break;
     case Tool::None:    break;
     }
 
@@ -4356,6 +4442,7 @@ void DesignPanel::close_tool()
     s->Show(m_box_pattern, false, true);
     s->Show(m_box_plane,   false, true);
     s->Show(m_box_loft,    false, true);
+    s->Show(m_box_draft,   false, true);
     m_viewport->clear_preview();
     m_viewport->clear_extrude_gizmo();
     m_viewport->clear_fillet_gizmo();
@@ -4395,6 +4482,7 @@ void DesignPanel::confirm_tool()
     case Tool::Pattern: on_add_pattern(); break;
     case Tool::Plane:   on_add_plane();   break;
     case Tool::Loft:    on_add_loft();    break;
+    case Tool::Draft:   on_add_draft();   break;
     case Tool::None:    return;
     }
     close_tool(); // also clears the preview ghost; the committed body is now shown

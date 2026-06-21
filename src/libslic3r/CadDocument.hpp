@@ -13,7 +13,7 @@
 
 namespace Slic3r {
 
-enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft };
+enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft, Draft };
 enum class SketchShape    { Rectangle, Circle };
 enum class BooleanMode    { New, Add, Cut, Intersect };
 
@@ -112,6 +112,10 @@ struct CadFeature {
     // Shell params (hollow the current body to a wall thickness, removing one open face)
     double      shell_thickness{2};        // wall thickness (inward offset)
     int         shell_face{-1};            // global face id to remove (open the shell); -1 = none
+
+    // Draft params (taper a single solid face about a neutral plane = body bbox bottom, pull +Z)
+    int         draft_face{-1};            // global face id to draft; -1 = none
+    double      draft_angle{5};            // draft angle in degrees (signed: + leans the face inward)
 
     // Revolve params (sweep a profile about an in-plane axis through the plane origin).
     // Reuses sketch_ref / entities (profile), flip (direction), mode (boolean) and
@@ -222,6 +226,7 @@ public:
     int  add_loft(const std::vector<int>& profile_refs, bool ruled, BooleanMode mode,
                   const std::string& name);
     int  add_shell(double thickness, int face, int target_body, const std::string& name);
+    int  add_draft(double angle, int face, int target_body, const std::string& name);
     // Datum plane: derived from base (0=XY/1=XZ/2=YZ/3+N=Nth earlier datum), offset
     // along its normal, optional tilt about a base axis. Produces no solid.
     int  add_plane(int base, double offset, double angle_tilt, int axis,

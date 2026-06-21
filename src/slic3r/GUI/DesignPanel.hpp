@@ -36,7 +36,7 @@ public:
     explicit DesignPanel(wxWindow* parent);
 
 private:
-    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft };
+    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft, Draft };
 
     // Onshape-style contextual top toolbar: only the active mode's tool group is
     // shown (Feature = sketch/extrude/dress/hole/thread; Sketch = entity tools;
@@ -57,6 +57,7 @@ private:
     void on_add_pattern();
     void on_add_plane();
     void on_add_shell();
+    void on_add_draft();
     // Import rigid 2D art (Text / SVG) as a new Sketch feature carrying
     // imported_regions (no solver entities). on_add_text/on_import_svg gather
     // input; add_imported_sketch builds the feature, refreshes tree + display.
@@ -155,6 +156,7 @@ private:
     wxSizer*  m_box_pattern{nullptr};
     wxSizer*  m_box_plane{nullptr};
     wxSizer*  m_box_loft{nullptr};
+    wxSizer*  m_box_draft{nullptr};
 
     // Onshape-style dialog-card title rows (icon + bold feature name), retitled
     // per tool in open_tool() (edit-mode shows the feature's actual name).
@@ -173,6 +175,7 @@ private:
     wxStaticText* m_hdr_pattern{nullptr};
     wxStaticText* m_hdr_plane{nullptr};
     wxStaticText* m_hdr_loft{nullptr};
+    wxStaticText* m_hdr_draft{nullptr};
 
     wxScrolledWindow* m_form{nullptr};
     DesignCanvas*     m_viewport{nullptr};
@@ -287,6 +290,10 @@ private:
 
     wxSpinCtrlDouble* m_shell_thickness{nullptr};
     wxStaticText*     m_shell_face_label{nullptr};   // shows the picked face to remove
+
+    // Draft controls (taper a single picked solid face about the body bottom).
+    wxSpinCtrlDouble* m_draft_angle{nullptr};
+    wxStaticText*     m_draft_face_label{nullptr};   // shows the picked face to draft
 
     // Onshape-style docked value-entry card (Angle/Radius/Diameter/Offset/Fillet).
     wxSizer*          m_box_value{nullptr};

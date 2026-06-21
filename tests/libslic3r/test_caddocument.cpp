@@ -1206,3 +1206,33 @@ TEST_CASE("loft builds a solid skinning two profiles on parallel planes", "[CadD
     one.add_loft({only}, false, BooleanMode::New, "L");
     REQUIRE_FALSE(one.recompute());
 }
+
+TEST_CASE("draft tapers a solid face about the body base", "[CadDocument]")
+{
+    using namespace Slic3r;
+
+    // 10x10x10 box from z=0..10 (V=1000). Drafting a vertical side face by +10deg about
+    // the bottom (neutral) plane tilts its top edge inward, removing material so V<1000.
+    // A box's 2 horizontal faces are parallel to the neutral plane and cannot be drafted
+    // (Add fails -> recompute returns false), so exactly the 4 vertical sides succeed.
+    int  ok_faces  = 0;
+    bool saw_taper = false;
+    for (int fid = 0; fid < 6; ++fid) {
+        CadDocument doc;
+        int sk = doc.add_sketch(SketchShape::Rectangle, SketchPlane::XY(), 10, 10, 5, "Box");
+        doc.add_extrude(sk, 10.0, false, BooleanMode::New, "E");
+        doc.add_draft(10.0, fid, -1, "Draft1");
+        if (!doc.recompute()) continue;   // top/bottom faces: parallel to base -> benign skip
+        ++ok_faces;
+        const double v = double(doc.display_mesh.volume());
+        REQUIRE(v > 0.0);
+        if (v < 999.0) saw_taper = true;
+    }
+    REQUIRE(ok_faces == 4);
+    REQUIRE(saw_taper);
+
+    // Draft with no body must fail cleanly, not crash.
+    CadDocument bad;
+    bad.add_draft(5.0, 0, -1, "NoBody");
+    REQUIRE_FALSE(bad.recompute());
+}
