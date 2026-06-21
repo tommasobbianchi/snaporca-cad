@@ -3305,6 +3305,155 @@ void DesignSketchTool::open_shell_editor()
         []() {});
 }
 
+// ---- Revolve angle-arc gizmo ----------------------------------------------------------------
+// Arc in the revolve plane (perpendicular to the axis) at the profile's radius. The arc center is
+// the projection of the profile centroid onto the axis, so the arc rides at the profile's height.
+// The yaxis sense follows m_rv_flip, matching the kernel's negative-angle reversed sweep.
+static Vec3d rv_yaxis(const Vec3d& axis, const Vec3d& ref, bool flip)
+{
+    Vec3d y = axis.cross(ref);
+    if (y.norm() < 1e-9) return ref;            // degenerate; never used (ref ⟂ axis by construction)
+    y.normalize();
+    return flip ? -y : y;
+}
+
+void DesignSketchTool::set_revolve_gizmo(const SketchPlane& plane, const Vec2d& centroid,
+                                         int axis_sel, double angle, bool flip)
+{
+    const Vec3d ax = (axis_sel == 1 ? plane.y_axis : plane.x_axis).normalized();
+    const Vec3d cw = plane.to_world(centroid);
+    const double axial = (cw - plane.origin).dot(ax);
+    m_rv_center = plane.origin + axial * ax;     // foot of the centroid on the axis line
+    Vec3d ref = cw - m_rv_center;                // perpendicular to ax by construction
+    double r = ref.norm();
+    if (r < 1e-6) { ref = plane.normal.normalized(); r = std::max(plane.normal.norm(), 1.0); }
+    m_rv_axis   = ax;
+    m_rv_ref    = ref / ref.norm();
+    m_rv_radius = std::max(r, 1.0);
+    m_rv_angle  = std::min(360.0, std::max(1.0, std::abs(angle)));
+    m_rv_flip   = flip;
+    if (!m_rv_active) m_rv_drag = false;         // re-pushed every preview: keep an in-progress drag
+    m_rv_active = true;
+}
+
+void DesignSketchTool::clear_revolve_gizmo()
+{
+    m_rv_active = false;
+    m_rv_drag   = false;
+}
+
+void DesignSketchTool::render_revolve_gizmo()
+{
+    if (!m_rv_active) return;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const double upp = 1.0 / std::max(cam.get_zoom(), 1e-6);
+    const double th  = std::max(15.0 * upp, 1e-4);
+    const Vec3d yax  = rv_yaxis(m_rv_axis, m_rv_ref, m_rv_flip);
+
+    // The arc lives in the true revolve plane (NOT billboarded) so the sweep reads in 3D.
+    const SketchPlane saved = m_plane;
+    SketchPlane rp; rp.origin = m_rv_center; rp.x_axis = m_rv_ref; rp.y_axis = yax; rp.normal = m_rv_axis;
+    m_plane = rp;
+    // Vivid cyan: the revolve ghost is amber, so the arc manipulator must contrast with it
+    // (it overlaps the solid, unlike the extrude depth-arrow which points away into empty space).
+    const ColorRGBA arcc(0.15f, 0.92f, 1.0f, 1.0f);
+    const double r = m_rv_radius;
+    const double a = m_rv_angle * M_PI / 180.0;
+    const int    N = std::max(8, int(a / (M_PI / 32.0)));   // ~ every 5.6°
+
+    std::vector<std::pair<Vec2d, Vec2d>> segs;
+    Vec2d prev(r, 0.0);
+    for (int i = 1; i <= N; ++i) {
+        const double t = a * double(i) / double(N);
+        const Vec2d cur(r * std::cos(t), r * std::sin(t));
+        segs.emplace_back(prev, cur);
+        prev = cur;
+    }
+    const Vec2d tip(r * std::cos(a), r * std::sin(a));
+    segs.emplace_back(Vec2d(0, 0), Vec2d(r, 0));   // spoke at angle 0
+    segs.emplace_back(Vec2d(0, 0), tip);           // spoke at the swept angle (the handle)
+    // Arrowhead at the tip, pointing along the sweep tangent (-sin,cos) rotated by a.
+    const Vec2d tang(-std::sin(a), std::cos(a));
+    const Vec2d radial = tip.normalized();
+    const double as = std::max(r * 0.14, th);
+    segs.emplace_back(tip, tip - tang * as - radial * (as * 0.5));
+    segs.emplace_back(tip, tip - tang * as + radial * (as * 0.5));
+    // A diamond grab-handle at the tip so the draggable target is unmistakable.
+    const double hs = std::max(th * 0.8, r * 0.05);
+    const Vec2d du = radial * hs, dv = Vec2d(-radial.y(), radial.x()) * hs;
+    segs.emplace_back(tip + du, tip + dv);
+    segs.emplace_back(tip + dv, tip - du);
+    segs.emplace_back(tip - du, tip - dv);
+    segs.emplace_back(tip - dv, tip + du);
+
+    glsafe(::glDisable(GL_DEPTH_TEST));
+    draw_strokes(m_rv_stroke_model, segs, std::max(0.8 * upp, 1e-4), arcc);
+    DimAnnot da; da.kind = DimType::Angle; da.value = m_rv_angle;
+    draw_text(m_line_model, dim_text(da), tip * 1.14, th, arcc);
+    m_plane = saved;
+}
+
+bool DesignSketchTool::hit_test_revolve_handle(GLCanvas3D& canvas, const wxMouseEvent& evt) const
+{
+    if (!m_rv_active) return false;
+    const Linef3 ray = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = ray.a, rd = ray.b - ray.a;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const double upp = 1.0 / std::max(cam.get_zoom(), 1e-6);
+    const Vec3d yax = rv_yaxis(m_rv_axis, m_rv_ref, m_rv_flip);
+    const double a  = m_rv_angle * M_PI / 180.0;
+    const double tol = 16.0 * upp;
+    // Grab anywhere on the whole gizmo (Onshape-style): the arc curve OR either radial spoke.
+    // Take the nearest ray-to-point distance over a dense sampling.
+    auto ray_pt = [&](const Vec3d& p) {
+        const double t = (p - ro).dot(rd) / std::max(rd.dot(rd), 1e-12);
+        return (p - (ro + t * rd)).norm();
+    };
+    const Vec3d tip = m_rv_center + m_rv_radius * (std::cos(a) * m_rv_ref + std::sin(a) * yax);
+    const Vec3d ref = m_rv_center + m_rv_radius * m_rv_ref;   // angle-0 spoke end
+    const int N = 48;
+    for (int i = 0; i <= N; ++i) {
+        const double f = double(i) / double(N);
+        const double th = a * f;
+        const Vec3d arc = m_rv_center + m_rv_radius * (std::cos(th) * m_rv_ref + std::sin(th) * yax);
+        if (ray_pt(arc) <= tol) return true;                 // on the arc curve
+        if (ray_pt(m_rv_center + f * (tip - m_rv_center)) <= tol) return true;  // on the swept spoke
+        if (ray_pt(m_rv_center + f * (ref - m_rv_center)) <= tol) return true;  // on the ref spoke
+    }
+    return false;
+}
+
+// Intersect the mouse ray with the revolve plane, read its angle around the center -> sweep angle.
+void DesignSketchTool::drag_revolve_arc(GLCanvas3D& canvas, const wxMouseEvent& evt)
+{
+    const Linef3 ray = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = ray.a, rd = ray.b - ray.a;
+    const double denom = rd.dot(m_rv_axis);
+    if (std::abs(denom) < 1e-9) return;            // ray ∥ revolve plane: leave angle as-is
+    const double t = (m_rv_center - ro).dot(m_rv_axis) / denom;
+    const Vec3d  p = ro + t * rd;
+    const Vec3d yax = rv_yaxis(m_rv_axis, m_rv_ref, m_rv_flip);
+    const double u = (p - m_rv_center).dot(m_rv_ref);
+    const double v = (p - m_rv_center).dot(yax);
+    double deg = std::atan2(v, u) * 180.0 / M_PI;
+    if (deg < 0.0) deg += 360.0;
+    deg = std::min(360.0, std::max(1.0, deg));
+    m_rv_angle = deg;
+    if (on_revolve_angle_changed) on_revolve_angle_changed(deg);
+}
+
+void DesignSketchTool::open_revolve_editor()
+{
+    if (!on_inline_edit) return;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    on_inline_edit(px, m_rv_angle,
+        [this](double v) {
+            m_rv_angle = std::min(360.0, std::max(1.0, v));
+            if (on_revolve_angle_changed) on_revolve_angle_changed(m_rv_angle);
+        },
+        []() {});
+}
+
 // Closed loops + the entity indices that form each one. A circle/ellipse is its own loop;
 // line/arc chains are walked endpoint-to-endpoint. Entity membership lets a single loop be
 // highlighted and extruded on its own.
@@ -5062,6 +5211,7 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         if (m_hl_active) render_hole_gizmo();
         if (m_th_active) render_thread_gizmo();
         if (m_sh_active) render_shell_gizmo();
+        if (m_rv_active) render_revolve_gizmo();
         shader->stop_using();
         glsafe(::glEnable(GL_CULL_FACE));
         glsafe(::glEnable(GL_DEPTH_TEST));
@@ -5738,6 +5888,25 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                     m_ex_drag = which; m_ex_press_x = evt.GetX(); m_ex_press_y = evt.GetY();
                     return true;
                 }
+            }
+        }
+        // Revolve angle-arc gizmo: drag the arc tip to sweep the angle; a stationary click on the
+        // handle opens the inline editor. A LeftDown that misses falls through to normal picking.
+        if (m_rv_active) {
+            if (m_rv_drag && evt.Dragging() && evt.LeftIsDown()) {
+                drag_revolve_arc(canvas, evt);
+                return true;
+            }
+            if (evt.LeftUp() && m_rv_drag) {
+                m_rv_drag = false;
+                const bool moved = std::abs(evt.GetX() - m_rv_press_x) +
+                                   std::abs(evt.GetY() - m_rv_press_y) > 3;
+                if (!moved) open_revolve_editor();
+                return true;
+            }
+            if (evt.LeftDown() && hit_test_revolve_handle(canvas, evt)) {
+                m_rv_drag = true; m_rv_press_x = evt.GetX(); m_rv_press_y = evt.GetY();
+                return true;
             }
         }
         // Fillet/Chamfer radius gizmo: drag the edge-anchored arrow to set the radius live; a

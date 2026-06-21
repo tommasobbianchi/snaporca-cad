@@ -141,6 +141,7 @@ private:
     void       update_hole_gizmo();       // footprint circle + diameter/depth arrows (Hole card)
     void       update_thread_gizmo();     // footprint circle + radius/length arrows (Thread card)
     void       update_shell_gizmo();      // inward thickness arrow on the picked face (Shell card)
+    void       update_revolve_gizmo();    // angle-arc around the axis (Revolve card)
 
     CadDocument m_doc;
 

@@ -496,6 +496,26 @@ void DesignCanvas::set_on_shell_thickness_changed(std::function<void(double)> cb
     m_sketch_tool.on_shell_thickness_changed = std::move(cb);
 }
 
+void DesignCanvas::begin_revolve_gizmo(const SketchPlane& plane, const Vec2d& centroid,
+                                       int axis_sel, double angle, bool flip)
+{
+    m_sketch_tool.set_revolve_gizmo(plane, centroid, axis_sel, angle, flip);
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }   // llvmpipe: force repaint
+}
+
+void DesignCanvas::clear_revolve_gizmo()
+{
+    m_sketch_tool.clear_revolve_gizmo();
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
+bool DesignCanvas::revolving() const { return m_sketch_tool.revolving(); }
+
+void DesignCanvas::set_on_revolve_angle_changed(std::function<void(double)> cb)
+{
+    m_sketch_tool.on_revolve_angle_changed = std::move(cb);
+}
+
 void DesignCanvas::set_on_solid_selection_changed(std::function<void(int, int, int, int)> cb)
 {
     m_sketch_tool.on_solid_selection_changed = std::move(cb);

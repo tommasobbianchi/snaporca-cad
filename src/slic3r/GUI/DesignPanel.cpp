@@ -1523,6 +1523,11 @@ DesignPanel::DesignPanel(wxWindow* parent)
         refresh_preview();
     });
 
+    m_viewport->set_on_revolve_angle_changed([this](double angle) {
+        if (m_revolve_angle) m_revolve_angle->SetValue(angle);
+        refresh_preview();
+    });
+
     // Esc exits the active sketch tool: drop the live session, restore Feature mode +
     // the committed-sketch overlay (an in-progress draw is discarded). The tool's layered
     // request_exit only calls this once it's an idle Select session.
@@ -4181,6 +4186,45 @@ void DesignPanel::update_shell_gizmo()
     m_viewport->begin_shell_gizmo(c, (-n).normalized(), m_shell_thickness->GetValue());
 }
 
+void DesignPanel::update_revolve_gizmo()
+{
+    if (!m_viewport) return;
+    if (m_active != Tool::Revolve
+        || m_revolve_sketch_ref < 0 || m_revolve_sketch_ref >= int(m_doc.features.size())) {
+        m_viewport->clear_revolve_gizmo();
+        return;
+    }
+    const CadFeature& sk = m_doc.features[m_revolve_sketch_ref];
+    // Profile centroid in sketch coords (same rule as the Extrude gizmo: average entity centres,
+    // else profile points, else the plane origin for primitive shapes).
+    Vec2d centroid(0, 0);
+    if (!sk.entities.empty()) {
+        Vec2d acc(0, 0); int n = 0;
+        for (const SketchEntity& e : sk.entities) {
+            switch (e.type) {
+            case SketchEntity::Type::Line:    acc += 0.5 * (e.p0 + e.p1); ++n; break;
+            case SketchEntity::Type::Arc:
+            case SketchEntity::Type::EllipseArc:
+            case SketchEntity::Type::Circle:
+            case SketchEntity::Type::Ellipse: acc += e.center; ++n; break;
+            case SketchEntity::Type::Point:   acc += e.p0; ++n; break;
+            case SketchEntity::Type::BSpline:
+                if (!e.ctrl.empty()) {
+                    Vec2d s(0, 0); for (const Vec2d& q : e.ctrl) s += q;
+                    acc += s / double(e.ctrl.size()); ++n;
+                }
+                break;
+            }
+        }
+        if (n > 0) centroid = acc / double(n);
+    } else if (!sk.profile.points.empty()) {
+        for (const Vec2d& p : sk.profile.points) centroid += p;
+        centroid /= double(sk.profile.points.size());
+    }
+    m_viewport->begin_revolve_gizmo(sk.plane, centroid, m_revolve_axis->GetSelection(),
+                                    m_revolve_angle->GetValue(), m_revolve_flip->GetValue());
+}
+
 void DesignPanel::update_extrude_gizmo()
 {
     if (!m_viewport) return;
@@ -4314,6 +4358,8 @@ void DesignPanel::refresh_preview()
     update_thread_gizmo();
     // Same for the Shell thickness arrow on the picked face (self-gates: Shell card + a face).
     update_shell_gizmo();
+    // Same for the Revolve angle-arc around the axis (self-gates: only while the Revolve card is open).
+    update_revolve_gizmo();
 }
 
 void DesignPanel::open_tool(Tool t)
@@ -4449,6 +4495,7 @@ void DesignPanel::close_tool()
     m_viewport->clear_hole_gizmo();
     m_viewport->clear_thread_gizmo();
     m_viewport->clear_shell_gizmo();
+    m_viewport->clear_revolve_gizmo();
     m_form->Layout();
     m_form->FitInside();
 }

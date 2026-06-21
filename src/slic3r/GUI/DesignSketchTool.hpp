@@ -173,6 +173,16 @@ public:
     bool shelling() const { return m_sh_active; }
     std::function<void(double thickness)> on_shell_thickness_changed;
 
+    // Visual Revolve gizmo. The panel feeds the sketch plane + profile centroid + axis (0=plane X,
+    // 1=plane Y) + angle + flip while its Revolve card is open; an angle-arc is drawn in the
+    // revolve plane at the profile radius. Dragging the tip sweeps the angle, a stationary click
+    // edits it; both fire on_revolve_angle_changed.
+    void set_revolve_gizmo(const SketchPlane& plane, const Vec2d& centroid,
+                           int axis_sel, double angle, bool flip);
+    void clear_revolve_gizmo();
+    bool revolving() const { return m_rv_active; }
+    std::function<void(double angle)> on_revolve_angle_changed;
+
     // Constrain mode: load an already-committed profile for entity picking +
     // constraint application (the geometry is solved in the kernel, not here).
     void begin_constrain(const SketchProfile& prof, const SketchPlane& plane);
@@ -818,6 +828,22 @@ private:
     void   drag_shell_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt);
     void   open_shell_editor();
     GLModel m_sh_stroke_model;
+
+    // Revolve gizmo state (arc center = projection of the profile centroid onto the axis).
+    bool        m_rv_active{false};
+    Vec3d       m_rv_center{Vec3d::Zero()};   // arc center on the axis (world)
+    Vec3d       m_rv_axis{Vec3d::UnitX()};    // revolve axis unit dir (world)
+    Vec3d       m_rv_ref{Vec3d::UnitY()};     // angle-0 reference dir (perp to axis, toward profile)
+    double      m_rv_radius{10.0};            // arc radius = profile perpendicular distance (world)
+    double      m_rv_angle{360.0};            // current sweep magnitude (deg, 1..360)
+    bool        m_rv_flip{false};             // sweep sense (matches the kernel's negative-angle flip)
+    bool        m_rv_drag{false};
+    int         m_rv_press_x{0}, m_rv_press_y{0};
+    void   render_revolve_gizmo();
+    bool   hit_test_revolve_handle(GLCanvas3D& canvas, const wxMouseEvent& evt) const;
+    void   drag_revolve_arc(GLCanvas3D& canvas, const wxMouseEvent& evt);
+    void   open_revolve_editor();
+    GLModel m_rv_stroke_model;
 };
 
 }} // namespace Slic3r::GUI
