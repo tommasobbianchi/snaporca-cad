@@ -183,6 +183,16 @@ public:
     bool revolving() const { return m_rv_active; }
     std::function<void(double angle)> on_revolve_angle_changed;
 
+    // Visual Pattern gizmo. Linear: a 3D arrow along the world axis (plane X/Y per `dir`) of length
+    // spacing*(count-1) with a tick at each copy; dragging the end sets the spacing. Circular: a
+    // revolve-style angle-arc about the plane normal through the plane origin sweeping `angle`.
+    // Both fire on_pattern_changed (spacing for linear, angle for circular).
+    void set_pattern_gizmo(const SketchPlane& plane, const Vec3d& body_centroid, bool circular,
+                           int count, int dir, double spacing, double angle);
+    void clear_pattern_gizmo();
+    bool patterning() const { return m_pt_active; }
+    std::function<void(double value)> on_pattern_changed;
+
     // Constrain mode: load an already-committed profile for entity picking +
     // constraint application (the geometry is solved in the kernel, not here).
     void begin_constrain(const SketchProfile& prof, const SketchPlane& plane);
@@ -844,6 +854,28 @@ private:
     void   drag_revolve_arc(GLCanvas3D& canvas, const wxMouseEvent& evt);
     void   open_revolve_editor();
     GLModel m_rv_stroke_model;
+
+    // Pattern gizmo state. Linear arrow along m_pt_dirw from m_pt_base; circular arc like Revolve
+    // but axis = m_pt_normal through m_pt_origin (the world XY plane by default).
+    bool   m_pt_active{false};
+    bool   m_pt_circular{false};
+    Vec3d  m_pt_base{Vec3d::Zero()};     // target body centroid (world): linear anchor / radius ref
+    Vec3d  m_pt_dirw{Vec3d::UnitX()};    // linear march direction (world)
+    Vec3d  m_pt_origin{Vec3d::Zero()};   // circular rotation axis origin (world)
+    Vec3d  m_pt_normal{Vec3d::UnitZ()};  // circular rotation axis (world)
+    Vec3d  m_pt_cref{Vec3d::UnitX()};    // circular angle-0 reference dir (perp to normal, toward body)
+    Vec3d  m_pt_ccenter{Vec3d::Zero()};  // circular arc center (foot of body centroid on the axis)
+    double m_pt_radius{10.0};            // circular arc radius (world)
+    int    m_pt_count{3};
+    double m_pt_spacing{20.0};
+    double m_pt_angle{360.0};
+    bool   m_pt_drag{false};
+    int    m_pt_press_x{0}, m_pt_press_y{0};
+    void   render_pattern_gizmo();
+    bool   hit_test_pattern_handle(GLCanvas3D& canvas, const wxMouseEvent& evt) const;
+    void   drag_pattern_handle(GLCanvas3D& canvas, const wxMouseEvent& evt);
+    void   open_pattern_editor();
+    GLModel m_pt_stroke_model;
 };
 
 }} // namespace Slic3r::GUI

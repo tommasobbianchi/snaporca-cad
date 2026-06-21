@@ -142,6 +142,7 @@ private:
     void       update_thread_gizmo();     // footprint circle + radius/length arrows (Thread card)
     void       update_shell_gizmo();      // inward thickness arrow on the picked face (Shell card)
     void       update_revolve_gizmo();    // angle-arc around the axis (Revolve card)
+    void       update_pattern_gizmo();    // linear spacing arrow / circular angle-arc (Pattern card)
 
     CadDocument m_doc;
 

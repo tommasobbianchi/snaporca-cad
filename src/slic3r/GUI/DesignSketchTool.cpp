@@ -3454,6 +3454,193 @@ void DesignSketchTool::open_revolve_editor()
         []() {});
 }
 
+// ---- Pattern gizmo (linear spacing arrow | circular angle-arc) ------------------------------
+// Linear: a 3D arrow along the world march axis with a tick at each copy; the diamond at the end
+// drags the spacing. Circular: a Revolve-style arc about the plane normal through the plane origin.
+void DesignSketchTool::set_pattern_gizmo(const SketchPlane& plane, const Vec3d& body_centroid,
+                                         bool circular, int count, int dir, double spacing, double angle)
+{
+    m_pt_circular = circular;
+    m_pt_base     = body_centroid;
+    m_pt_count    = std::max(1, count);
+    m_pt_spacing  = std::max(0.01, spacing);
+    m_pt_angle    = std::min(360.0, std::max(1.0, angle));
+    m_pt_dirw     = (dir == 1 ? plane.y_axis : plane.x_axis).normalized();
+    m_pt_origin   = plane.origin;
+    m_pt_normal   = plane.normal.normalized();
+    // Circular arc center = foot of the body centroid on the rotation axis; ref = perpendicular dir.
+    const double axial = (body_centroid - plane.origin).dot(m_pt_normal);
+    m_pt_ccenter = plane.origin + axial * m_pt_normal;
+    Vec3d ref = body_centroid - m_pt_ccenter;
+    double r = ref.norm();
+    if (r < 1e-6) { ref = m_pt_dirw; r = 1.0; }   // body centred on the axis: nominal radius
+    m_pt_cref   = ref / ref.norm();
+    m_pt_radius = std::max(r, 1.0);
+    if (!m_pt_active) m_pt_drag = false;          // re-pushed every preview: keep an in-progress drag
+    m_pt_active = true;
+}
+
+void DesignSketchTool::clear_pattern_gizmo()
+{
+    m_pt_active = false;
+    m_pt_drag   = false;
+}
+
+// Linear arrow span = spacing*(count-1), at least one step so count=1 still shows a direction.
+static double pt_linear_len(double spacing, int count)
+{
+    return std::max(spacing * double(std::max(1, count) - 1), spacing);
+}
+
+void DesignSketchTool::render_pattern_gizmo()
+{
+    if (!m_pt_active) return;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const double upp = 1.0 / std::max(cam.get_zoom(), 1e-6);
+    const double th  = std::max(15.0 * upp, 1e-4);
+    const ColorRGBA col(0.15f, 0.92f, 1.0f, 1.0f);   // vivid cyan, matches the gizmo family
+    const SketchPlane saved = m_plane;
+    std::vector<std::pair<Vec2d, Vec2d>> segs;
+
+    if (!m_pt_circular) {
+        // The arrow lives in the true world plane (NOT billboarded) so the march reads in 3D.
+        const Vec3d perp = m_pt_normal.cross(m_pt_dirw).normalized();
+        SketchPlane fp; fp.origin = m_pt_base; fp.x_axis = m_pt_dirw; fp.y_axis = perp; fp.normal = m_pt_normal;
+        m_plane = fp;
+        const int copies = std::max(1, m_pt_count);
+        const double L = pt_linear_len(m_pt_spacing, copies);
+        segs.emplace_back(Vec2d(0, 0), Vec2d(L, 0));                 // shaft
+        const double as = std::max(L * 0.12, th);                   // arrowhead
+        segs.emplace_back(Vec2d(L, 0), Vec2d(L - as,  as * 0.5));
+        segs.emplace_back(Vec2d(L, 0), Vec2d(L - as, -as * 0.5));
+        const double tk = std::max(th, L * 0.05);                   // copy tick half-height
+        for (int i = 0; i < copies; ++i) {
+            const double x = m_pt_spacing * i;
+            segs.emplace_back(Vec2d(x, -tk), Vec2d(x, tk));
+        }
+        const Vec2d E(L, 0);                                        // diamond grab-handle
+        const double hs = std::max(th * 0.8, L * 0.04);
+        segs.emplace_back(E + Vec2d(hs, 0), E + Vec2d(0, hs));
+        segs.emplace_back(E + Vec2d(0, hs), E + Vec2d(-hs, 0));
+        segs.emplace_back(E + Vec2d(-hs, 0), E + Vec2d(0, -hs));
+        segs.emplace_back(E + Vec2d(0, -hs), E + Vec2d(hs, 0));
+        glsafe(::glDisable(GL_DEPTH_TEST));
+        draw_strokes(m_pt_stroke_model, segs, std::max(0.8 * upp, 1e-4), col);
+        DimAnnot da; da.kind = DimType::Distance; da.value = m_pt_spacing;
+        draw_text(m_line_model, dim_text(da), Vec2d(m_pt_spacing * 0.5, tk * 1.7), th, col);
+        m_plane = saved;
+        return;
+    }
+
+    // ---- Circular: clone the Revolve arc about the plane normal through the plane origin ----
+    const Vec3d yax = m_pt_normal.cross(m_pt_cref).normalized();
+    SketchPlane rp; rp.origin = m_pt_ccenter; rp.x_axis = m_pt_cref; rp.y_axis = yax; rp.normal = m_pt_normal;
+    m_plane = rp;
+    const double r = m_pt_radius;
+    const double a = m_pt_angle * M_PI / 180.0;
+    const int    N = std::max(8, int(a / (M_PI / 32.0)));
+    Vec2d prev(r, 0.0);
+    for (int i = 1; i <= N; ++i) {
+        const double t = a * double(i) / double(N);
+        const Vec2d cur(r * std::cos(t), r * std::sin(t));
+        segs.emplace_back(prev, cur);
+        prev = cur;
+    }
+    const Vec2d tip(r * std::cos(a), r * std::sin(a));
+    segs.emplace_back(Vec2d(0, 0), Vec2d(r, 0));   // angle-0 spoke
+    segs.emplace_back(Vec2d(0, 0), tip);           // swept spoke (the handle)
+    const Vec2d tang(-std::sin(a), std::cos(a));
+    const Vec2d radial = tip.normalized();
+    const double as = std::max(r * 0.14, th);
+    segs.emplace_back(tip, tip - tang * as - radial * (as * 0.5));
+    segs.emplace_back(tip, tip - tang * as + radial * (as * 0.5));
+    const double hs = std::max(th * 0.8, r * 0.05);
+    const Vec2d du = radial * hs, dv = Vec2d(-radial.y(), radial.x()) * hs;
+    segs.emplace_back(tip + du, tip + dv);
+    segs.emplace_back(tip + dv, tip - du);
+    segs.emplace_back(tip - du, tip - dv);
+    segs.emplace_back(tip - dv, tip + du);
+    glsafe(::glDisable(GL_DEPTH_TEST));
+    draw_strokes(m_pt_stroke_model, segs, std::max(0.8 * upp, 1e-4), col);
+    DimAnnot da; da.kind = DimType::Angle; da.value = m_pt_angle;
+    draw_text(m_line_model, dim_text(da), tip * 1.14, th, col);
+    m_plane = saved;
+}
+
+bool DesignSketchTool::hit_test_pattern_handle(GLCanvas3D& canvas, const wxMouseEvent& evt) const
+{
+    if (!m_pt_active) return false;
+    const Linef3 ray = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = ray.a, rd = ray.b - ray.a;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const double upp = 1.0 / std::max(cam.get_zoom(), 1e-6);
+    auto ray_pt = [&](const Vec3d& p) {
+        const double t = (p - ro).dot(rd) / std::max(rd.dot(rd), 1e-12);
+        return (p - (ro + t * rd)).norm();
+    };
+    if (!m_pt_circular) {
+        const double tol = 8.0 * upp;
+        const double L = pt_linear_len(m_pt_spacing, m_pt_count);
+        return ray_segment_dist3(ro, rd, m_pt_base, m_pt_base + m_pt_dirw * L) <= tol;
+    }
+    const double tol = 16.0 * upp;
+    const Vec3d yax = m_pt_normal.cross(m_pt_cref).normalized();
+    const double a  = m_pt_angle * M_PI / 180.0;
+    const Vec3d tip = m_pt_ccenter + m_pt_radius * (std::cos(a) * m_pt_cref + std::sin(a) * yax);
+    const Vec3d ref = m_pt_ccenter + m_pt_radius * m_pt_cref;
+    const int N = 48;
+    for (int i = 0; i <= N; ++i) {
+        const double f = double(i) / double(N);
+        const Vec3d arc = m_pt_ccenter + m_pt_radius * (std::cos(a * f) * m_pt_cref + std::sin(a * f) * yax);
+        if (ray_pt(arc) <= tol) return true;
+        if (ray_pt(m_pt_ccenter + f * (tip - m_pt_ccenter)) <= tol) return true;
+        if (ray_pt(m_pt_ccenter + f * (ref - m_pt_ccenter)) <= tol) return true;
+    }
+    return false;
+}
+
+void DesignSketchTool::drag_pattern_handle(GLCanvas3D& canvas, const wxMouseEvent& evt)
+{
+    const Linef3 ray = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = ray.a, rd = ray.b - ray.a;
+    if (!m_pt_circular) {
+        // Skew-line closest point of the mouse ray to the march axis -> span -> spacing.
+        const Vec3d e = m_pt_dirw;
+        const Vec3d w0 = m_pt_base - ro;
+        const double a = e.dot(e), b = e.dot(rd), c = rd.dot(rd), dd = e.dot(w0), ee = rd.dot(w0);
+        const double denom = a * c - b * b;
+        if (std::abs(denom) < 1e-7) return;            // camera ∥ axis: leave spacing as-is
+        const double span = std::max(0.01, (b * ee - c * dd) / denom);
+        const int div = std::max(1, m_pt_count - 1);
+        m_pt_spacing = std::max(0.1, span / double(div));
+        if (on_pattern_changed) on_pattern_changed(m_pt_spacing);
+        return;
+    }
+    const double denom = rd.dot(m_pt_normal);
+    if (std::abs(denom) < 1e-9) return;                // ray ∥ rotation plane: leave angle as-is
+    const double t = (m_pt_ccenter - ro).dot(m_pt_normal) / denom;
+    const Vec3d  p = ro + t * rd;
+    const Vec3d yax = m_pt_normal.cross(m_pt_cref).normalized();
+    double deg = std::atan2((p - m_pt_ccenter).dot(yax), (p - m_pt_ccenter).dot(m_pt_cref)) * 180.0 / M_PI;
+    if (deg < 0.0) deg += 360.0;
+    m_pt_angle = std::min(360.0, std::max(1.0, deg));
+    if (on_pattern_changed) on_pattern_changed(m_pt_angle);
+}
+
+void DesignSketchTool::open_pattern_editor()
+{
+    if (!on_inline_edit) return;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    const double cur = m_pt_circular ? m_pt_angle : m_pt_spacing;
+    on_inline_edit(px, cur,
+        [this](double v) {
+            if (m_pt_circular) m_pt_angle = std::min(360.0, std::max(1.0, v));
+            else               m_pt_spacing = std::max(0.1, v);
+            if (on_pattern_changed) on_pattern_changed(m_pt_circular ? m_pt_angle : m_pt_spacing);
+        },
+        []() {});
+}
+
 // Closed loops + the entity indices that form each one. A circle/ellipse is its own loop;
 // line/arc chains are walked endpoint-to-endpoint. Entity membership lets a single loop be
 // highlighted and extruded on its own.
@@ -5212,6 +5399,7 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         if (m_th_active) render_thread_gizmo();
         if (m_sh_active) render_shell_gizmo();
         if (m_rv_active) render_revolve_gizmo();
+        if (m_pt_active) render_pattern_gizmo();
         shader->stop_using();
         glsafe(::glEnable(GL_CULL_FACE));
         glsafe(::glEnable(GL_DEPTH_TEST));
@@ -5906,6 +6094,25 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             }
             if (evt.LeftDown() && hit_test_revolve_handle(canvas, evt)) {
                 m_rv_drag = true; m_rv_press_x = evt.GetX(); m_rv_press_y = evt.GetY();
+                return true;
+            }
+        }
+        // Pattern gizmo: drag the diamond/arc handle to set the spacing (linear) or angle (circular);
+        // a stationary click opens the inline editor. A LeftDown that misses falls through to picking.
+        if (m_pt_active) {
+            if (m_pt_drag && evt.Dragging() && evt.LeftIsDown()) {
+                drag_pattern_handle(canvas, evt);
+                return true;
+            }
+            if (evt.LeftUp() && m_pt_drag) {
+                m_pt_drag = false;
+                const bool moved = std::abs(evt.GetX() - m_pt_press_x) +
+                                   std::abs(evt.GetY() - m_pt_press_y) > 3;
+                if (!moved) open_pattern_editor();
+                return true;
+            }
+            if (evt.LeftDown() && hit_test_pattern_handle(canvas, evt)) {
+                m_pt_drag = true; m_pt_press_x = evt.GetX(); m_pt_press_y = evt.GetY();
                 return true;
             }
         }

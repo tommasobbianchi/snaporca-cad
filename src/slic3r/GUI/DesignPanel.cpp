@@ -1528,6 +1528,16 @@ DesignPanel::DesignPanel(wxWindow* parent)
         refresh_preview();
     });
 
+    m_viewport->set_on_pattern_changed([this](double value) {
+        // Linear drag feeds spacing; circular drag feeds angle. The card knows which is live.
+        if (m_pattern_type && m_pattern_type->GetSelection() == 1) {
+            if (m_pattern_angle) m_pattern_angle->SetValue(value);
+        } else if (m_pattern_spacing) {
+            m_pattern_spacing->SetValue(value);
+        }
+        refresh_preview();
+    });
+
     // Esc exits the active sketch tool: drop the live session, restore Feature mode +
     // the committed-sketch overlay (an in-progress draw is discarded). The tool's layered
     // request_exit only calls this once it's an idle Select session.
@@ -4225,6 +4235,30 @@ void DesignPanel::update_revolve_gizmo()
                                     m_revolve_angle->GetValue(), m_revolve_flip->GetValue());
 }
 
+void DesignPanel::update_pattern_gizmo()
+{
+    if (!m_viewport) return;
+    if (m_active != Tool::Pattern || m_doc.display_body_meshes.empty()) {
+        m_viewport->clear_pattern_gizmo();
+        return;
+    }
+    // Pattern operates in the default world XY plane (matches the kernel: linear along world X/Y,
+    // circular about world Z through the origin). Anchor on the target body's bbox centre; if that
+    // body carries a display-only Move transform, shift the plane origin + anchor by it so the
+    // gizmo sits on the body where the ghost copies actually appear.
+    const int b = (m_sel_solid_body >= 0 && m_sel_solid_body < int(m_doc.display_body_meshes.size()))
+                  ? m_sel_solid_body : int(m_doc.display_body_meshes.size()) - 1;
+    SketchPlane plane;   // world XY axes by default
+    Vec3d base = m_doc.display_body_meshes[b].bounding_box().center();
+    if (b < int(m_body_xform.size())) {
+        plane.origin = m_body_xform[b].translation();
+        base = m_body_xform[b] * base;
+    }
+    m_viewport->begin_pattern_gizmo(plane, base, m_pattern_type->GetSelection() == 1,
+                                    int(m_pattern_count->GetValue()), m_pattern_dir->GetSelection(),
+                                    m_pattern_spacing->GetValue(), m_pattern_angle->GetValue());
+}
+
 void DesignPanel::update_extrude_gizmo()
 {
     if (!m_viewport) return;
@@ -4360,6 +4394,8 @@ void DesignPanel::refresh_preview()
     update_shell_gizmo();
     // Same for the Revolve angle-arc around the axis (self-gates: only while the Revolve card is open).
     update_revolve_gizmo();
+    // Same for the Pattern spacing arrow / angle-arc (self-gates: only while the Pattern card is open).
+    update_pattern_gizmo();
 }
 
 void DesignPanel::open_tool(Tool t)
@@ -4496,6 +4532,7 @@ void DesignPanel::close_tool()
     m_viewport->clear_thread_gizmo();
     m_viewport->clear_shell_gizmo();
     m_viewport->clear_revolve_gizmo();
+    m_viewport->clear_pattern_gizmo();
     m_form->Layout();
     m_form->FitInside();
 }

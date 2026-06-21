@@ -516,6 +516,26 @@ void DesignCanvas::set_on_revolve_angle_changed(std::function<void(double)> cb)
     m_sketch_tool.on_revolve_angle_changed = std::move(cb);
 }
 
+void DesignCanvas::begin_pattern_gizmo(const SketchPlane& plane, const Vec3d& body_centroid,
+                                       bool circular, int count, int dir, double spacing, double angle)
+{
+    m_sketch_tool.set_pattern_gizmo(plane, body_centroid, circular, count, dir, spacing, angle);
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }   // llvmpipe: force repaint
+}
+
+void DesignCanvas::clear_pattern_gizmo()
+{
+    m_sketch_tool.clear_pattern_gizmo();
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
+bool DesignCanvas::patterning() const { return m_sketch_tool.patterning(); }
+
+void DesignCanvas::set_on_pattern_changed(std::function<void(double)> cb)
+{
+    m_sketch_tool.on_pattern_changed = std::move(cb);
+}
+
 void DesignCanvas::set_on_solid_selection_changed(std::function<void(int, int, int, int)> cb)
 {
     m_sketch_tool.on_solid_selection_changed = std::move(cb);

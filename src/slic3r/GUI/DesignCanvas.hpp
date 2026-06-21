@@ -123,6 +123,13 @@ public:
     void clear_revolve_gizmo();
     bool revolving() const;
     void set_on_revolve_angle_changed(std::function<void(double)> cb);
+    // Visual Pattern gizmo: the panel feeds the (world XY) plane + target body centroid + mode +
+    // count/dir/spacing/angle while its Pattern card is open; drag/edit fire the value callback.
+    void begin_pattern_gizmo(const SketchPlane& plane, const Vec3d& body_centroid, bool circular,
+                             int count, int dir, double spacing, double angle);
+    void clear_pattern_gizmo();
+    bool patterning() const;
+    void set_on_pattern_changed(std::function<void(double)> cb);
     // Visual Extrude depth-arrow gizmo (C5b): the panel feeds the profile plane + centroid +
     // live depths/flags while its Extrude card is open; drag/edit fire the depth callback.
     void set_extrude_gizmo(const SketchPlane& plane, const Vec2d& centroid,
