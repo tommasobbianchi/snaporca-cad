@@ -368,6 +368,24 @@ GeometryEngine::CylinderFace GeometryEngine::cylinder_of_face(const TopoDS_Face&
     return cf;
 }
 
+bool GeometryEngine::face_plane_bounds(const TopoDS_Face& face, const Vec3d& origin,
+                                       const Vec3d& x_axis, const Vec3d& y_axis,
+                                       double& umin, double& umax, double& vmin, double& vmax)
+{
+    umin = vmin = 1e30; umax = vmax = -1e30;
+    bool any = false;
+    for (TopExp_Explorer ex(face, TopAbs_VERTEX); ex.More(); ex.Next()) {
+        const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(ex.Current()));
+        const Vec3d P(p.X(), p.Y(), p.Z());
+        const double u = (P - origin).dot(x_axis);
+        const double v = (P - origin).dot(y_axis);
+        umin = std::min(umin, u); umax = std::max(umax, u);
+        vmin = std::min(vmin, v); vmax = std::max(vmax, v);
+        any = true;
+    }
+    return any;
+}
+
 int GeometryEngine::edge_count(const TopoDS_Shape& shape)
 {
     TopTools_IndexedMapOfShape map;

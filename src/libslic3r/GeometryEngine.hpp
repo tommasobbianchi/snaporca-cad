@@ -98,6 +98,13 @@ public:
     };
     static CylinderFace cylinder_of_face(const TopoDS_Face& face);
 
+    // Plane-coordinate (u,v) bounding box of a face's vertices, measured from `origin` along
+    // `x_axis`/`y_axis`. Lets the Hole tool dimension the hole from the face SIDES (umin/vmin =
+    // two adjacent edges) instead of from the centre. Returns false if the face has no vertices.
+    static bool face_plane_bounds(const TopoDS_Face& face, const Vec3d& origin,
+                                  const Vec3d& x_axis, const Vec3d& y_axis,
+                                  double& umin, double& umax, double& vmin, double& vmax);
+
 private:
     static std::vector<TopoDS_Edge> collect_edges(const TopoDS_Shape& solid, FaceGroup faces);
     static FaceGroup classify_face(const TopoDS_Face& face, const TopoDS_Shape& solid);

@@ -210,6 +210,10 @@ private:
     bool              m_hole_on_face{false};
     SketchPlane       m_hole_face_plane;
     int               m_hole_face_body{-1};
+    // #2 Part B: the picked face's (u,v) bounds in m_hole_face_plane, so the hole's construction
+    // dims read as distance from the face sides (umin/vmin edges) rather than from the centre.
+    bool              m_hole_has_bounds{false};
+    double            m_hole_umin{0}, m_hole_umax{0}, m_hole_vmin{0}, m_hole_vmax{0};
 
     wxChoice*         m_thread_plane{nullptr};
     wxSpinCtrlDouble* m_thread_radius{nullptr};

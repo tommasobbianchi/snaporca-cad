@@ -438,6 +438,11 @@ void DesignCanvas::begin_hole_gizmo(const SketchPlane& plane, double x, double y
     if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }   // llvmpipe: force repaint
 }
 
+void DesignCanvas::set_hole_face_bounds(bool has, double umin, double umax, double vmin, double vmax)
+{
+    m_sketch_tool.set_hole_face_bounds(has, umin, umax, vmin, vmax);
+}
+
 void DesignCanvas::clear_hole_gizmo()
 {
     m_sketch_tool.clear_hole_gizmo();

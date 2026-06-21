@@ -100,6 +100,7 @@ public:
     // its Hole card is open; drag/edit fire the hole callback (x, y, diameter, depth).
     void begin_hole_gizmo(const SketchPlane& plane, double x, double y,
                           double diameter, double depth, bool through);
+    void set_hole_face_bounds(bool has, double umin, double umax, double vmin, double vmax);
     void clear_hole_gizmo();
     bool holing() const;
     void set_on_hole_changed(std::function<void(double, double, double, double)> cb);

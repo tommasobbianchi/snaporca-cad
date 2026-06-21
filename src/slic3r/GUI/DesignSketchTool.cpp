@@ -2777,6 +2777,12 @@ void DesignSketchTool::clear_hole_gizmo()
     m_hl_drag   = -1;
 }
 
+void DesignSketchTool::set_hole_face_bounds(bool has, double umin, double umax, double vmin, double vmax)
+{
+    m_hl_has_bounds = has;
+    m_hl_umin = umin; m_hl_umax = umax; m_hl_vmin = vmin; m_hl_vmax = vmax;
+}
+
 void DesignSketchTool::render_hole_gizmo()
 {
     if (!m_hl_active) return;
@@ -2808,23 +2814,26 @@ void DesignSketchTool::render_hole_gizmo()
         m_plane = saved;
     }
 
-    // (1b) #2 Part B: construction-line dimensions from the face datum (plane origin = the face
-    // centroid for an on-face hole) to the hole centre — an X leg + a Y leg with editable distance
-    // labels, so the hole can be positioned precisely on the face. Drawn ON the plane, construction
-    // green; the labels sit at a fixed perpendicular offset so they stay clickable even at offset 0.
+    // (1b) #2 Part B: construction-line dimensions positioning the hole from the face SIDES — a
+    // horizontal leg from the u-side (umin = one edge) and a vertical leg from the v-side (vmin =
+    // the adjacent edge) to the hole centre, each with an editable distance label (what users ask
+    // for: distance from the sides, not x/y from the centre). Falls back to the datum (0,0) when no
+    // face bounds are known (dropdown-plane hole). Drawn ON the plane, construction green.
     {
         m_plane = m_hl_plane;
         const ColorRGBA con(0.55f, 0.85f, 0.55f, 1.0f);
-        const double o = 16.0 * upp;
+        const double o  = 16.0 * upp;
+        const double ru = m_hl_has_bounds ? m_hl_umin : 0.0;   // reference u-side (face edge / datum)
+        const double rv = m_hl_has_bounds ? m_hl_vmin : 0.0;   // reference v-side (face edge / datum)
         std::vector<std::pair<Vec2d, Vec2d>> segs;
-        segs.emplace_back(Vec2d(0, 0), Vec2d(m_hl_x, 0));            // X leg: datum -> corner
-        segs.emplace_back(Vec2d(m_hl_x, 0), Vec2d(m_hl_x, m_hl_y));  // Y leg: corner -> hole centre
+        segs.emplace_back(Vec2d(ru, m_hl_y), Vec2d(m_hl_x, m_hl_y));   // from the u-side to the hole
+        segs.emplace_back(Vec2d(m_hl_x, rv), Vec2d(m_hl_x, m_hl_y));   // from the v-side to the hole
         glsafe(::glDisable(GL_DEPTH_TEST));
         draw_strokes(m_hl_stroke_model, segs, std::max(0.5 * upp, 1e-4), con);
-        DimAnnot dx; dx.kind = DimType::Distance; dx.value = m_hl_x;
-        draw_text(m_line_model, dim_text(dx), Vec2d(m_hl_x * 0.5, -o), th, con);
-        DimAnnot dy; dy.kind = DimType::Distance; dy.value = m_hl_y;
-        draw_text(m_line_model, dim_text(dy), Vec2d(m_hl_x + o, m_hl_y * 0.5), th, con);
+        DimAnnot dx; dx.kind = DimType::Distance; dx.value = m_hl_x - ru;   // distance from the u-side
+        draw_text(m_line_model, dim_text(dx), Vec2d((ru + m_hl_x) * 0.5, m_hl_y - o), th, con);
+        DimAnnot dy; dy.kind = DimType::Distance; dy.value = m_hl_y - rv;   // distance from the v-side
+        draw_text(m_line_model, dim_text(dy), Vec2d(m_hl_x + o, (rv + m_hl_y) * 0.5), th, con);
         m_plane = saved;
     }
 
@@ -2914,8 +2923,10 @@ int DesignSketchTool::hit_test_hole_handle(GLCanvas3D& canvas, const wxMouseEven
     // #2 Part B: the X/Y construction-dim labels (edit-only) — only when no arrow handle was hit.
     // Larger tolerance since they are text; positions mirror render_hole_gizmo's label offsets.
     const double o = 16.0 * upp, ltol = 16.0 * upp;
-    const Vec3d xlbl = m_hl_plane.to_world(Vec2d(m_hl_x * 0.5, -o));
-    const Vec3d ylbl = m_hl_plane.to_world(Vec2d(m_hl_x + o, m_hl_y * 0.5));
+    const double ru = m_hl_has_bounds ? m_hl_umin : 0.0;
+    const double rv = m_hl_has_bounds ? m_hl_vmin : 0.0;
+    const Vec3d xlbl = m_hl_plane.to_world(Vec2d((ru + m_hl_x) * 0.5, m_hl_y - o));
+    const Vec3d ylbl = m_hl_plane.to_world(Vec2d(m_hl_x + o, (rv + m_hl_y) * 0.5));
     const double dXl = ray_segment_dist3(ro, rd, xlbl, xlbl);
     const double dYl = ray_segment_dist3(ro, rd, ylbl, ylbl);
     if (dXl <= ltol && dXl <= dYl) return 3;
@@ -2998,17 +3009,19 @@ void DesignSketchTool::open_hole_editor(int which)
                 if (on_hole_changed) on_hole_changed(m_hl_x, m_hl_y, m_hl_diameter, m_hl_depth);
             },
             []() {});
-    } else if (which == 3) {                       // #2 Part B: edit the X offset from the datum
-        on_inline_edit(px, m_hl_x,
-            [this](double v) {
-                m_hl_x = v;
+    } else if (which == 3) {                       // #2 Part B: edit the distance from the u-side
+        const double ru = m_hl_has_bounds ? m_hl_umin : 0.0;
+        on_inline_edit(px, m_hl_x - ru,
+            [this, ru](double v) {
+                m_hl_x = ru + v;
                 if (on_hole_changed) on_hole_changed(m_hl_x, m_hl_y, m_hl_diameter, m_hl_depth);
             },
             []() {});
-    } else if (which == 4) {                       // edit the Y offset from the datum
-        on_inline_edit(px, m_hl_y,
-            [this](double v) {
-                m_hl_y = v;
+    } else if (which == 4) {                       // edit the distance from the v-side
+        const double rv = m_hl_has_bounds ? m_hl_vmin : 0.0;
+        on_inline_edit(px, m_hl_y - rv,
+            [this, rv](double v) {
+                m_hl_y = rv + v;
                 if (on_hole_changed) on_hole_changed(m_hl_x, m_hl_y, m_hl_diameter, m_hl_depth);
             },
             []() {});

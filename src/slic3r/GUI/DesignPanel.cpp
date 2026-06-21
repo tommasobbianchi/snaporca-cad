@@ -89,8 +89,22 @@ static SketchPlane face_plane_inward(const TopoDS_Face& face)
     SketchPlane p;
     p.origin = GeometryEngine::face_centroid_world(face);
     p.normal = (-GeometryEngine::face_normal_world(face)).normalized();   // inward
-    const Vec3d ref = std::abs(p.normal.z()) < 0.9 ? Vec3d(0, 0, 1) : Vec3d(1, 0, 0);
-    p.x_axis = ref.cross(p.normal).normalized();
+    // Align the in-plane x-axis with the face's LONGEST straight edge so the (u,v) frame matches
+    // the face sides — then "distance from a side" (the hole construction dims) reads correctly.
+    Vec3d x(0, 0, 0); double best = 0;
+    for (const TopoDS_Edge& e : GeometryEngine::edges_of_face(face)) {
+        const std::vector<Vec3d> pts = GeometryEngine::sample_edge_world(e);
+        if (pts.size() < 2) continue;
+        Vec3d d = pts.back() - pts.front();
+        d = d - p.normal * d.dot(p.normal);        // project the edge direction into the plane
+        const double len = d.norm();
+        if (len > best) { best = len; x = d / len; }
+    }
+    if (best < 1e-9) {   // curved/edgeless face: fall back to an arbitrary in-plane basis
+        const Vec3d ref = std::abs(p.normal.z()) < 0.9 ? Vec3d(0, 0, 1) : Vec3d(1, 0, 0);
+        x = ref.cross(p.normal).normalized();
+    }
+    p.x_axis = x.normalized();
     p.y_axis = p.normal.cross(p.x_axis).normalized();
     return p;
 }
@@ -217,6 +231,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
             // read as the offset from the face centre (editable for precise placement).
             m_hole_on_face   = false;
             m_hole_face_body = -1;
+            m_hole_has_bounds = false;
             if (m_sel_solid_face >= 0 && m_sel_solid_body >= 0
                 && m_sel_solid_body < int(m_doc.bodies.size())) {
                 const TopoDS_Face face = GeometryEngine::face_by_index(
@@ -225,6 +240,10 @@ DesignPanel::DesignPanel(wxWindow* parent)
                     m_hole_face_plane = face_plane_inward(face);
                     m_hole_on_face    = true;
                     m_hole_face_body  = m_sel_solid_body;
+                    // Face (u,v) extents so the hole dims read from the sides (#2 Part B).
+                    m_hole_has_bounds = GeometryEngine::face_plane_bounds(
+                        face, m_hole_face_plane.origin, m_hole_face_plane.x_axis,
+                        m_hole_face_plane.y_axis, m_hole_umin, m_hole_umax, m_hole_vmin, m_hole_vmax);
                     if (m_hole_x) m_hole_x->SetValue(0.0);   // start at the face centre
                     if (m_hole_y) m_hole_y->SetValue(0.0);
                 }
@@ -3461,6 +3480,8 @@ void DesignPanel::update_hole_gizmo()
     if (!m_viewport) return;
     if (m_active != Tool::Hole) { m_viewport->clear_hole_gizmo(); return; }
     const SketchPlane plane = hole_plane();
+    m_viewport->set_hole_face_bounds(m_hole_has_bounds, m_hole_umin, m_hole_umax,
+                                     m_hole_vmin, m_hole_vmax);
     m_viewport->begin_hole_gizmo(plane,
                                  m_hole_x->GetValue(), m_hole_y->GetValue(),
                                  m_hole_diameter->GetValue(), m_hole_depth->GetValue(),

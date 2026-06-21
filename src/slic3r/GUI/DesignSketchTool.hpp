@@ -147,6 +147,8 @@ public:
     // on_hole_changed back to the panel, which writes the spins + refreshes the ghost.
     void set_hole_gizmo(const SketchPlane& plane, double x, double y,
                         double diameter, double depth, bool through);
+    // Provide the face (u,v) bounds so the hole's construction dims read from the face sides.
+    void set_hole_face_bounds(bool has, double umin, double umax, double vmin, double vmax);
     void clear_hole_gizmo();
     bool holing() const { return m_hl_active; }
     std::function<void(double x, double y, double diameter, double depth)> on_hole_changed;
@@ -762,7 +764,11 @@ private:
     double      m_hl_diameter{6.0};
     double      m_hl_depth{10.0};
     bool        m_hl_through{true};
-    int         m_hl_drag{-1};                 // 0=centre, 1=diameter, 2=depth, -1=none
+    // #2 Part B: face (u,v) bounds, so the construction dims read as distance from the face SIDES
+    // (umin/vmin = two adjacent edges) rather than from the centre. Off for a dropdown-plane hole.
+    bool        m_hl_has_bounds{false};
+    double      m_hl_umin{0}, m_hl_umax{0}, m_hl_vmin{0}, m_hl_vmax{0};
+    int         m_hl_drag{-1};                 // 0=centre, 1=diameter, 2=depth, 3=X-dim, 4=Y-dim, -1=none
     int         m_hl_press_x{0}, m_hl_press_y{0};
     double      m_hl_grab_proj{0.0};           // diameter/depth axis projection at grab (relative)
     double      m_hl_grab_val{0.0};            // radius (diameter drag) or depth at grab
