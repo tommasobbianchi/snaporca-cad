@@ -5756,14 +5756,16 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             }
         }
         if (!evt.LeftDown()) return false;
-        // The solid body is the foreground object: a click on it cycles whole/face/edge.
-        // Only fall through to committed-sketch loop picking when no solid face was hit.
-        if (handle_solid_click(canvas, evt)) return true;
+        // Committed-sketch loop pick is computed FIRST. A click that lands on a loop's
+        // STROKE (edge) selects that loop even when it lies on a solid face — so a sketch
+        // drawn ON a face can be selected and extruded/cut (Onshape engraving workflow).
+        // Open-face area (no loop stroke under the cursor) falls through to the solid
+        // whole/face/edge cycle; an interior hit with no solid behind it is the last resort.
         Point pos(evt.GetX(), evt.GetY());
         const Linef3 ray  = canvas.mouse_ray(pos);
         const Linef3 ray8 = canvas.mouse_ray(Point(evt.GetX() + 8, evt.GetY()));
-        int    edge_feat = -1, edge_reg = -1; double edge_d = 1e30;  // nearest edge (wins)
-        int    face_feat = -1, face_reg = -1;                        // first interior (fallback)
+        int    edge_feat = -1, edge_reg = -1; double edge_d = 1e30;  // nearest loop stroke (wins)
+        int    face_feat = -1, face_reg = -1;                        // interior (fallback)
         for (const DisplaySketch& d : m_display_sketches) {
             const Vec2d p   = d.plane.project(ray.a,  ray.vector());
             const Vec2d p8  = d.plane.project(ray8.a, ray8.vector());
@@ -5778,12 +5780,18 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 if (face_feat < 0 && point_in_poly(p, loops[r].poly)) { face_feat = d.feature; face_reg = r; }
             }
         }
-        const int feat = (edge_feat >= 0) ? edge_feat : face_feat;
-        const int reg  = (edge_feat >= 0) ? edge_reg  : face_reg;
-        if (feat >= 0) {
-            m_display_pick = feat;
-            m_display_pick_region = reg;
-            if (on_display_sketch_selected) on_display_sketch_selected(feat, reg);
+        // A precise hit on a loop outline wins over the solid face beneath it.
+        if (edge_feat >= 0) {
+            m_display_pick = edge_feat; m_display_pick_region = edge_reg;
+            if (on_display_sketch_selected) on_display_sketch_selected(edge_feat, edge_reg);
+            return true;
+        }
+        // No loop stroke under the cursor: the solid is the foreground (whole/face/edge cycle).
+        if (handle_solid_click(canvas, evt)) return true;
+        // Interior of a committed loop with no solid behind it.
+        if (face_feat >= 0) {
+            m_display_pick = face_feat; m_display_pick_region = face_reg;
+            if (on_display_sketch_selected) on_display_sketch_selected(face_feat, face_reg);
             return true;
         }
         m_display_pick = -1; m_display_pick_region = -1;  // clicked bare plate -> drop highlight
