@@ -18,8 +18,10 @@
 #include <wx/textdlg.h>
 #include <wx/filedlg.h>
 #include <wx/dialog.h>
+#include <wx/menu.h>
 
 #include <string>
+#include <memory>
 #include <cmath>
 #include <cstdio>
 #include <algorithm>
@@ -399,69 +401,81 @@ DesignPanel::DesignPanel(wxWindow* parent)
             b->Bind(wxEVT_BUTTON, [select_tool, mode, hint](wxCommandEvent&) { select_tool(mode, hint); });
             sadd(b);
         };
+        // Onshape-style family flyout: the button shows the current variant's
+        // icon; clicking drops a menu of the variants. Picking one activates it
+        // and becomes the button's icon; a small chevron marks it as a group.
+        struct SkVar { const char* icon; DesignSketchTool::Mode mode; wxString tip; wxString hint; };
+        auto dropdown = [&](const char* def_icon, const wxString& grp, std::vector<SkVar> vars) {
+            auto* b = icon_btn(def_icon, grp);
+            auto vp = std::make_shared<std::vector<SkVar>>(std::move(vars));
+            b->Bind(wxEVT_BUTTON, [this, b, vp, select_tool](wxCommandEvent&) {
+                wxMenu menu;
+                for (const SkVar& v : *vp) {
+                    int id = wxWindow::NewControlId();
+                    wxMenuItem* mi = menu.Append(id, v.tip);
+                    mi->SetBitmap(create_scaled_bitmap(v.icon, m_form, 18));
+                    menu.Bind(wxEVT_MENU, [this, b, v, select_tool](wxCommandEvent&) {
+                        b->SetBitmap_(std::string(v.icon));
+                        select_tool(v.mode, v.hint);
+                        set_active_tool_btn(b);
+                    }, id);
+                }
+                b->PopupMenu(&menu);
+            });
+            sadd(b);
+            auto* chev = new wxStaticText(m_toolbar, wxID_ANY, wxString::FromUTF8("\xE2\x96\xBE"));
+            chev->SetForegroundColour(wxColour(0x81, 0x81, 0x83));
+            chev->SetFont(Label::Body_9);
+            m_tb_sketch->Add(chev, 0, wxALIGN_BOTTOM | wxBOTTOM | wxRIGHT, 5);
+            return b;
+        };
         skbtn("design_select",    DesignSketchTool::Mode::Select,           _L("Select"),
               _L("Click to select; Shift to add; double-click for a whole loop"));
         skbtn("design_dimension", DesignSketchTool::Mode::Dimension, _L("Dimension"),
               _L("Click 2 points or a line / circle / arc to place a dimension"));
         add_sep(m_tb_sketch);
-        skbtn("design_line",      DesignSketchTool::Mode::Line,             _L("Line"),
-              _L("Click start, then end — then set the exact length"));
-        skbtn("design_polyline",  DesignSketchTool::Mode::Polyline,         _L("Polyline"),
-              _L("Click points; click first / right-click to close the loop"));
-        skbtn("design_rect",      DesignSketchTool::Mode::CornerRect,       _L("Corner rectangle"),
-              _L("Click two opposite corners"));
-        skbtn("design_crect",     DesignSketchTool::Mode::CenterRect,       _L("Center rectangle"),
-              _L("Click center, then a corner"));
-        skbtn("design_rect_oblique", DesignSketchTool::Mode::ObliqueRect,   _L("Oblique rectangle"),
-              _L("Click two corners of one edge, then a point for the width"));
-        skbtn("design_rect_rounded", DesignSketchTool::Mode::RoundedRect,   _L("Rounded rectangle"),
-              _L("Click two opposite corners, then a point for the corner radius"));
-        skbtn("design_circle",    DesignSketchTool::Mode::CenterCircle,     _L("Center circle"),
-              _L("Click center, then radius"));
-        skbtn("design_circle2pt", DesignSketchTool::Mode::TwoPointCircle,   _L("2-point circle"),
-              _L("Click two ends of the diameter"));
-        skbtn("design_point",     DesignSketchTool::Mode::Point,            _L("Point"),
-              _L("Click to place a point"));
-        skbtn("design_circle3pt", DesignSketchTool::Mode::ThreePointCircle, _L("3-point circle"),
-              _L("Click three points on the circle"));
-        skbtn("design_arc3pt",    DesignSketchTool::Mode::ThreePointArc,    _L("3-point arc"),
-              _L("Click start, end, then a point on the arc"));
-        skbtn("design_tangentarc", DesignSketchTool::Mode::TangentArc,      _L("Tangent arc"),
-              _L("Click start (on the last entity) then end"));
-        skbtn("design_arc_center", DesignSketchTool::Mode::CenterArc,       _L("Center-point arc"),
-              _L("Click center, then start, then a point for the end angle"));
-        skbtn("design_slot",      DesignSketchTool::Mode::Slot,             _L("Slot"),
-              _L("Click two centerline ends, then a point for width"));
-        skbtn("design_slot_arc",  DesignSketchTool::Mode::ArcSlot,          _L("Arc slot"),
-              _L("Click center, start, end, then a point for the width"));
-        skbtn("design_ellipse",   DesignSketchTool::Mode::Ellipse,          _L("Ellipse"),
-              _L("Click center, a major-axis end, then a point for the minor axis"));
-        skbtn("design_ellipse_arc", DesignSketchTool::Mode::EllipseArc,     _L("Elliptical arc"),
-              _L("Click center, major-axis end, minor point, then arc start and end"));
-        skbtn("design_bspline",   DesignSketchTool::Mode::BSpline,          _L("Spline"),
+        dropdown("design_line", _L("Line / polyline"), {
+            {"design_line",     DesignSketchTool::Mode::Line,     _L("Line"),     _L("Click start, then end — then set the exact length")},
+            {"design_polyline", DesignSketchTool::Mode::Polyline, _L("Polyline"), _L("Click points; click first / right-click to close the loop")} });
+        dropdown("design_rect", _L("Rectangle"), {
+            {"design_rect",         DesignSketchTool::Mode::CornerRect,  _L("Corner rectangle"),  _L("Click two opposite corners")},
+            {"design_crect",        DesignSketchTool::Mode::CenterRect,  _L("Center rectangle"),  _L("Click center, then a corner")},
+            {"design_rect_oblique", DesignSketchTool::Mode::ObliqueRect, _L("Oblique rectangle"), _L("Click two corners of one edge, then a point for the width")},
+            {"design_rect_rounded", DesignSketchTool::Mode::RoundedRect, _L("Rounded rectangle"), _L("Click two opposite corners, then a point for the corner radius")} });
+        dropdown("design_circle", _L("Circle"), {
+            {"design_circle",    DesignSketchTool::Mode::CenterCircle,     _L("Center circle"),  _L("Click center, then radius")},
+            {"design_circle2pt", DesignSketchTool::Mode::TwoPointCircle,   _L("2-point circle"), _L("Click two ends of the diameter")},
+            {"design_circle3pt", DesignSketchTool::Mode::ThreePointCircle, _L("3-point circle"), _L("Click three points on the circle")} });
+        dropdown("design_arc3pt", _L("Arc"), {
+            {"design_arc3pt",     DesignSketchTool::Mode::ThreePointArc, _L("3-point arc"),      _L("Click start, end, then a point on the arc")},
+            {"design_tangentarc", DesignSketchTool::Mode::TangentArc,    _L("Tangent arc"),      _L("Click start (on the last entity) then end")},
+            {"design_arc_center", DesignSketchTool::Mode::CenterArc,     _L("Center-point arc"), _L("Click center, then start, then a point for the end angle")} });
+        dropdown("design_slot", _L("Slot"), {
+            {"design_slot",     DesignSketchTool::Mode::Slot,    _L("Slot"),     _L("Click two centerline ends, then a point for width")},
+            {"design_slot_arc", DesignSketchTool::Mode::ArcSlot, _L("Arc slot"), _L("Click center, start, end, then a point for the width")} });
+        dropdown("design_ellipse", _L("Ellipse"), {
+            {"design_ellipse",     DesignSketchTool::Mode::Ellipse,    _L("Ellipse"),        _L("Click center, a major-axis end, then a point for the minor axis")},
+            {"design_ellipse_arc", DesignSketchTool::Mode::EllipseArc, _L("Elliptical arc"), _L("Click center, major-axis end, minor point, then arc start and end")} });
+        skbtn("design_bspline", DesignSketchTool::Mode::BSpline, _L("Spline"),
               _L("Click control points; double-click or right-click to finish"));
+        skbtn("design_point",   DesignSketchTool::Mode::Point,   _L("Point"),
+              _L("Click to place a point"));
         add_sep(m_tb_sketch);
-        // In-canvas edit-op tools: drag the arrow / click its label (no numeric card).
-        skbtn("design_filletedge", DesignSketchTool::Mode::Fillet,          _L("Fillet"),
-              _L("Pick two lines, then drag the arrow or click the radius to set it"));
-        skbtn("design_chamfer",    DesignSketchTool::Mode::Chamfer,         _L("Chamfer"),
-              _L("Pick two lines, then drag the arrow or click the distance to set it"));
-        skbtn("design_offset",     DesignSketchTool::Mode::Offset,          _L("Offset"),
+        // In-canvas edit-op tools (drag gizmo / click label), grouped by family.
+        dropdown("design_filletedge", _L("Fillet / chamfer"), {
+            {"design_filletedge", DesignSketchTool::Mode::Fillet,  _L("Fillet"),  _L("Pick two lines, then drag the arrow or click the radius to set it")},
+            {"design_chamfer",    DesignSketchTool::Mode::Chamfer, _L("Chamfer"), _L("Pick two lines, then drag the arrow or click the distance to set it")} });
+        skbtn("design_offset", DesignSketchTool::Mode::Offset, _L("Offset"),
               _L("Pick an entity, then drag the arrow or click the distance; click empty to apply"));
-        skbtn("design_mirror",     DesignSketchTool::Mode::Mirror,          _L("Mirror"),
+        skbtn("design_mirror", DesignSketchTool::Mode::Mirror, _L("Mirror"),
               _L("Pick a mirror-axis line, then the entities to mirror; click empty to apply"));
-        // In-canvas transform tools: pick subjects, then drag the handle / click the label
-        // (plus a copy-count label for the arrays); click empty to apply. No docked card.
-        skbtn("design_move",       DesignSketchTool::Mode::Move,           _L("Move (translate)"),
-              _L("Pick entities, then drag the handle or click the distance; click empty to apply"));
-        skbtn("design_rotate",     DesignSketchTool::Mode::Rotate,         _L("Rotate (about centroid)"),
-              _L("Pick entities, then drag around the pivot or click the angle; click empty to apply"));
-        skbtn("design_scale",      DesignSketchTool::Mode::Scale,          _L("Scale (about centroid)"),
-              _L("Pick entities, then drag the handle or click the factor; click empty to apply"));
-        skbtn("design_array",      DesignSketchTool::Mode::Array,          _L("Linear array"),
-              _L("Pick entities, drag the spacing handle, click the count; click empty to apply"));
-        skbtn("design_polararray", DesignSketchTool::Mode::PolarArray,     _L("Polar array (about centroid)"),
-              _L("Pick entities, drag the sweep handle, click the count; click empty to apply"));
+        dropdown("design_move", _L("Move / rotate / scale"), {
+            {"design_move",   DesignSketchTool::Mode::Move,   _L("Move (translate)"),        _L("Pick entities, then drag the handle or click the distance; click empty to apply")},
+            {"design_rotate", DesignSketchTool::Mode::Rotate, _L("Rotate (about centroid)"), _L("Pick entities, then drag around the pivot or click the angle; click empty to apply")},
+            {"design_scale",  DesignSketchTool::Mode::Scale,  _L("Scale (about centroid)"),  _L("Pick entities, then drag the handle or click the factor; click empty to apply")} });
+        dropdown("design_array", _L("Linear / polar array"), {
+            {"design_array",      DesignSketchTool::Mode::Array,      _L("Linear array"),                 _L("Pick entities, drag the spacing handle, click the count; click empty to apply")},
+            {"design_polararray", DesignSketchTool::Mode::PolarArray, _L("Polar array (about centroid)"), _L("Pick entities, drag the sweep handle, click the count; click empty to apply")} });
 
         m_sides = new wxSpinCtrl(m_toolbar, wxID_ANY, "6", wxDefaultPosition, wxSize(50, -1));
         m_sides->SetRange(3, 64);
