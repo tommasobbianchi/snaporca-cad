@@ -2672,6 +2672,39 @@ void DesignSketchTool::render_fillet_gizmo()
     const double L    = std::max(m_fl_radius, 40.0 * upp);   // WYSIWYG, floored to a comfortable handle
     const Vec3d tipw  = m_fl_anchor + m_fl_dir * L;
 
+    // #1: always draw the TARGET edge as a bright wireframe ribbon so it is unmistakable which
+    // edge is being rounded/chamfered — even when the radius is tiny and the result ghost is
+    // visually identical to the original. Independent of m_solid_sel (a preview recompute resets
+    // it, which used to leave only the arrow with no edge shown).
+    if (m_sel_edge_pts.size() >= 2) {
+        const Vec3d vd = cam.get_dir_forward();
+        const double hw = 3.0 * upp;   // ~3 px half-width (thicker than the 2 px pick highlight)
+        GLModel::Geometry g;
+        g.format = { GLModel::Geometry::EPrimitiveType::Triangles, GLModel::Geometry::EVertexLayout::P3 };
+        unsigned int base = 0;
+        for (size_t s = 1; s < m_sel_edge_pts.size(); ++s) {
+            const Vec3d a = m_sel_edge_pts[s - 1], b = m_sel_edge_pts[s];
+            Vec3d dir = b - a; if (dir.norm() < 1e-9) continue; dir.normalize();
+            Vec3d off = dir.cross(vd);
+            if (off.norm() < 1e-9) off = dir.cross(cam.get_dir_up());
+            if (off.norm() < 1e-9) continue;
+            off.normalize(); off *= hw;
+            g.add_vertex((Vec3f)(a + off).cast<float>());
+            g.add_vertex((Vec3f)(b + off).cast<float>());
+            g.add_vertex((Vec3f)(b - off).cast<float>());
+            g.add_vertex((Vec3f)(a - off).cast<float>());
+            g.add_triangle(base, base + 1, base + 2);
+            g.add_triangle(base, base + 2, base + 3); base += 4;
+        }
+        if (base > 0) {
+            glsafe(::glDisable(GL_DEPTH_TEST));
+            m_solid_edge_model.reset();
+            m_solid_edge_model.init_from(std::move(g));
+            m_solid_edge_model.set_color(ColorRGBA(0.20f, 0.95f, 1.0f, 1.0f));   // bright cyan
+            m_solid_edge_model.render();
+        }
+    }
+
     const SketchPlane saved = m_plane;
     SketchPlane bb; bb.origin = m_fl_anchor; bb.x_axis = right; bb.y_axis = up; bb.normal = cam.get_dir_forward().normalized();
     m_plane = bb;
