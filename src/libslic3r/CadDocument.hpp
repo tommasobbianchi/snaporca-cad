@@ -13,7 +13,7 @@
 
 namespace Slic3r {
 
-enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane };
+enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft };
 enum class SketchShape    { Rectangle, Circle };
 enum class BooleanMode    { New, Add, Cut, Intersect };
 
@@ -124,6 +124,12 @@ struct CadFeature {
     // mode (boolean) and target_body.
     int         sweep_path_ref{-1};        // index into features[] of the path Sketch
 
+    // Loft: build a solid through 2+ closed profile Sketches (loft_profile_refs, in
+    // order, each on its own plane). loft_ruled=false → smooth sections, true → ruled.
+    // Reuses mode (boolean) and target_body.
+    std::vector<int> loft_profile_refs;    // ordered indices into features[] of profile Sketches
+    bool        loft_ruled{false};
+
     // Pattern: replicate the target body, copies fused into it. pattern_circular=false
     // → linear (pattern_count instances spaced pattern_spacing along plane axis
     // pattern_dir: 0=X, 1=Y); true → circular (pattern_count instances over
@@ -212,6 +218,9 @@ public:
                      double angle_deg, int target_body, const std::string& name);
     int  add_sweep(int profile_sketch_ref, int path_sketch_ref, BooleanMode mode,
                    const std::string& name);
+    // Loft through the ordered profile Sketches (each a closed wire on its own plane).
+    int  add_loft(const std::vector<int>& profile_refs, bool ruled, BooleanMode mode,
+                  const std::string& name);
     int  add_shell(double thickness, int face, int target_body, const std::string& name);
     // Datum plane: derived from base (0=XY/1=XZ/2=YZ/3+N=Nth earlier datum), offset
     // along its normal, optional tilt about a base axis. Produces no solid.

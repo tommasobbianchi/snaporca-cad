@@ -561,6 +561,19 @@ int CadDocument::add_sweep(int profile_sketch_ref, int path_sketch_ref, BooleanM
     return int(features.size()) - 1;
 }
 
+int CadDocument::add_loft(const std::vector<int>& profile_refs, bool ruled, BooleanMode mode,
+                          const std::string& name)
+{
+    CadFeature f;
+    f.type              = CadFeatureType::Loft;
+    f.name              = name;
+    f.loft_profile_refs = profile_refs;
+    f.loft_ruled        = ruled;
+    f.mode              = mode;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
 int CadDocument::add_pattern(bool circular, int count, double spacing, int dir,
                              double angle_deg, int target_body, const std::string& name)
 {
@@ -1015,6 +1028,37 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body,
         }
         break;
     }
+    case CadFeatureType::Loft: {
+        // Loft through 2+ closed profile Sketches, in recipe order. Each profile builds
+        // a wire via build_sketch_wire (so it keeps its own plane); make_loft skins them.
+        std::vector<TopoDS_Wire> profiles;
+        for (int ref : f.loft_profile_refs) {
+            if (ref < 0 || ref >= int(features.size())
+                || features[ref].type != CadFeatureType::Sketch)
+                continue;
+            profiles.push_back(build_sketch_wire(features[ref]));
+        }
+        if (profiles.size() < 2)
+            throw std::runtime_error("loft needs 2+ valid profile sketches");
+        TopoDS_Shape tool = SketchEngine::make_loft(profiles, f.loft_ruled);
+        if (!have_body || f.mode == BooleanMode::New) {
+            result = tool;
+            have_body = true;
+        } else if (f.mode == BooleanMode::Add) {
+            BRepAlgoAPI_Fuse fuse(result, tool);
+            if (!fuse.IsDone()) throw std::runtime_error("fuse failed");
+            result = fuse.Shape();
+        } else if (f.mode == BooleanMode::Cut) {
+            BRepAlgoAPI_Cut cut(result, tool);
+            if (!cut.IsDone()) throw std::runtime_error("cut failed");
+            result = cut.Shape();
+        } else if (f.mode == BooleanMode::Intersect) {
+            BRepAlgoAPI_Common common(result, tool);
+            if (!common.IsDone()) throw std::runtime_error("intersect failed");
+            result = common.Shape();
+        }
+        break;
+    }
     case CadFeatureType::Pattern: {
         // Replicate the target body. Each copy is a rigid gp_Trsf of the seed, all
         // fused into one body. Linear: i*spacing along plane axis pattern_dir
@@ -1206,7 +1250,7 @@ void CadDocument::route_feature(std::vector<CadBody>& bodies, const CadFeature& 
     // mutates the target body in place.
     const bool starts_new = bodies.empty()
         || ((f.type == CadFeatureType::Extrude || f.type == CadFeatureType::Revolve
-             || f.type == CadFeatureType::Sweep)
+             || f.type == CadFeatureType::Sweep || f.type == CadFeatureType::Loft)
             && f.mode == BooleanMode::New);
 
     if (starts_new) {

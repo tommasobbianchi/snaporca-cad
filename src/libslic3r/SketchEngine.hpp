@@ -188,6 +188,10 @@ public:
     // for a clean solid the path's first point should sit on/near the profile plane.
     static TopoDS_Shape make_sweep(const TopoDS_Wire& profile, const TopoDS_Wire& path);
 
+    // Loft a solid through 2+ closed profile wires (each on its own plane), in the
+    // given order. ruled=true => straight (ruled) sections; false => smooth (C2).
+    static TopoDS_Shape make_loft(const std::vector<TopoDS_Wire>& profiles, bool ruled);
+
     static TopoDS_Shape make_pocket(const TopoDS_Wire& wire, const SketchPlane& plane,
                                     const TopoDS_Shape& target, double depth);
 

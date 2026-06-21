@@ -12,6 +12,7 @@
 
 class wxChoice;
 class wxCheckBox;
+class wxCheckListBox;
 class wxSpinCtrl;
 class wxSpinCtrlDouble;
 class wxTreeCtrl;
@@ -35,7 +36,7 @@ public:
     explicit DesignPanel(wxWindow* parent);
 
 private:
-    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane };
+    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft };
 
     // Onshape-style contextual top toolbar: only the active mode's tool group is
     // shown (Feature = sketch/extrude/dress/hole/thread; Sketch = entity tools;
@@ -52,6 +53,7 @@ private:
     void apply_thread_standard();   // fill pitch/depth/radius from m_thread_std selection
     void on_add_revolve();
     void on_add_sweep();
+    void on_add_loft();
     void on_add_pattern();
     void on_add_plane();
     void on_add_shell();
@@ -152,6 +154,7 @@ private:
     wxSizer*  m_box_sweep{nullptr};
     wxSizer*  m_box_pattern{nullptr};
     wxSizer*  m_box_plane{nullptr};
+    wxSizer*  m_box_loft{nullptr};
 
     // Onshape-style dialog-card title rows (icon + bold feature name), retitled
     // per tool in open_tool() (edit-mode shows the feature's actual name).
@@ -169,6 +172,7 @@ private:
     wxStaticText* m_hdr_sweep{nullptr};
     wxStaticText* m_hdr_pattern{nullptr};
     wxStaticText* m_hdr_plane{nullptr};
+    wxStaticText* m_hdr_loft{nullptr};
 
     wxScrolledWindow* m_form{nullptr};
     DesignCanvas*     m_viewport{nullptr};
@@ -213,6 +217,13 @@ private:
     wxChoice*         m_sweep_mode{nullptr};       // New/Add/Cut/Intersect
     int               m_sweep_profile_ref{-1};
     int               m_sweep_path_ref{-1};        // path Sketch feature index (for re-edit pre-select)
+
+    // Loft controls (skin a solid through 2+ ordered profile Sketches).
+    wxCheckListBox*   m_loft_list{nullptr};        // every Sketch; check 2+ in list order = profiles
+    wxCheckBox*       m_loft_ruled{nullptr};       // ruled (straight) vs smooth sections
+    wxChoice*         m_loft_mode{nullptr};        // New/Add/Cut/Intersect
+    std::vector<int>  m_loft_sketch_idx;           // feature index for each row in m_loft_list
+    std::vector<int>  m_loft_refs;                 // chosen profile refs (for re-edit pre-check)
 
     // Pattern controls (replicate the target body: linear or circular).
     wxChoice*         m_pattern_type{nullptr};      // 0 = Linear, 1 = Circular

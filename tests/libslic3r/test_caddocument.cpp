@@ -1161,3 +1161,48 @@ TEST_CASE("datum plane: offset + tilt resolution and sketching on it", "[CadDocu
     only_plane.add_plane(0, 10.0, 0.0, 0, "P");
     REQUIRE_FALSE(only_plane.recompute());
 }
+
+TEST_CASE("loft builds a solid skinning two profiles on parallel planes", "[CadDocument]")
+{
+    using Catch::Matchers::WithinRel;
+    using Catch::Matchers::WithinAbs;
+
+    CadDocument doc;
+    // Bottom 20x20 square on XY.
+    SketchProfile bot;
+    bot.points = {{-10,-10},{10,-10},{10,10},{-10,10}};
+    bot.closed = true;
+    int s0 = doc.add_sketch_profile(bot, SketchPlane::XY(), "Bottom");
+
+    // Top 10x10 square on a datum plane 20 mm above XY (exercises datum -> loft).
+    doc.add_plane(0 /*XY*/, 20.0, 0.0, 0, "Plane1");
+    SketchPlane top = doc.resolve_datum_planes()[0].second;
+    SketchProfile tp;
+    tp.points = {{-5,-5},{5,-5},{5,5},{-5,5}};
+    tp.closed = true;
+    int s1 = doc.add_sketch_profile(tp, top, "Top");
+
+    // Ruled (straight) sections -> exact planar end caps at z=0 and z=20.
+    doc.add_loft({s0, s1}, true /*ruled*/, BooleanMode::New, "Loft1");
+    REQUIRE(doc.recompute());
+    REQUIRE(doc.error.empty());
+
+    // The loft spans z=[0,20]. ThruSections approximates each section as a BSpline
+    // curve, so the lateral surface bulges ~0.05 mm past the end planes (sub-visual,
+    // ~0.25%) — assert the span loosely; the volume below is the real correctness gate.
+    Bnd_Box bb;
+    BRepBndLib::Add(doc.body, bb);
+    double xmin,ymin,zmin,xmax,ymax,zmax;
+    bb.Get(xmin,ymin,zmin,xmax,ymax,zmax);
+    CHECK_THAT(zmin, WithinAbs(0.0, 0.1));
+    CHECK_THAT(zmax, WithinAbs(20.0, 0.1));
+    // Square frustum volume = h/3*(A1+A2+sqrt(A1*A2)) = 20/3*(400+100+200) = 4666.67.
+    CHECK_THAT(double(doc.display_mesh.volume()), WithinRel(4666.67, 0.03));
+
+    // A single profile is not enough -> benign recompute failure.
+    CadDocument one;
+    SketchProfile sp; sp.points = {{-5,-5},{5,-5},{5,5},{-5,5}}; sp.closed = true;
+    int only = one.add_sketch_profile(sp, SketchPlane::XY(), "Only");
+    one.add_loft({only}, false, BooleanMode::New, "L");
+    REQUIRE_FALSE(one.recompute());
+}

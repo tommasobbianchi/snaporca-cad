@@ -8,6 +8,7 @@
 #include <wx/stattext.h>
 #include <wx/choice.h>
 #include <wx/checkbox.h>
+#include <wx/checklst.h>
 #include <wx/spinctrl.h>
 #include <wx/treectrl.h>
 #include <wx/imaglist.h>
@@ -270,6 +271,23 @@ DesignPanel::DesignPanel(wxWindow* parent)
             open_tool(Tool::Plane);
         });
         fadd(b_plane);
+
+        auto* b_loft = icon_btn("design_extrude", _L("Loft"));
+        b_loft->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            // Loft skins 2+ profile sketches; need at least two to be meaningful.
+            int n = 0;
+            for (const auto& f : m_doc.features)
+                if (f.type == CadFeatureType::Sketch) ++n;
+            if (n < 2) {
+                m_status->SetForegroundColour(wxColour(235, 110, 110));
+                m_status->SetLabel(_L("Create at least two profile sketches to loft"));
+                m_status->Refresh();
+                return;
+            }
+            m_loft_refs.clear();   // fresh loft: nothing pre-checked
+            open_tool(Tool::Loft);
+        });
+        fadd(b_loft);
 
         auto* b_dressup = icon_btn("design_dressup", _L("Fillet / Chamfer"));
         b_dressup->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Dressup); });
@@ -987,6 +1005,44 @@ DesignPanel::DesignPanel(wxWindow* parent)
     }
     root->Add(m_box_plane, 0, wxEXPAND);
 
+    // --- Loft (skin a solid through 2+ ordered profile sketches) ---
+    m_box_loft = new wxBoxSizer(wxVERTICAL);
+    m_box_loft->Add(card_header("design_extrude", _L("Loft"), m_hdr_loft), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_loft->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
+    m_box_loft->Add(new wxStaticText(m_form, wxID_ANY, _L("Profiles (check 2+, in order):")),
+                    0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_loft_list = new wxCheckListBox(m_form, wxID_ANY, wxDefaultPosition, wxSize(-1, 120));
+    m_loft_list->Bind(wxEVT_CHECKLISTBOX, [this](wxCommandEvent&) { refresh_preview(); });
+    m_box_loft->Add(m_loft_list, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 12);
+    {
+        auto* lform = new wxFlexGridSizer(2, 6, 8);
+
+        m_loft_mode = new wxChoice(m_form, wxID_ANY);
+        m_loft_mode->Append("New");
+        m_loft_mode->Append("Add");
+        m_loft_mode->Append("Cut");
+        m_loft_mode->Append("Intersect");
+        m_loft_mode->SetSelection(0);
+        lform->Add(new wxStaticText(m_form, wxID_ANY, _L("Mode")), 0, wxALIGN_CENTER_VERTICAL);
+        lform->Add(m_loft_mode);
+
+        m_box_loft->Add(lform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    }
+    m_loft_ruled = new wxCheckBox(m_form, wxID_ANY, _L("Ruled (straight) sections"));
+    m_box_loft->Add(m_loft_ruled, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        m_confirm_btns.push_back(ok);
+        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
+        row->Add(ok, 0, wxRIGHT, 8);
+        row->Add(no, 0);
+        m_box_loft->Add(row, 0, wxALL, 12);
+    }
+    root->Add(m_box_loft, 0, wxEXPAND);
+
     // --- Shell (hollow the current body to a wall thickness, removing one picked face) ---
     auto* sform = new wxFlexGridSizer(2, 6, 8);
     m_shell_thickness = make_spin(m_form, 2.0, 0.01, 100000.0);
@@ -1194,6 +1250,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     root->Show(m_box_sweep, false, true);
     root->Show(m_box_pattern, false, true);
     root->Show(m_box_plane, false, true);
+    root->Show(m_box_loft, false, true);
     root->Show(m_box_dressup, false, true);
     root->Show(m_box_hole,    false, true);
     root->Show(m_box_thread,  false, true);
@@ -1968,6 +2025,34 @@ void DesignPanel::on_add_sweep()
     refresh_tree();
 }
 
+void DesignPanel::on_add_loft()
+{
+    // Collect the checked profile sketches in list (recipe) order.
+    std::vector<int> refs;
+    for (unsigned i = 0; i < m_loft_list->GetCount(); ++i)
+        if (m_loft_list->IsChecked(i) && i < m_loft_sketch_idx.size())
+            refs.push_back(m_loft_sketch_idx[i]);
+    if (refs.size() < 2) {
+        m_status->SetLabel(_L("Check at least two profile sketches to loft"));
+        return;
+    }
+    const BooleanMode mode = static_cast<BooleanMode>(m_loft_mode->GetSelection());
+    if (mode != BooleanMode::New && m_doc.body.IsNull()) {
+        m_status->SetLabel(_L("Add/Cut/Intersect loft needs an existing body"));
+        return;
+    }
+    m_feature_counter++;
+    m_doc.add_loft(refs, m_loft_ruled->GetValue(), mode,
+                   "Loft" + std::to_string(m_feature_counter));
+
+    if (!m_doc.recompute())
+        m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
+    else
+        set_status_ok();
+
+    refresh_tree();
+}
+
 void DesignPanel::on_add_pattern()
 {
     if (m_doc.bodies.empty()) {
@@ -2056,6 +2141,7 @@ int DesignPanel::tree_icon_for(CadFeatureType t)
     case CadFeatureType::Sweep:   return 1;
     case CadFeatureType::Pattern: return 1;
     case CadFeatureType::Plane:   return 0;   // datum plane: sketch-family icon
+    case CadFeatureType::Loft:    return 1;
     }
     return 0;
 }
@@ -3670,6 +3756,11 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
         m_plane_tilt->SetValue(f.plane_angle_tilt);
         m_plane_tilt_axis->SetSelection(f.plane_axis);
         break;
+    case CadFeatureType::Loft:
+        m_loft_refs = f.loft_profile_refs;   // show_tool re-checks these in the list
+        m_loft_ruled->SetValue(f.loft_ruled);
+        m_loft_mode->SetSelection(static_cast<int>(f.mode));
+        break;
     default: break;
     }
 }
@@ -3758,6 +3849,11 @@ void DesignPanel::on_edit_feature()
         m_edit_index = sel;
         load_feature_into_dialog(f);
         open_tool(Tool::Plane);
+        break;
+    case CadFeatureType::Loft:
+        m_edit_index = sel;
+        load_feature_into_dialog(f);
+        open_tool(Tool::Loft);
         break;
     default: break;
     }
@@ -3916,6 +4012,16 @@ CadFeature DesignPanel::build_candidate(Tool t) const
         f.plane_angle_tilt = m_plane_tilt->GetValue();
         f.plane_axis       = m_plane_tilt_axis->GetSelection();
         break;
+    case Tool::Loft: {
+        f.type      = CadFeatureType::Loft;
+        f.loft_ruled = m_loft_ruled->GetValue();
+        f.mode      = static_cast<BooleanMode>(m_loft_mode->GetSelection());
+        f.loft_profile_refs.clear();
+        for (unsigned i = 0; i < m_loft_list->GetCount(); ++i)
+            if (m_loft_list->IsChecked(i) && i < m_loft_sketch_idx.size())
+                f.loft_profile_refs.push_back(m_loft_sketch_idx[i]);
+        break;
+    }
     case Tool::None:
         break;
     }
@@ -4141,6 +4247,7 @@ void DesignPanel::open_tool(Tool t)
     s->Show(m_box_sweep,   t == Tool::Sweep,   true);
     s->Show(m_box_pattern, t == Tool::Pattern, true);
     s->Show(m_box_plane,   t == Tool::Plane,   true);
+    s->Show(m_box_loft,    t == Tool::Loft,    true);
 
     if (t == Tool::Revolve && m_revolve_sketch_ref >= 0
         && m_revolve_sketch_ref < int(m_doc.features.size()))
@@ -4165,6 +4272,21 @@ void DesignPanel::open_tool(Tool t)
         }
         if (sel_idx != wxNOT_FOUND) m_sweep_path->SetSelection(sel_idx);
         else if (m_sweep_path->GetCount() > 0) m_sweep_path->SetSelection(0);
+    }
+
+    if (t == Tool::Loft) {
+        // List every Sketch feature; the feature index for each row rides in
+        // m_loft_sketch_idx. Re-check the stored profile refs (re-edit).
+        m_loft_list->Clear();
+        m_loft_sketch_idx.clear();
+        for (int i = 0; i < int(m_doc.features.size()); ++i) {
+            const CadFeature& sf = m_doc.features[i];
+            if (sf.type != CadFeatureType::Sketch) continue;
+            const int row = m_loft_list->Append(wxString::FromUTF8(sf.name));
+            m_loft_sketch_idx.push_back(i);
+            if (std::find(m_loft_refs.begin(), m_loft_refs.end(), i) != m_loft_refs.end())
+                m_loft_list->Check(row, true);
+        }
     }
 
     if (t == Tool::Extrude) {
@@ -4209,6 +4331,7 @@ void DesignPanel::open_tool(Tool t)
     case Tool::Sweep:   m_hdr_sweep->SetLabel(title(_L("Sweep")));     break;
     case Tool::Pattern: m_hdr_pattern->SetLabel(title(_L("Pattern"))); break;
     case Tool::Plane:   m_hdr_plane->SetLabel(title(_L("Plane")));     break;
+    case Tool::Loft:    m_hdr_loft->SetLabel(title(_L("Loft")));       break;
     case Tool::None:    break;
     }
 
@@ -4232,6 +4355,7 @@ void DesignPanel::close_tool()
     s->Show(m_box_sweep,   false, true);
     s->Show(m_box_pattern, false, true);
     s->Show(m_box_plane,   false, true);
+    s->Show(m_box_loft,    false, true);
     m_viewport->clear_preview();
     m_viewport->clear_extrude_gizmo();
     m_viewport->clear_fillet_gizmo();
@@ -4270,6 +4394,7 @@ void DesignPanel::confirm_tool()
     case Tool::Sweep:   on_add_sweep();   break;
     case Tool::Pattern: on_add_pattern(); break;
     case Tool::Plane:   on_add_plane();   break;
+    case Tool::Loft:    on_add_loft();    break;
     case Tool::None:    return;
     }
     close_tool(); // also clears the preview ghost; the committed body is now shown
