@@ -148,8 +148,14 @@ void DesignCanvas::reload(bool keep_view)
             const int b = v->volume_idx();
             const bool hidden = (b >= 0 && b < int(m_body_visible.size())) && !m_body_visible[b];
             v->is_active = !hidden;   // per-body visibility toggle
-            if (!hidden)
-                v->set_color(m_body_selected ? sel_gold : body_palette(b));
+            if (!hidden) {
+                ColorRGBA c = m_body_selected ? sel_gold : body_palette(b);
+                // #1: during a fillet/chamfer preview the body is rendered see-through so the
+                // (already translucent) result ghost — and thus the small rounded/chamfered edge —
+                // reads against it. A bright wireframe was useless; semitransparent parts reveal it.
+                if (m_body_translucent) c.a(0.30f);
+                v->set_color(c);
+            }
         } else if (obj_idx == 1)
             v->set_color(ghost);
     }
@@ -538,6 +544,13 @@ void DesignCanvas::set_body_highlight(bool on)
     if (m_body_selected == on) return;
     m_body_selected = on;
     reload(true);   // recolours the body volume (selected = cyan tint)
+}
+
+void DesignCanvas::set_body_translucent(bool on)
+{
+    if (m_body_translucent == on) return;
+    m_body_translucent = on;
+    reload(true);   // re-applies object-0 alpha so the solid fades for the fillet preview
 }
 
 void DesignCanvas::delete_selected_sketch_entities()

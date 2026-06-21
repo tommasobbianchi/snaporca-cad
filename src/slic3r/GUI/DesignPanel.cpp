@@ -3641,6 +3641,7 @@ void DesignPanel::refresh_preview()
 void DesignPanel::open_tool(Tool t)
 {
     m_active = t;
+    if (m_viewport) m_viewport->set_body_translucent(t == Tool::Dressup);  // #1: see-through for fillet/chamfer
     wxSizer* s = m_form->GetSizer();
     s->Show(m_box_sketch,  t == Tool::Sketch,  true);
     s->Show(m_box_extrude, t == Tool::Extrude, true);
@@ -3698,6 +3699,7 @@ void DesignPanel::open_tool(Tool t)
 void DesignPanel::close_tool()
 {
     m_active = Tool::None;
+    if (m_viewport) m_viewport->set_body_translucent(false);   // restore the opaque solid
     wxSizer* s = m_form->GetSizer();
     s->Show(m_box_sketch,  false, true);
     s->Show(m_box_extrude, false, true);

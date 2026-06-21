@@ -2672,39 +2672,6 @@ void DesignSketchTool::render_fillet_gizmo()
     const double L    = std::max(m_fl_radius, 40.0 * upp);   // WYSIWYG, floored to a comfortable handle
     const Vec3d tipw  = m_fl_anchor + m_fl_dir * L;
 
-    // #1: always draw the TARGET edge as a bright wireframe ribbon so it is unmistakable which
-    // edge is being rounded/chamfered — even when the radius is tiny and the result ghost is
-    // visually identical to the original. Independent of m_solid_sel (a preview recompute resets
-    // it, which used to leave only the arrow with no edge shown).
-    if (m_sel_edge_pts.size() >= 2) {
-        const Vec3d vd = cam.get_dir_forward();
-        const double hw = 3.0 * upp;   // ~3 px half-width (thicker than the 2 px pick highlight)
-        GLModel::Geometry g;
-        g.format = { GLModel::Geometry::EPrimitiveType::Triangles, GLModel::Geometry::EVertexLayout::P3 };
-        unsigned int base = 0;
-        for (size_t s = 1; s < m_sel_edge_pts.size(); ++s) {
-            const Vec3d a = m_sel_edge_pts[s - 1], b = m_sel_edge_pts[s];
-            Vec3d dir = b - a; if (dir.norm() < 1e-9) continue; dir.normalize();
-            Vec3d off = dir.cross(vd);
-            if (off.norm() < 1e-9) off = dir.cross(cam.get_dir_up());
-            if (off.norm() < 1e-9) continue;
-            off.normalize(); off *= hw;
-            g.add_vertex((Vec3f)(a + off).cast<float>());
-            g.add_vertex((Vec3f)(b + off).cast<float>());
-            g.add_vertex((Vec3f)(b - off).cast<float>());
-            g.add_vertex((Vec3f)(a - off).cast<float>());
-            g.add_triangle(base, base + 1, base + 2);
-            g.add_triangle(base, base + 2, base + 3); base += 4;
-        }
-        if (base > 0) {
-            glsafe(::glDisable(GL_DEPTH_TEST));
-            m_solid_edge_model.reset();
-            m_solid_edge_model.init_from(std::move(g));
-            m_solid_edge_model.set_color(ColorRGBA(0.20f, 0.95f, 1.0f, 1.0f));   // bright cyan
-            m_solid_edge_model.render();
-        }
-    }
-
     const SketchPlane saved = m_plane;
     SketchPlane bb; bb.origin = m_fl_anchor; bb.x_axis = right; bb.y_axis = up; bb.normal = cam.get_dir_forward().normalized();
     m_plane = bb;
@@ -2841,6 +2808,26 @@ void DesignSketchTool::render_hole_gizmo()
         m_plane = saved;
     }
 
+    // (1b) #2 Part B: construction-line dimensions from the face datum (plane origin = the face
+    // centroid for an on-face hole) to the hole centre — an X leg + a Y leg with editable distance
+    // labels, so the hole can be positioned precisely on the face. Drawn ON the plane, construction
+    // green; the labels sit at a fixed perpendicular offset so they stay clickable even at offset 0.
+    {
+        m_plane = m_hl_plane;
+        const ColorRGBA con(0.55f, 0.85f, 0.55f, 1.0f);
+        const double o = 16.0 * upp;
+        std::vector<std::pair<Vec2d, Vec2d>> segs;
+        segs.emplace_back(Vec2d(0, 0), Vec2d(m_hl_x, 0));            // X leg: datum -> corner
+        segs.emplace_back(Vec2d(m_hl_x, 0), Vec2d(m_hl_x, m_hl_y));  // Y leg: corner -> hole centre
+        glsafe(::glDisable(GL_DEPTH_TEST));
+        draw_strokes(m_hl_stroke_model, segs, std::max(0.5 * upp, 1e-4), con);
+        DimAnnot dx; dx.kind = DimType::Distance; dx.value = m_hl_x;
+        draw_text(m_line_model, dim_text(dx), Vec2d(m_hl_x * 0.5, -o), th, con);
+        DimAnnot dy; dy.kind = DimType::Distance; dy.value = m_hl_y;
+        draw_text(m_line_model, dim_text(dy), Vec2d(m_hl_x + o, m_hl_y * 0.5), th, con);
+        m_plane = saved;
+    }
+
     // (2) Billboarded handles (centre marker + diameter arrow + depth arrow), screen-facing frame
     // at the centre so draw_strokes/draw_text read on top regardless of orientation.
     SketchPlane bb; bb.origin = centre; bb.x_axis = right; bb.y_axis = up; bb.normal = cam.get_dir_forward().normalized();
@@ -2922,7 +2909,18 @@ int DesignSketchTool::hit_test_hole_handle(GLCanvas3D& canvas, const wxMouseEven
         const double dZ = ray_segment_dist3(ro, rd, centre, centre + nrm * depL);
         if (dZ < bestd) { bestd = dZ; best = 2; }
     }
-    return best;
+    if (best >= 0) return best;
+
+    // #2 Part B: the X/Y construction-dim labels (edit-only) — only when no arrow handle was hit.
+    // Larger tolerance since they are text; positions mirror render_hole_gizmo's label offsets.
+    const double o = 16.0 * upp, ltol = 16.0 * upp;
+    const Vec3d xlbl = m_hl_plane.to_world(Vec2d(m_hl_x * 0.5, -o));
+    const Vec3d ylbl = m_hl_plane.to_world(Vec2d(m_hl_x + o, m_hl_y * 0.5));
+    const double dXl = ray_segment_dist3(ro, rd, xlbl, xlbl);
+    const double dYl = ray_segment_dist3(ro, rd, ylbl, ylbl);
+    if (dXl <= ltol && dXl <= dYl) return 3;
+    if (dYl <= ltol)               return 4;
+    return -1;
 }
 
 // Skew-line closest point of the mouse ray to an axis (anchor + t*dir) -> signed distance along
@@ -2953,16 +2951,18 @@ void DesignSketchTool::start_hole_drag(GLCanvas3D& canvas, const wxMouseEvent& e
         m_hl_grab_uv = m_hl_plane.project(r.a, r.b - r.a);
         m_hl_grab_x  = m_hl_x;
         m_hl_grab_y  = m_hl_y;
-    } else {
+    } else if (which == 1 || which == 2) {
         const Vec3d dir = (which == 1) ? m_hl_plane.x_axis.normalized() : m_hl_plane.normal.normalized();
         const double p  = hole_axis_proj(canvas, evt, centre, dir);
         m_hl_grab_proj  = std::isnan(p) ? 0.0 : p;
         m_hl_grab_val   = (which == 1) ? m_hl_diameter * 0.5 : m_hl_depth;
     }
+    // which == 3/4 (X/Y dim labels) are edit-only: a stationary click opens the inline editor.
 }
 
 void DesignSketchTool::drag_hole_handle(GLCanvas3D& canvas, const wxMouseEvent& evt)
 {
+    if (m_hl_drag >= 3) return;                    // X/Y dim labels are click-to-edit, not drag
     if (m_hl_drag == 0) {                          // reposition centre on the plane
         const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
         const Vec2d uv = m_hl_plane.project(r.a, r.b - r.a);
@@ -2995,6 +2995,20 @@ void DesignSketchTool::open_hole_editor(int which)
         on_inline_edit(px, m_hl_depth,
             [this](double v) {
                 m_hl_depth = std::max(0.01, v);
+                if (on_hole_changed) on_hole_changed(m_hl_x, m_hl_y, m_hl_diameter, m_hl_depth);
+            },
+            []() {});
+    } else if (which == 3) {                       // #2 Part B: edit the X offset from the datum
+        on_inline_edit(px, m_hl_x,
+            [this](double v) {
+                m_hl_x = v;
+                if (on_hole_changed) on_hole_changed(m_hl_x, m_hl_y, m_hl_diameter, m_hl_depth);
+            },
+            []() {});
+    } else if (which == 4) {                       // edit the Y offset from the datum
+        on_inline_edit(px, m_hl_y,
+            [this](double v) {
+                m_hl_y = v;
                 if (on_hole_changed) on_hole_changed(m_hl_x, m_hl_y, m_hl_diameter, m_hl_depth);
             },
             []() {});

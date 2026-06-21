@@ -125,6 +125,7 @@ public:
     // Persistently draw committed sketches (un-consumed ones stay visible).
     void set_display_sketches(std::vector<DesignSketchTool::DisplaySketch> ds);
     void set_body_highlight(bool on);   // tint the solid when its feature is tree-selected
+    void set_body_translucent(bool on); // render the solid see-through (fillet/chamfer preview)
     void delete_selected_sketch_entities();
     void clear_sketch_selection();
 
@@ -183,6 +184,7 @@ private:
     Model       m_model;
     bool        m_first_frame{true};
     bool        m_body_selected{false};   // tree selected a body feature → tint the solid
+    bool        m_body_translucent{false};// fillet/chamfer preview → render the body see-through
     std::vector<bool> m_body_visible;     // per-body visibility (empty => all visible)
 
     DesignSketchTool m_sketch_tool;
