@@ -175,8 +175,12 @@ public:
         const std::vector<std::vector<std::vector<Vec2d>>>& regions,
         const SketchPlane& plane, double length, bool symmetric = false);
 
+    // Revolve a planar profile wire about an axis lying in the sketch plane and
+    // passing through the plane origin: axis_sel 0 = plane X axis, 1 = plane Y axis.
+    // A negative angle_deg sweeps the opposite direction (Flip). The profile must
+    // lie to one side of the axis (Onshape rule); a straddling profile self-intersects.
     static TopoDS_Shape make_revolve(const TopoDS_Wire& wire, const SketchPlane& plane,
-                                     double angle_deg = 360.0);
+                                     double angle_deg = 360.0, int axis_sel = 0);
 
     static TopoDS_Shape make_pocket(const TopoDS_Wire& wire, const SketchPlane& plane,
                                     const TopoDS_Shape& target, double depth);

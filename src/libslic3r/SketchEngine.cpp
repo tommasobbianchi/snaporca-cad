@@ -323,19 +323,23 @@ TopoDS_Shape SketchEngine::make_extrude_regions(
 }
 
 TopoDS_Shape SketchEngine::make_revolve(const TopoDS_Wire& wire, const SketchPlane& plane,
-                                        double angle_deg)
+                                        double angle_deg, int axis_sel)
 {
     BRepBuilderAPI_MakeFace faceMaker(wire);
     if (!faceMaker.IsDone())
         throw std::runtime_error("Failed to make face from wire");
     TopoDS_Face face = faceMaker.Face();
 
-    // Revolve around the X-axis of the sketch plane
+    // Revolution axis lies in the sketch plane through its origin: X (0) or Y (1).
+    const Vec3d& adir = (axis_sel == 1) ? plane.y_axis : plane.x_axis;
     gp_Pnt o(plane.origin.x(), plane.origin.y(), plane.origin.z());
-    gp_Dir xd(plane.x_axis.x(), plane.x_axis.y(), plane.x_axis.z());
+    gp_Dir xd(adir.x(), adir.y(), adir.z());
     gp_Ax1 axis(o, xd);
 
     double angle_rad = angle_deg * M_PI / 180.0;
+    // A negative angle is expressed as a positive sweep about the reversed axis,
+    // since BRepPrimAPI_MakeRevol expects an angle in (0, 2*pi].
+    if (angle_rad < 0) { axis.Reverse(); angle_rad = -angle_rad; }
     BRepPrimAPI_MakeRevol rev(face, axis, angle_rad);
     if (!rev.IsDone())
         throw std::runtime_error("Failed to revolve");

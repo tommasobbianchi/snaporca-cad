@@ -12,7 +12,7 @@
 
 namespace Slic3r {
 
-enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell };
+enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve };
 enum class SketchShape    { Rectangle, Circle };
 enum class BooleanMode    { New, Add, Cut, Intersect };
 
@@ -111,6 +111,12 @@ struct CadFeature {
     // Shell params (hollow the current body to a wall thickness, removing one open face)
     double      shell_thickness{2};        // wall thickness (inward offset)
     int         shell_face{-1};            // global face id to remove (open the shell); -1 = none
+
+    // Revolve params (sweep a profile about an in-plane axis through the plane origin).
+    // Reuses sketch_ref / entities (profile), flip (direction), mode (boolean) and
+    // target_body. revolve_axis: 0 = plane X axis, 1 = plane Y axis.
+    double      revolve_angle{360};        // sweep angle in degrees (1..360)
+    int         revolve_axis{0};           // 0 = plane X, 1 = plane Y
 };
 
 // One independent solid in a multi-body document.
@@ -169,6 +175,12 @@ public:
     int  add_thread(double radius, double pitch, double height, double depth,
                     bool internal, double x, double y, const SketchPlane& plane,
                     const std::string& name);
+    int  add_revolve(int sketch_ref, double angle, int axis, bool flip,
+                     BooleanMode mode, const std::string& name);
+    // Self-contained revolve of a single loop given directly as entities (sketch_ref=-1).
+    int  add_revolve_entities(const std::vector<SketchEntity>& entities,
+                              const SketchPlane& plane, double angle, int axis, bool flip,
+                              BooleanMode mode, const std::string& name);
     int  add_shell(double thickness, int face, int target_body, const std::string& name);
     void clear();
     bool recompute();   // replay features -> body + display_mesh; false on error

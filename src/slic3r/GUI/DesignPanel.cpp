@@ -222,6 +222,19 @@ DesignPanel::DesignPanel(wxWindow* parent)
             open_tool(Tool::Extrude);
         });
         fadd(b_extrude);
+
+        auto* b_revolve = icon_btn("design_extrude", _L("Revolve"));
+        b_revolve->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            m_revolve_sketch_ref = resolve_extrude_sketch();
+            if (m_revolve_sketch_ref < 0) {
+                m_status->SetForegroundColour(wxColour(235, 110, 110));
+                m_status->SetLabel(_L("Create a sketch profile to revolve first"));
+                m_status->Refresh();
+                return;
+            }
+            open_tool(Tool::Revolve);
+        });
+        fadd(b_revolve);
         auto* b_dressup = icon_btn("design_dressup", _L("Fillet / Chamfer"));
         b_dressup->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Dressup); });
         fadd(b_dressup);
@@ -763,6 +776,54 @@ DesignPanel::DesignPanel(wxWindow* parent)
     }
     root->Add(m_box_thread, 0, wxEXPAND);
 
+    // --- Revolve (sweep a sketch profile about an in-plane axis) ---
+    m_box_revolve = new wxBoxSizer(wxVERTICAL);
+    m_box_revolve->Add(card_header("design_extrude", _L("Revolve"), m_hdr_revolve), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_revolve->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
+    m_revolve_sketch_label = new wxStaticText(m_form, wxID_ANY, _L("Sketch: —"));
+    m_box_revolve->Add(m_revolve_sketch_label, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    {
+        auto* rform = new wxFlexGridSizer(2, 6, 8);
+
+        m_revolve_angle = make_spin(m_form, 360.0, 1.0, 360.0);
+        rform->Add(new wxStaticText(m_form, wxID_ANY, _L("Angle °")), 0, wxALIGN_CENTER_VERTICAL);
+        rform->Add(m_revolve_angle);
+
+        m_revolve_axis = new wxChoice(m_form, wxID_ANY);
+        m_revolve_axis->Append("Plane X");
+        m_revolve_axis->Append("Plane Y");
+        m_revolve_axis->SetSelection(0);
+        rform->Add(new wxStaticText(m_form, wxID_ANY, _L("Axis")), 0, wxALIGN_CENTER_VERTICAL);
+        rform->Add(m_revolve_axis);
+
+        m_revolve_mode = new wxChoice(m_form, wxID_ANY);
+        m_revolve_mode->Append("New");
+        m_revolve_mode->Append("Add");
+        m_revolve_mode->Append("Cut");
+        m_revolve_mode->Append("Intersect");
+        m_revolve_mode->SetSelection(0);
+        rform->Add(new wxStaticText(m_form, wxID_ANY, _L("Mode")), 0, wxALIGN_CENTER_VERTICAL);
+        rform->Add(m_revolve_mode);
+
+        m_revolve_flip = new wxCheckBox(m_form, wxID_ANY, _L("Flip direction"));
+        rform->Add(new wxStaticText(m_form, wxID_ANY, wxEmptyString));
+        rform->Add(m_revolve_flip);
+
+        m_box_revolve->Add(rform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    }
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        m_confirm_btns.push_back(ok);
+        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
+        row->Add(ok, 0, wxRIGHT, 8);
+        row->Add(no, 0);
+        m_box_revolve->Add(row, 0, wxALL, 12);
+    }
+    root->Add(m_box_revolve, 0, wxEXPAND);
+
     // --- Shell (hollow the current body to a wall thickness, removing one picked face) ---
     auto* sform = new wxFlexGridSizer(2, 6, 8);
     m_shell_thickness = make_spin(m_form, 2.0, 0.01, 100000.0);
@@ -966,6 +1027,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // Start with every tool dialog hidden (only the toolbar + tree + Commit show).
     root->Show(m_box_sketch,  false, true);
     root->Show(m_box_extrude, false, true);
+    root->Show(m_box_revolve, false, true);
     root->Show(m_box_dressup, false, true);
     root->Show(m_box_hole,    false, true);
     root->Show(m_box_thread,  false, true);
@@ -1686,6 +1748,30 @@ void DesignPanel::on_add_thread()
     refresh_tree();
 }
 
+void DesignPanel::on_add_revolve()
+{
+    if (m_revolve_sketch_ref < 0 || m_revolve_sketch_ref >= int(m_doc.features.size())) {
+        m_status->SetLabel(_L("Pick a sketch profile to revolve first"));
+        return;
+    }
+    const BooleanMode mode = static_cast<BooleanMode>(m_revolve_mode->GetSelection());
+    if (mode != BooleanMode::New && m_doc.body.IsNull()) {
+        m_status->SetLabel(_L("Add/Cut/Intersect revolve needs an existing body"));
+        return;
+    }
+    m_feature_counter++;
+    m_doc.add_revolve(m_revolve_sketch_ref, m_revolve_angle->GetValue(),
+                      m_revolve_axis->GetSelection(), m_revolve_flip->GetValue(),
+                      mode, "Revolve" + std::to_string(m_feature_counter));
+
+    if (!m_doc.recompute())
+        m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
+    else
+        set_status_ok();
+
+    refresh_tree();
+}
+
 void DesignPanel::on_add_shell()
 {
     if (m_doc.body.IsNull()) {
@@ -1716,6 +1802,7 @@ int DesignPanel::tree_icon_for(CadFeatureType t)
     case CadFeatureType::Hole:    return 3;
     case CadFeatureType::Thread:  return 4;
     case CadFeatureType::Shell:   return 5;
+    case CadFeatureType::Revolve: return 1;
     }
     return 0;
 }
@@ -3304,6 +3391,14 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
             ? wxString::Format(_L("Face %d"), f.shell_face)
             : _L("(all faces — closed hollow)"));
         break;
+    case CadFeatureType::Revolve:
+        m_revolve_angle->SetValue(f.revolve_angle);
+        m_revolve_axis->SetSelection(f.revolve_axis);
+        m_revolve_mode->SetSelection(static_cast<int>(f.mode));
+        m_revolve_flip->SetValue(f.flip);
+        m_revolve_sketch_ref = f.sketch_ref;
+        break;
+    default: break;
     }
 }
 
@@ -3372,6 +3467,12 @@ void DesignPanel::on_edit_feature()
         load_feature_into_dialog(f);
         open_tool(Tool::Shell);
         break;
+    case CadFeatureType::Revolve:
+        m_edit_index = sel;
+        load_feature_into_dialog(f);
+        open_tool(Tool::Revolve);
+        break;
+    default: break;
     }
 }
 
@@ -3495,6 +3596,14 @@ CadFeature DesignPanel::build_candidate(Tool t) const
         f.shell_thickness = m_shell_thickness->GetValue();
         // A picked solid face opens the shell there; -1 = closed hollow.
         f.shell_face      = (m_sel_solid_face >= 0) ? m_sel_solid_face : -1;
+        break;
+    case Tool::Revolve:
+        f.type          = CadFeatureType::Revolve;
+        f.sketch_ref    = m_revolve_sketch_ref;
+        f.revolve_angle = m_revolve_angle->GetValue();
+        f.revolve_axis  = m_revolve_axis->GetSelection();
+        f.flip          = m_revolve_flip->GetValue();
+        f.mode          = static_cast<BooleanMode>(m_revolve_mode->GetSelection());
         break;
     case Tool::None:
         break;
@@ -3717,6 +3826,12 @@ void DesignPanel::open_tool(Tool t)
     s->Show(m_box_hole,    t == Tool::Hole,    true);
     s->Show(m_box_thread,  t == Tool::Thread,  true);
     s->Show(m_box_shell,   t == Tool::Shell,   true);
+    s->Show(m_box_revolve, t == Tool::Revolve, true);
+
+    if (t == Tool::Revolve && m_revolve_sketch_ref >= 0
+        && m_revolve_sketch_ref < int(m_doc.features.size()))
+        m_revolve_sketch_label->SetLabel(_L("Sketch: ") +
+            wxString::FromUTF8(m_doc.features[m_revolve_sketch_ref].name));
 
     if (t == Tool::Extrude) {
         if (m_extrude_face_src >= 0)
@@ -3756,6 +3871,7 @@ void DesignPanel::open_tool(Tool t)
     case Tool::Hole:    m_hdr_hole->SetLabel(title(_L("Hole")));       break;
     case Tool::Thread:  m_hdr_thread->SetLabel(title(_L("Thread")));   break;
     case Tool::Shell:   m_hdr_shell->SetLabel(title(_L("Shell")));     break;
+    case Tool::Revolve: m_hdr_revolve->SetLabel(title(_L("Revolve"))); break;
     case Tool::None:    break;
     }
 
@@ -3775,6 +3891,7 @@ void DesignPanel::close_tool()
     s->Show(m_box_hole,    false, true);
     s->Show(m_box_thread,  false, true);
     s->Show(m_box_shell,   false, true);
+    s->Show(m_box_revolve, false, true);
     m_viewport->clear_preview();
     m_viewport->clear_extrude_gizmo();
     m_viewport->clear_fillet_gizmo();
@@ -3809,6 +3926,7 @@ void DesignPanel::confirm_tool()
     case Tool::Hole:    on_add_hole();    break;
     case Tool::Thread:  on_add_thread();  break;
     case Tool::Shell:   on_add_shell();   break;
+    case Tool::Revolve: on_add_revolve(); break;
     case Tool::None:    return;
     }
     close_tool(); // also clears the preview ghost; the committed body is now shown

@@ -512,6 +512,39 @@ int CadDocument::add_thread(double radius, double pitch, double height, double d
     return int(features.size()) - 1;
 }
 
+int CadDocument::add_revolve(int sketch_ref, double angle, int axis, bool flip,
+                             BooleanMode mode, const std::string& name)
+{
+    CadFeature f;
+    f.type          = CadFeatureType::Revolve;
+    f.name          = name;
+    f.sketch_ref    = sketch_ref;
+    f.revolve_angle = angle;
+    f.revolve_axis  = axis;
+    f.flip          = flip;
+    f.mode          = mode;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
+int CadDocument::add_revolve_entities(const std::vector<SketchEntity>& entities,
+                                      const SketchPlane& plane, double angle, int axis,
+                                      bool flip, BooleanMode mode, const std::string& name)
+{
+    CadFeature f;
+    f.type          = CadFeatureType::Revolve;
+    f.name          = name;
+    f.sketch_ref    = -1;
+    f.entities      = entities;
+    f.plane         = plane;
+    f.revolve_angle = angle;
+    f.revolve_axis  = axis;
+    f.flip          = flip;
+    f.mode          = mode;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
 int CadDocument::add_shell(double thickness, int face, int target_body, const std::string& name)
 {
     CadFeature f;
@@ -835,6 +868,33 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body,
         }
         break;
     }
+    case CadFeatureType::Revolve: {
+        // Resolve the profile sketch like Extrude: referenced Sketch when valid,
+        // else this feature's own inline entities/profile (self-contained candidate).
+        const CadFeature& sk = (f.sketch_ref >= 0 && f.sketch_ref < int(features.size())
+                                && features[f.sketch_ref].type == CadFeatureType::Sketch)
+                               ? features[f.sketch_ref] : f;
+        TopoDS_Wire wire = build_sketch_wire(sk);
+        const double ang = f.flip ? -f.revolve_angle : f.revolve_angle;
+        TopoDS_Shape tool = SketchEngine::make_revolve(wire, sk.plane, ang, f.revolve_axis);
+        if (!have_body || f.mode == BooleanMode::New) {
+            result = tool;
+            have_body = true;
+        } else if (f.mode == BooleanMode::Add) {
+            BRepAlgoAPI_Fuse fuse(result, tool);
+            if (!fuse.IsDone()) throw std::runtime_error("fuse failed");
+            result = fuse.Shape();
+        } else if (f.mode == BooleanMode::Cut) {
+            BRepAlgoAPI_Cut cut(result, tool);
+            if (!cut.IsDone()) throw std::runtime_error("cut failed");
+            result = cut.Shape();
+        } else if (f.mode == BooleanMode::Intersect) {
+            BRepAlgoAPI_Common common(result, tool);
+            if (!common.IsDone()) throw std::runtime_error("intersect failed");
+            result = common.Shape();
+        }
+        break;
+    }
     case CadFeatureType::Fillet:
         if (!have_body) throw std::runtime_error("fillet needs a body");
         if (f.dressup_edge >= 0)
@@ -995,7 +1055,8 @@ void CadDocument::route_feature(std::vector<CadBody>& bodies, const CadFeature& 
     // A New extrude (or the very first solid feature) starts a fresh body; everything else
     // mutates the target body in place.
     const bool starts_new = bodies.empty()
-        || (f.type == CadFeatureType::Extrude && f.mode == BooleanMode::New);
+        || ((f.type == CadFeatureType::Extrude || f.type == CadFeatureType::Revolve)
+            && f.mode == BooleanMode::New);
 
     if (starts_new) {
         TopoDS_Shape result;            // empty -> apply_feature fills it (New path)

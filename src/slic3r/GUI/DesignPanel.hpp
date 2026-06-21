@@ -35,7 +35,7 @@ public:
     explicit DesignPanel(wxWindow* parent);
 
 private:
-    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell };
+    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve };
 
     // Onshape-style contextual top toolbar: only the active mode's tool group is
     // shown (Feature = sketch/extrude/dress/hole/thread; Sketch = entity tools;
@@ -50,6 +50,7 @@ private:
     void on_add_hole();
     void on_add_thread();
     void apply_thread_standard();   // fill pitch/depth/radius from m_thread_std selection
+    void on_add_revolve();
     void on_add_shell();
     // Import rigid 2D art (Text / SVG) as a new Sketch feature carrying
     // imported_regions (no solver entities). on_add_text/on_import_svg gather
@@ -140,6 +141,7 @@ private:
     wxSizer*  m_box_hole{nullptr};
     wxSizer*  m_box_thread{nullptr};
     wxSizer*  m_box_shell{nullptr};
+    wxSizer*  m_box_revolve{nullptr};
 
     // Onshape-style dialog-card title rows (icon + bold feature name), retitled
     // per tool in open_tool() (edit-mode shows the feature's actual name).
@@ -153,6 +155,7 @@ private:
     wxStaticText* m_hdr_hole{nullptr};
     wxStaticText* m_hdr_thread{nullptr};
     wxStaticText* m_hdr_shell{nullptr};
+    wxStaticText* m_hdr_revolve{nullptr};
 
     wxScrolledWindow* m_form{nullptr};
     DesignCanvas*     m_viewport{nullptr};
@@ -182,6 +185,14 @@ private:
 
     wxStaticText*     m_extrude_sketch_label{nullptr};
     int               m_extrude_sketch_ref{-1};
+
+    // Revolve controls (sweep a sketch profile about an in-plane axis).
+    wxStaticText*     m_revolve_sketch_label{nullptr};
+    wxSpinCtrlDouble* m_revolve_angle{nullptr};
+    wxChoice*         m_revolve_axis{nullptr};   // 0 = plane X, 1 = plane Y
+    wxChoice*         m_revolve_mode{nullptr};   // New/Add/Cut/Intersect
+    wxCheckBox*       m_revolve_flip{nullptr};
+    int               m_revolve_sketch_ref{-1};
     // Plate loop selection (click a committed sketch loop): the Sketch feature + the
     // clicked closed-region index, so Extrude builds just that one loop. -1 = none.
     int               m_sel_sketch_feat{-1};

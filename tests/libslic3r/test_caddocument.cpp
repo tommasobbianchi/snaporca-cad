@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <fstream>
+#include <memory>
 #include <set>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
@@ -935,6 +936,49 @@ TEST_CASE("internal thread cuts a visible groove into the bore wall", "[CadDocum
     REQUIRE(v_thread > 0.0);
     REQUIRE(v_thread < v_hole);
     REQUIRE((v_hole - v_thread) > 20.0);
+}
+
+TEST_CASE("revolve builds a solid of revolution about an in-plane axis", "[CadDocument]")
+{
+    using namespace Slic3r;
+    SketchPlane xy = SketchPlane::XY();
+
+    // Rectangle profile (10 wide x 10 tall, area 100) offset to +v so it lies entirely
+    // on one side of the X axis; revolved 360deg about X -> a rectangular-section ring.
+    // Pappus: V = 2*pi*R*A = 2*pi*15*100 = ~9424.78 mm^3 (tessellation slightly under).
+    auto make_rev_doc = [&](double angle, int axis, double u0, double v0) {
+        auto doc = std::make_unique<CadDocument>();
+        CadFeature sk;
+        sk.type = CadFeatureType::Sketch;
+        sk.plane = xy;
+        sk.profile.points = { Vec2d(u0 - 5, v0 - 5), Vec2d(u0 + 5, v0 - 5),
+                              Vec2d(u0 + 5, v0 + 5), Vec2d(u0 - 5, v0 + 5) };
+        sk.profile.closed = true;
+        doc->features.push_back(sk);
+        doc->add_revolve(0, angle, axis, false, BooleanMode::New, "Rev");
+        return doc;
+    };
+
+    auto full = make_rev_doc(360.0, /*axis=X*/0, 0.0, 15.0);
+    REQUIRE(full->recompute());
+    REQUIRE(full->error.empty());
+    const double v_full = double(full->display_mesh.volume());
+    REQUIRE(v_full > 0.0);
+    REQUIRE(v_full == Approx(9424.78).epsilon(0.05));
+
+    // A 180deg sweep removes exactly half the material.
+    auto half = make_rev_doc(180.0, 0, 0.0, 15.0);
+    REQUIRE(half->recompute());
+    REQUIRE(half->error.empty());
+    const double v_half = double(half->display_mesh.volume());
+    REQUIRE(v_half > 0.0);
+    REQUIRE(v_full == Approx(2.0 * v_half).epsilon(0.05));
+
+    // Axis = plane Y: profile offset to +u (one side of the Y axis) gives the same ring.
+    auto ydoc = make_rev_doc(360.0, /*axis=Y*/1, 15.0, 0.0);
+    REQUIRE(ydoc->recompute());
+    REQUIRE(ydoc->error.empty());
+    REQUIRE(double(ydoc->display_mesh.volume()) == Approx(9424.78).epsilon(0.05));
 }
 
 TEST_CASE("thread standards table carries correct ISO/UTS measures", "[CadDocument]")
