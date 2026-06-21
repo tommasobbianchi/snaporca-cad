@@ -889,3 +889,49 @@ TEST_CASE("extrude taper + up-to-face distance", "[CadDocument]")
         REQUIRE_THAT(x1 - x0, Catch::Matchers::WithinAbs(10.0, 0.1));
     }
 }
+
+TEST_CASE("internal thread cuts a visible groove into the bore wall", "[CadDocument]")
+{
+    using namespace Slic3r;
+    SketchPlane xy = SketchPlane::XY();
+
+    // 40x40x20 box centred on the origin, extruded +Z.
+    auto make_box = [&](CadDocument& doc) {
+        CadFeature sk;
+        sk.type  = CadFeatureType::Sketch;
+        sk.plane = xy;
+        sk.imported_regions = {{
+            {Vec2d(-20,-20), Vec2d(20,-20), Vec2d(20,20), Vec2d(-20,20)},
+        }};
+        doc.features.push_back(sk);
+        CadFeature ex;
+        ex.type       = CadFeatureType::Extrude;
+        ex.sketch_ref = 0;
+        ex.distance   = 20;
+        doc.features.push_back(ex);
+    };
+
+    // Reference: box with a plain Ø12 bore through it.
+    CadDocument hole_doc;
+    make_box(hole_doc);
+    hole_doc.add_hole(12.0, 20.0, true, 0.0, 0.0, xy, "Hole");
+    REQUIRE(hole_doc.recompute());
+    REQUIRE(hole_doc.error.empty());
+    const double v_hole = double(hole_doc.display_mesh.volume());
+
+    // Threaded: same box, internal thread of radius 6 (the bore radius).
+    CadDocument thr_doc;
+    make_box(thr_doc);
+    thr_doc.add_thread(6.0, 3.0, 20.0, 1.0, /*internal=*/true, 0.0, 0.0, xy, "Thread");
+    REQUIRE(thr_doc.recompute());
+    REQUIRE(thr_doc.error.empty());
+    const double v_thread = double(thr_doc.display_mesh.volume());
+
+    // The helical groove must carve material OUT of the wall, beyond the plain
+    // bore -> a visible internal thread. The old inward-pointing profile only
+    // swept already-empty bore space and removed essentially nothing, so it would
+    // give v_thread ~= v_hole; the fixed profile removes a meaningful volume.
+    REQUIRE(v_thread > 0.0);
+    REQUIRE(v_thread < v_hole);
+    REQUIRE((v_hole - v_thread) > 20.0);
+}

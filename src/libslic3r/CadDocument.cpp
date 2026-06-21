@@ -56,15 +56,20 @@ static TopoDS_Wire make_helix_wire(const gp_Ax3& axis, double radius,
 
 // Triangular axial thread profile (a planar face) placed at the helix start
 // (origin + radius*xdir). Spans +-pitch/2 axially; apex offset radially by depth.
-// External: apex points outward (crest = radius+depth), base bites inward.
-// Internal: apex points inward (crest = radius-depth), base bites outward.
+// Both thread kinds sweep the SAME outward-biting V (base on the cylinder wall,
+// apex `depth` into the surrounding material). Only the boolean differs:
+//  - external: the V is FUSED to the rod  -> a raised helical ridge.
+//  - internal: the V is CUT from the wall -> a sunken helical groove. The cut MUST
+//    go outward into the wall to be visible; an inward V (the old behaviour) only
+//    sweeps already-empty bore space and removes nothing.
 static TopoDS_Face make_thread_profile(const gp_Pnt& origin, const gp_Dir& xdir,
                                        const gp_Dir& zdir, double radius,
                                        double pitch, double depth, bool internal)
 {
+    (void)internal;
     gp_Vec vx(xdir), vz(zdir);
-    double inner = internal ? (radius + 0.05) : (radius - 0.05); // bite into material
-    double crest = internal ? (radius - depth) : (radius + depth);
+    double inner = radius - 0.05;   // base, just inside the wall (overlaps rod / open bore)
+    double crest = radius + depth;  // apex, `depth` into the surrounding material
     gp_Pnt top (origin.XYZ() + (vx * inner).XYZ() + (vz * ( 0.5 * pitch)).XYZ());
     gp_Pnt bot (origin.XYZ() + (vx * inner).XYZ() + (vz * (-0.5 * pitch)).XYZ());
     gp_Pnt apex(origin.XYZ() + (vx * crest).XYZ());
@@ -894,15 +899,21 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body,
 
         if (f.thread_internal) {
             if (!have_body) throw std::runtime_error("internal thread needs a body");
-            // Tapped bore: cut a cylinder, then carve the inward helical ridge.
+            // Tapped bore: ensure a clean cylindrical pocket, then carve the
+            // OUTWARD helical groove into its wall. When the thread is invoked on
+            // an existing hole the bore cut is coincident (a no-op that may report
+            // !IsDone) — tolerate it so the visible groove cut below still runs.
             TopoDS_Shape bore = BRepPrimAPI_MakeCylinder(ax2, f.thread_radius,
                                                          f.thread_height).Shape();
-            BRepAlgoAPI_Cut cut_bore(result, bore);
-            if (!cut_bore.IsDone()) throw std::runtime_error("thread bore cut failed");
-            result = cut_bore.Shape();
+            try {
+                BRepAlgoAPI_Cut cut_bore(result, bore);
+                if (cut_bore.IsDone() && !cut_bore.Shape().IsNull())
+                    result = cut_bore.Shape();
+            } catch (const std::exception&) { /* keep existing bore */ }
             if (have_ridge) {
                 BRepAlgoAPI_Cut cut_ridge(result, ridge);
-                if (cut_ridge.IsDone()) result = cut_ridge.Shape();
+                if (cut_ridge.IsDone() && !cut_ridge.Shape().IsNull())
+                    result = cut_ridge.Shape();
             }
         } else {
             // External threaded rod = a New body: base cylinder + fused ridge.
