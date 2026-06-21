@@ -1325,16 +1325,47 @@ void DesignPanel::add_imported_sketch(
     CadFeature f;
     f.type            = CadFeatureType::Sketch;
     f.name            = std::string(base_name.ToUTF8().data()) + std::to_string(m_feature_counter);
-    f.plane           = m_draw_plane ? plane_from_index(m_draw_plane->GetSelection())
-                                     : SketchPlane::XY();
     f.imported_regions = regions;
+
+    // #4: when a solid face is selected, drop the art ON that face, centred on it (ready to
+    // engrave). Otherwise place it on the draw-plane dropdown at the plane origin (legacy).
+    bool on_face = false;
+    if (m_sel_solid_face >= 0 && m_sel_solid_body >= 0 && m_sel_solid_body < int(m_doc.bodies.size())) {
+        const TopoDS_Face face =
+            GeometryEngine::face_by_index(m_doc.bodies[m_sel_solid_body].shape, m_sel_solid_face);
+        if (!face.IsNull()) {
+            f.plane = SketchPlane::from_face(face);
+            const Vec3d cw   = GeometryEngine::face_centroid_world(face);
+            const Vec2d c_uv = f.plane.project(cw, f.plane.normal);   // face centre in plane (u,v)
+            Vec2d lo(1e30, 1e30), hi(-1e30, -1e30);                   // bbox of the imported art
+            for (const auto& reg : regions)
+                for (const auto& loop : reg)
+                    for (const Vec2d& p : loop) { lo = lo.cwiseMin(p); hi = hi.cwiseMax(p); }
+            f.import_offset    = c_uv - 0.5 * (lo + hi);              // centre the art on the face
+            f.import_on_face   = true;
+            f.import_face_body = m_sel_solid_body;
+            on_face = true;
+        }
+    }
+    if (!on_face)
+        f.plane = m_draw_plane ? plane_from_index(m_draw_plane->GetSelection())
+                               : SketchPlane::XY();
+
+    // Drop the live face selection (its body is now remembered on import_face_body): otherwise
+    // the next Extrude would push/pull that face instead of extruding the placed art.
+    m_sel_solid_face = m_sel_solid_edge = m_sel_solid_body = -1;
+
     m_doc.features.push_back(f);
     m_doc.recompute();   // a lone sketch yields an empty body; that is expected
     refresh_tree();
-    set_tree_selection(int(m_doc.features.size()) - 1);   // select the new art so Move/Scale is ready
+    const int newidx = int(m_doc.features.size()) - 1;
+    set_tree_selection(newidx);   // select the new art
     sync_sketch_display();
+    on_transform_imported(newidx);   // #4: edit/move-scale mode ON by default
     m_status->SetForegroundColour(wxNullColour);
-    m_status->SetLabel(base_name + _L(" added — Move/Scale to place it, then Extrude"));
+    m_status->SetLabel(on_face
+        ? base_name + _L(" on face — drag a corner to size, then Extrude (Cut to engrave)")
+        : base_name + _L(" added — drag to place/size, then Extrude"));
     m_status->Refresh();
 }
 
@@ -1411,6 +1442,11 @@ void DesignPanel::on_add_extrude()
         f.flip        = m_flip->GetValue();
         f.up_to_face  = (f.extrude_end == ExtrudeEnd::UpToFace) ? m_sel_solid_face : -1;
         f.target_body = m_sel_solid_body;   // multi-body: act on the picked body (-1 = last)
+        // On-face Text/SVG remembers its host body even after the face pick was cleared by
+        // the placement recompute, so the engraving Cut hits the right solid.
+        if (m_extrude_sketch_ref >= 0 && m_extrude_sketch_ref < int(m_doc.features.size())
+            && m_doc.features[m_extrude_sketch_ref].import_on_face)
+            f.target_body = m_doc.features[m_extrude_sketch_ref].import_face_body;
     }
     if (!m_doc.recompute())
         m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
@@ -3268,6 +3304,10 @@ CadFeature DesignPanel::build_candidate(Tool t) const
             f.plane      = m_doc.features[m_extrude_sketch_ref].plane;
         } else {
             f.sketch_ref = m_extrude_sketch_ref;
+            // Preview an on-face engraving Cut against the host body (matches the commit).
+            if (m_extrude_sketch_ref >= 0 && m_extrude_sketch_ref < int(m_doc.features.size())
+                && m_doc.features[m_extrude_sketch_ref].import_on_face)
+                f.target_body = m_doc.features[m_extrude_sketch_ref].import_face_body;
         }
         break;
     case Tool::Dressup:
@@ -3533,8 +3573,17 @@ void DesignPanel::open_tool(Tool t)
         // Onshape-style: the first solid is New; once a body exists, a fresh extrude
         // defaults to Add (union) so extruding further loops accumulates instead of
         // replacing the body. (Edit-mode keeps the feature's stored mode, set below.)
-        if (m_edit_index < 0)
-            m_mode->SetSelection(m_doc.body.IsNull() ? 0 : 1);
+        if (m_edit_index < 0) {
+            const bool on_face_import =
+                m_extrude_sketch_ref >= 0 && m_extrude_sketch_ref < int(m_doc.features.size())
+                && m_doc.features[m_extrude_sketch_ref].import_on_face;
+            if (on_face_import) {
+                m_mode->SetSelection(2);     // Cut — engrave into the face
+                m_flip->SetValue(true);      // extrude inward (the face normal points out)
+            } else {
+                m_mode->SetSelection(m_doc.body.IsNull() ? 0 : 1);
+            }
+        }
     }
 
     // Retitle the active card's header: edit-mode shows the feature's real name,

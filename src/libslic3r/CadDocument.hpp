@@ -63,6 +63,10 @@ struct CadFeature {
     Vec2d  import_offset{0, 0};
     double import_scale_x{1.0};
     double import_scale_y{1.0};
+    // Text/SVG dropped ONTO a solid face (centred on it): the extrude then defaults to an
+    // inward Cut (engraving) targeting `import_face_body`. False = free art on a plane.
+    bool   import_on_face{false};
+    int    import_face_body{-1};
 
     // Extrude params
     int         sketch_ref{-1};   // index into features[] of the consumed sketch
