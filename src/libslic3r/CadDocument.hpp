@@ -12,7 +12,7 @@
 
 namespace Slic3r {
 
-enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve };
+enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve, Sweep };
 enum class SketchShape    { Rectangle, Circle };
 enum class BooleanMode    { New, Add, Cut, Intersect };
 
@@ -117,6 +117,11 @@ struct CadFeature {
     // target_body. revolve_axis: 0 = plane X axis, 1 = plane Y axis.
     double      revolve_angle{360};        // sweep angle in degrees (1..360)
     int         revolve_axis{0};           // 0 = plane X, 1 = plane Y
+
+    // Sweep: profile carried by sketch_ref / entities (like Extrude); the spine is a
+    // second Sketch referenced by sweep_path_ref (an open or closed wire). Reuses
+    // mode (boolean) and target_body.
+    int         sweep_path_ref{-1};        // index into features[] of the path Sketch
 };
 
 // One independent solid in a multi-body document.
@@ -181,6 +186,9 @@ public:
     int  add_revolve_entities(const std::vector<SketchEntity>& entities,
                               const SketchPlane& plane, double angle, int axis, bool flip,
                               BooleanMode mode, const std::string& name);
+    // Sweep the profile Sketch (profile_sketch_ref) along the path Sketch (path_sketch_ref).
+    int  add_sweep(int profile_sketch_ref, int path_sketch_ref, BooleanMode mode,
+                   const std::string& name);
     int  add_shell(double thickness, int face, int target_body, const std::string& name);
     void clear();
     bool recompute();   // replay features -> body + display_mesh; false on error

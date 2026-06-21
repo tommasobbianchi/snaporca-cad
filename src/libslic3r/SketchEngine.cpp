@@ -22,6 +22,7 @@
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
+#include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -344,6 +345,20 @@ TopoDS_Shape SketchEngine::make_revolve(const TopoDS_Wire& wire, const SketchPla
     if (!rev.IsDone())
         throw std::runtime_error("Failed to revolve");
     return rev.Shape();
+}
+
+TopoDS_Shape SketchEngine::make_sweep(const TopoDS_Wire& profile, const TopoDS_Wire& path)
+{
+    BRepBuilderAPI_MakeFace faceMaker(profile);
+    if (!faceMaker.IsDone())
+        throw std::runtime_error("Failed to make face from sweep profile");
+    TopoDS_Face face = faceMaker.Face();
+
+    BRepOffsetAPI_MakePipe pipe(path, face);
+    pipe.Build();
+    if (!pipe.IsDone())
+        throw std::runtime_error("Failed to sweep profile along path");
+    return pipe.Shape();
 }
 
 TopoDS_Shape SketchEngine::make_pocket(const TopoDS_Wire& wire, const SketchPlane& plane,

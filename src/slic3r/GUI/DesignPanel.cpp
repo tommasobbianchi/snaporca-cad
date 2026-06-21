@@ -235,6 +235,21 @@ DesignPanel::DesignPanel(wxWindow* parent)
             open_tool(Tool::Revolve);
         });
         fadd(b_revolve);
+
+        auto* b_sweep = icon_btn("design_extrude", _L("Sweep"));
+        b_sweep->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            m_sweep_profile_ref = resolve_extrude_sketch();
+            m_sweep_path_ref    = -1;   // fresh sweep: default the picker to the first sketch
+            if (m_sweep_profile_ref < 0) {
+                m_status->SetForegroundColour(wxColour(235, 110, 110));
+                m_status->SetLabel(_L("Create a profile sketch to sweep first"));
+                m_status->Refresh();
+                return;
+            }
+            open_tool(Tool::Sweep);
+        });
+        fadd(b_sweep);
+
         auto* b_dressup = icon_btn("design_dressup", _L("Fillet / Chamfer"));
         b_dressup->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Dressup); });
         fadd(b_dressup);
@@ -824,6 +839,43 @@ DesignPanel::DesignPanel(wxWindow* parent)
     }
     root->Add(m_box_revolve, 0, wxEXPAND);
 
+    // --- Sweep (sweep a profile sketch along a path sketch) ---
+    m_box_sweep = new wxBoxSizer(wxVERTICAL);
+    m_box_sweep->Add(card_header("design_extrude", _L("Sweep"), m_hdr_sweep), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_sweep->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
+    m_sweep_profile_label = new wxStaticText(m_form, wxID_ANY, _L("Profile: —"));
+    m_box_sweep->Add(m_sweep_profile_label, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    {
+        auto* sform = new wxFlexGridSizer(2, 6, 8);
+
+        m_sweep_path = new wxChoice(m_form, wxID_ANY);
+        sform->Add(new wxStaticText(m_form, wxID_ANY, _L("Path")), 0, wxALIGN_CENTER_VERTICAL);
+        sform->Add(m_sweep_path);
+
+        m_sweep_mode = new wxChoice(m_form, wxID_ANY);
+        m_sweep_mode->Append("New");
+        m_sweep_mode->Append("Add");
+        m_sweep_mode->Append("Cut");
+        m_sweep_mode->Append("Intersect");
+        m_sweep_mode->SetSelection(0);
+        sform->Add(new wxStaticText(m_form, wxID_ANY, _L("Mode")), 0, wxALIGN_CENTER_VERTICAL);
+        sform->Add(m_sweep_mode);
+
+        m_box_sweep->Add(sform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    }
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        m_confirm_btns.push_back(ok);
+        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
+        row->Add(ok, 0, wxRIGHT, 8);
+        row->Add(no, 0);
+        m_box_sweep->Add(row, 0, wxALL, 12);
+    }
+    root->Add(m_box_sweep, 0, wxEXPAND);
+
     // --- Shell (hollow the current body to a wall thickness, removing one picked face) ---
     auto* sform = new wxFlexGridSizer(2, 6, 8);
     m_shell_thickness = make_spin(m_form, 2.0, 0.01, 100000.0);
@@ -1028,6 +1080,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     root->Show(m_box_sketch,  false, true);
     root->Show(m_box_extrude, false, true);
     root->Show(m_box_revolve, false, true);
+    root->Show(m_box_sweep, false, true);
     root->Show(m_box_dressup, false, true);
     root->Show(m_box_hole,    false, true);
     root->Show(m_box_thread,  false, true);
@@ -1772,6 +1825,36 @@ void DesignPanel::on_add_revolve()
     refresh_tree();
 }
 
+void DesignPanel::on_add_sweep()
+{
+    if (m_sweep_profile_ref < 0 || m_sweep_profile_ref >= int(m_doc.features.size())) {
+        m_status->SetLabel(_L("Pick a profile sketch to sweep first"));
+        return;
+    }
+    const int sel = m_sweep_path->GetSelection();
+    const int path_ref = (sel != wxNOT_FOUND)
+        ? int(reinterpret_cast<intptr_t>(m_sweep_path->GetClientData(sel))) : -1;
+    if (path_ref < 0) {
+        m_status->SetLabel(_L("Pick a path sketch for the sweep"));
+        return;
+    }
+    const BooleanMode mode = static_cast<BooleanMode>(m_sweep_mode->GetSelection());
+    if (mode != BooleanMode::New && m_doc.body.IsNull()) {
+        m_status->SetLabel(_L("Add/Cut/Intersect sweep needs an existing body"));
+        return;
+    }
+    m_feature_counter++;
+    m_doc.add_sweep(m_sweep_profile_ref, path_ref, mode,
+                    "Sweep" + std::to_string(m_feature_counter));
+
+    if (!m_doc.recompute())
+        m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
+    else
+        set_status_ok();
+
+    refresh_tree();
+}
+
 void DesignPanel::on_add_shell()
 {
     if (m_doc.body.IsNull()) {
@@ -1803,6 +1886,7 @@ int DesignPanel::tree_icon_for(CadFeatureType t)
     case CadFeatureType::Thread:  return 4;
     case CadFeatureType::Shell:   return 5;
     case CadFeatureType::Revolve: return 1;
+    case CadFeatureType::Sweep:   return 1;
     }
     return 0;
 }
@@ -3398,6 +3482,11 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
         m_revolve_flip->SetValue(f.flip);
         m_revolve_sketch_ref = f.sketch_ref;
         break;
+    case CadFeatureType::Sweep:
+        m_sweep_profile_ref = f.sketch_ref;
+        m_sweep_path_ref    = f.sweep_path_ref;   // show_tool pre-selects this in the picker
+        m_sweep_mode->SetSelection(static_cast<int>(f.mode));
+        break;
     default: break;
     }
 }
@@ -3471,6 +3560,11 @@ void DesignPanel::on_edit_feature()
         m_edit_index = sel;
         load_feature_into_dialog(f);
         open_tool(Tool::Revolve);
+        break;
+    case CadFeatureType::Sweep:
+        m_edit_index = sel;
+        load_feature_into_dialog(f);
+        open_tool(Tool::Sweep);
         break;
     default: break;
     }
@@ -3605,6 +3699,15 @@ CadFeature DesignPanel::build_candidate(Tool t) const
         f.flip          = m_revolve_flip->GetValue();
         f.mode          = static_cast<BooleanMode>(m_revolve_mode->GetSelection());
         break;
+    case Tool::Sweep: {
+        f.type           = CadFeatureType::Sweep;
+        f.sketch_ref     = m_sweep_profile_ref;
+        const int sel    = m_sweep_path ? m_sweep_path->GetSelection() : wxNOT_FOUND;
+        f.sweep_path_ref = (sel != wxNOT_FOUND)
+            ? int(reinterpret_cast<intptr_t>(m_sweep_path->GetClientData(sel))) : -1;
+        f.mode           = static_cast<BooleanMode>(m_sweep_mode->GetSelection());
+        break;
+    }
     case Tool::None:
         break;
     }
@@ -3827,11 +3930,32 @@ void DesignPanel::open_tool(Tool t)
     s->Show(m_box_thread,  t == Tool::Thread,  true);
     s->Show(m_box_shell,   t == Tool::Shell,   true);
     s->Show(m_box_revolve, t == Tool::Revolve, true);
+    s->Show(m_box_sweep,   t == Tool::Sweep,   true);
 
     if (t == Tool::Revolve && m_revolve_sketch_ref >= 0
         && m_revolve_sketch_ref < int(m_doc.features.size()))
         m_revolve_sketch_label->SetLabel(_L("Sketch: ") +
             wxString::FromUTF8(m_doc.features[m_revolve_sketch_ref].name));
+
+    if (t == Tool::Sweep) {
+        if (m_sweep_profile_ref >= 0 && m_sweep_profile_ref < int(m_doc.features.size()))
+            m_sweep_profile_label->SetLabel(_L("Profile: ") +
+                wxString::FromUTF8(m_doc.features[m_sweep_profile_ref].name));
+        // Populate the path picker with every Sketch feature except the profile itself;
+        // the feature index rides in the entry's client data. Pre-select the stored path
+        // (re-edit), else the first available sketch.
+        m_sweep_path->Clear();
+        int sel_idx = wxNOT_FOUND;
+        for (int i = 0; i < int(m_doc.features.size()); ++i) {
+            const CadFeature& sf = m_doc.features[i];
+            if (sf.type != CadFeatureType::Sketch || i == m_sweep_profile_ref) continue;
+            const int pos = m_sweep_path->Append(wxString::FromUTF8(sf.name),
+                                                 reinterpret_cast<void*>(intptr_t(i)));
+            if (i == m_sweep_path_ref) sel_idx = pos;
+        }
+        if (sel_idx != wxNOT_FOUND) m_sweep_path->SetSelection(sel_idx);
+        else if (m_sweep_path->GetCount() > 0) m_sweep_path->SetSelection(0);
+    }
 
     if (t == Tool::Extrude) {
         if (m_extrude_face_src >= 0)
@@ -3872,6 +3996,7 @@ void DesignPanel::open_tool(Tool t)
     case Tool::Thread:  m_hdr_thread->SetLabel(title(_L("Thread")));   break;
     case Tool::Shell:   m_hdr_shell->SetLabel(title(_L("Shell")));     break;
     case Tool::Revolve: m_hdr_revolve->SetLabel(title(_L("Revolve"))); break;
+    case Tool::Sweep:   m_hdr_sweep->SetLabel(title(_L("Sweep")));     break;
     case Tool::None:    break;
     }
 
@@ -3892,6 +4017,7 @@ void DesignPanel::close_tool()
     s->Show(m_box_thread,  false, true);
     s->Show(m_box_shell,   false, true);
     s->Show(m_box_revolve, false, true);
+    s->Show(m_box_sweep,   false, true);
     m_viewport->clear_preview();
     m_viewport->clear_extrude_gizmo();
     m_viewport->clear_fillet_gizmo();
@@ -3927,6 +4053,7 @@ void DesignPanel::confirm_tool()
     case Tool::Thread:  on_add_thread();  break;
     case Tool::Shell:   on_add_shell();   break;
     case Tool::Revolve: on_add_revolve(); break;
+    case Tool::Sweep:   on_add_sweep();   break;
     case Tool::None:    return;
     }
     close_tool(); // also clears the preview ghost; the committed body is now shown

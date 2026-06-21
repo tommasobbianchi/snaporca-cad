@@ -182,6 +182,12 @@ public:
     static TopoDS_Shape make_revolve(const TopoDS_Wire& wire, const SketchPlane& plane,
                                      double angle_deg = 360.0, int axis_sel = 0);
 
+    // Sweep a planar profile wire along a path (spine) wire. The profile is turned
+    // into a face and swept with BRepOffsetAPI_MakePipe, which keeps the profile
+    // perpendicular to the spine along its length. The path may be open or closed;
+    // for a clean solid the path's first point should sit on/near the profile plane.
+    static TopoDS_Shape make_sweep(const TopoDS_Wire& profile, const TopoDS_Wire& path);
+
     static TopoDS_Shape make_pocket(const TopoDS_Wire& wire, const SketchPlane& plane,
                                     const TopoDS_Shape& target, double depth);
 

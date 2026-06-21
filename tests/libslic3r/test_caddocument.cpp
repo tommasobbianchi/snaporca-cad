@@ -981,6 +981,42 @@ TEST_CASE("revolve builds a solid of revolution about an in-plane axis", "[CadDo
     REQUIRE(double(ydoc->display_mesh.volume()) == Approx(9424.78).epsilon(0.05));
 }
 
+TEST_CASE("sweep builds a solid by sweeping a profile along a path", "[CadDocument]")
+{
+    using namespace Slic3r;
+    CadDocument doc;
+
+    // Profile: circle r=5 on the XY plane at the origin (area = 25*pi).
+    SketchEntity circ;
+    circ.type   = SketchEntity::Type::Circle;
+    circ.center = Vec2d(0, 0);
+    circ.radius = 5.0;
+    const int prof = doc.add_sketch_entities({circ}, SketchPlane::XY(), "Profile");
+
+    // Path: a straight line on the XZ plane from 2D (0,0)->(0,100), i.e. world
+    // (0,0,0)->(0,0,100): the spine starts on the profile plane and runs +Z by 100.
+    SketchEntity line;
+    line.type = SketchEntity::Type::Line;
+    line.p0   = Vec2d(0, 0);
+    line.p1   = Vec2d(0, 100);
+    const int path = doc.add_sketch_entities({line}, SketchPlane::XZ(), "Path");
+
+    doc.add_sweep(prof, path, BooleanMode::New, "Sweep1");
+    REQUIRE(doc.recompute());
+    REQUIRE(doc.error.empty());
+
+    // Straight sweep of a circle == a cylinder: V = pi*r^2*h = pi*25*100 = ~7853.98.
+    const double v = double(doc.display_mesh.volume());
+    REQUIRE(v > 0.0);
+    REQUIRE_THAT(v, Catch::Matchers::WithinRel(M_PI * 25.0 * 100.0, 0.03));
+
+    // A valid path sketch is mandatory: a -1 path ref must error cleanly, not crash.
+    CadDocument bad;
+    const int p2 = bad.add_sketch_entities({circ}, SketchPlane::XY(), "Profile");
+    bad.add_sweep(p2, -1, BooleanMode::New, "BadSweep");
+    REQUIRE_FALSE(bad.recompute());
+}
+
 TEST_CASE("thread standards table carries correct ISO/UTS measures", "[CadDocument]")
 {
     using namespace Slic3r;

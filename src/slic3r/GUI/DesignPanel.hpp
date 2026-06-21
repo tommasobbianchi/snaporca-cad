@@ -35,7 +35,7 @@ public:
     explicit DesignPanel(wxWindow* parent);
 
 private:
-    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve };
+    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve, Sweep };
 
     // Onshape-style contextual top toolbar: only the active mode's tool group is
     // shown (Feature = sketch/extrude/dress/hole/thread; Sketch = entity tools;
@@ -51,6 +51,7 @@ private:
     void on_add_thread();
     void apply_thread_standard();   // fill pitch/depth/radius from m_thread_std selection
     void on_add_revolve();
+    void on_add_sweep();
     void on_add_shell();
     // Import rigid 2D art (Text / SVG) as a new Sketch feature carrying
     // imported_regions (no solver entities). on_add_text/on_import_svg gather
@@ -142,6 +143,7 @@ private:
     wxSizer*  m_box_thread{nullptr};
     wxSizer*  m_box_shell{nullptr};
     wxSizer*  m_box_revolve{nullptr};
+    wxSizer*  m_box_sweep{nullptr};
 
     // Onshape-style dialog-card title rows (icon + bold feature name), retitled
     // per tool in open_tool() (edit-mode shows the feature's actual name).
@@ -156,6 +158,7 @@ private:
     wxStaticText* m_hdr_thread{nullptr};
     wxStaticText* m_hdr_shell{nullptr};
     wxStaticText* m_hdr_revolve{nullptr};
+    wxStaticText* m_hdr_sweep{nullptr};
 
     wxScrolledWindow* m_form{nullptr};
     DesignCanvas*     m_viewport{nullptr};
@@ -193,6 +196,13 @@ private:
     wxChoice*         m_revolve_mode{nullptr};   // New/Add/Cut/Intersect
     wxCheckBox*       m_revolve_flip{nullptr};
     int               m_revolve_sketch_ref{-1};
+
+    // Sweep controls (sweep a profile sketch along a path sketch).
+    wxStaticText*     m_sweep_profile_label{nullptr};
+    wxChoice*         m_sweep_path{nullptr};       // path Sketch picker (feature index in client data)
+    wxChoice*         m_sweep_mode{nullptr};       // New/Add/Cut/Intersect
+    int               m_sweep_profile_ref{-1};
+    int               m_sweep_path_ref{-1};        // path Sketch feature index (for re-edit pre-select)
     // Plate loop selection (click a committed sketch loop): the Sketch feature + the
     // clicked closed-region index, so Extrude builds just that one loop. -1 = none.
     int               m_sel_sketch_feat{-1};

@@ -545,6 +545,19 @@ int CadDocument::add_revolve_entities(const std::vector<SketchEntity>& entities,
     return int(features.size()) - 1;
 }
 
+int CadDocument::add_sweep(int profile_sketch_ref, int path_sketch_ref, BooleanMode mode,
+                           const std::string& name)
+{
+    CadFeature f;
+    f.type           = CadFeatureType::Sweep;
+    f.name           = name;
+    f.sketch_ref     = profile_sketch_ref;
+    f.sweep_path_ref = path_sketch_ref;
+    f.mode           = mode;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
 int CadDocument::add_shell(double thickness, int face, int target_body, const std::string& name)
 {
     CadFeature f;
@@ -895,6 +908,37 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body,
         }
         break;
     }
+    case CadFeatureType::Sweep: {
+        // Resolve the profile sketch like Extrude/Revolve, and the path (spine) from
+        // the referenced path Sketch. Both build through build_sketch_wire (the path
+        // sketch is entity-based, so its wire keeps its open/closed shape as drawn).
+        const CadFeature& sk = (f.sketch_ref >= 0 && f.sketch_ref < int(features.size())
+                                && features[f.sketch_ref].type == CadFeatureType::Sketch)
+                               ? features[f.sketch_ref] : f;
+        if (f.sweep_path_ref < 0 || f.sweep_path_ref >= int(features.size())
+            || features[f.sweep_path_ref].type != CadFeatureType::Sketch)
+            throw std::runtime_error("sweep needs a valid path sketch");
+        TopoDS_Wire profile = build_sketch_wire(sk);
+        TopoDS_Wire path    = build_sketch_wire(features[f.sweep_path_ref]);
+        TopoDS_Shape tool   = SketchEngine::make_sweep(profile, path);
+        if (!have_body || f.mode == BooleanMode::New) {
+            result = tool;
+            have_body = true;
+        } else if (f.mode == BooleanMode::Add) {
+            BRepAlgoAPI_Fuse fuse(result, tool);
+            if (!fuse.IsDone()) throw std::runtime_error("fuse failed");
+            result = fuse.Shape();
+        } else if (f.mode == BooleanMode::Cut) {
+            BRepAlgoAPI_Cut cut(result, tool);
+            if (!cut.IsDone()) throw std::runtime_error("cut failed");
+            result = cut.Shape();
+        } else if (f.mode == BooleanMode::Intersect) {
+            BRepAlgoAPI_Common common(result, tool);
+            if (!common.IsDone()) throw std::runtime_error("intersect failed");
+            result = common.Shape();
+        }
+        break;
+    }
     case CadFeatureType::Fillet:
         if (!have_body) throw std::runtime_error("fillet needs a body");
         if (f.dressup_edge >= 0)
@@ -1055,7 +1099,8 @@ void CadDocument::route_feature(std::vector<CadBody>& bodies, const CadFeature& 
     // A New extrude (or the very first solid feature) starts a fresh body; everything else
     // mutates the target body in place.
     const bool starts_new = bodies.empty()
-        || ((f.type == CadFeatureType::Extrude || f.type == CadFeatureType::Revolve)
+        || ((f.type == CadFeatureType::Extrude || f.type == CadFeatureType::Revolve
+             || f.type == CadFeatureType::Sweep)
             && f.mode == BooleanMode::New);
 
     if (starts_new) {
