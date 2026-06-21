@@ -169,6 +169,20 @@ public:
     void clear();
     bool recompute();   // replay features -> body + display_mesh; false on error
 
+    // Undo/redo of the feature recipe (Onshape-style Ctrl+Z). The caller marks a
+    // user-action boundary by calling checkpoint() BEFORE the mutation(s) for that
+    // action (add/delete/move/replace, or a direct features edit). undo()/redo() then
+    // restore the snapshot and recompute(). Because everything else (bodies/meshes/
+    // body) is derived by recompute(), snapshotting `features` alone is a complete,
+    // exact history; one checkpoint == one Ctrl+Z step.
+    void checkpoint();   // snapshot `features` for undo + invalidate redo
+    bool can_undo() const { return !m_undo.empty(); }
+    bool can_redo() const { return !m_redo.empty(); }
+    size_t undo_depth() const { return m_undo.size(); }
+    size_t redo_depth() const { return m_redo.size(); }
+    bool undo();   // restore the previous feature list + recompute(); false if no history
+    bool redo();   // re-apply the most recently undone change; false if none
+
     // Feature-tree editing (Onshape-style). All are transactional: they snapshot
     // features, mutate, recompute(), and roll back to the snapshot (re-recomputing)
     // if the result is invalid — so a failed edit never leaves a broken body.
@@ -211,6 +225,13 @@ private:
     // starts a new body (empty list, or an Extrude with mode New) vs mutates an existing
     // one, then apply_feature. Shared by recompute() (replay all) and preview() (candidate).
     void route_feature(std::vector<CadBody>& bodies, const CadFeature& f) const;
+
+    // Undo/redo stacks of feature-list snapshots. checkpoint() pushes onto m_undo and
+    // clears m_redo; undo()/redo() shuffle the current state between them. Capped so a
+    // long session can't grow unbounded.
+    std::vector<std::vector<CadFeature>> m_undo;
+    std::vector<std::vector<CadFeature>> m_redo;
+    static constexpr size_t k_undo_cap = 200;
 };
 
 } // namespace Slic3r

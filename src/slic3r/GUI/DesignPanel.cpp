@@ -880,6 +880,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_viewport = new DesignCanvas(this);
 
     m_viewport->set_on_sketch_commit([this](const SketchProfile& prof, const SketchPlane& plane) {
+        m_doc.checkpoint();   // undo boundary: committing a sketch
         m_feature_counter++;
         m_doc.add_sketch_profile(prof, plane, "Sketch" + std::to_string(m_feature_counter));
         m_doc.recompute();
@@ -898,6 +899,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
                 m_status->Refresh();
                 return;
             }
+            m_doc.checkpoint();   // undo boundary: committing / re-editing an entity sketch
             // Re-edit of a committed entity sketch: REPLACE it in place (keep its name +
             // tree position) instead of appending a duplicate.
             if (m_edit_index >= 0 && m_edit_index < int(m_doc.features.size()) &&
@@ -1105,6 +1107,9 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_status->SetLabel(_L("Tool exited"));
         m_status->Refresh();
     });
+
+    // Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y) from the viewport → feature-history undo/redo.
+    m_viewport->set_on_undo_redo([this](bool redo) { do_undo_redo(redo); });
 
     // The Line tool's length and the Dimension tool's value are both entered in-canvas now
     // (live quote labels + the floating SketchInlineEditor), so the old docked-card
@@ -1315,6 +1320,7 @@ void DesignPanel::add_imported_sketch(
         m_status->Refresh();
         return;
     }
+    m_doc.checkpoint();   // undo boundary: importing Text/SVG art
     m_feature_counter++;
     CadFeature f;
     f.type            = CadFeatureType::Sketch;
@@ -1694,6 +1700,7 @@ void DesignPanel::on_delete_feature()
         m_status->Refresh();
         return;
     }
+    m_doc.checkpoint();   // undo boundary: deleting a feature
     after_tree_edit(m_doc.remove_feature(sel));
 }
 
@@ -1767,6 +1774,7 @@ void DesignPanel::on_move_feature(int delta)
     int target = sel + delta;
     if (target < 0 || target >= int(m_doc.features.size()))
         return; // already at the end
+    m_doc.checkpoint();   // undo boundary: reordering a feature
     if (m_doc.move_feature(sel, delta)) {
         after_tree_edit(true);
         set_tree_selection(target); // keep the moved feature selected
@@ -3574,6 +3582,9 @@ void DesignPanel::close_tool()
 
 void DesignPanel::confirm_tool()
 {
+    // One undo boundary per committed feature (Extrude/Dressup/Hole/Thread/Shell, the
+    // legacy Sketch card via on_add_sketch, and edit-mode replace all funnel here).
+    m_doc.checkpoint();
     const bool editing_single = (m_edit_index >= 0);
 
     if (editing_single) {
@@ -3606,6 +3617,35 @@ void DesignPanel::cancel_tool()
     // label and restore the neutral idle colour (Confirm keeps its "OK" status).
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(wxString());
+    m_status->Refresh();
+}
+
+void DesignPanel::do_undo_redo(bool redo)
+{
+    // v1: act only in Feature mode. While authoring/constraining a sketch (m_ui_mode) or
+    // with a feature dialog open (m_active), Esc/Cancel is the way out — popping committed
+    // history mid-tool would be ambiguous (and could orphan the tool's referenced feature).
+    if (m_ui_mode != UiMode::Feature || m_active != Tool::None) {
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(_L("Finish or cancel the current tool first (Esc)"));
+        m_status->Refresh();
+        return;
+    }
+    const bool ok = redo ? m_doc.redo() : m_doc.undo();
+    if (!ok) {
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(redo ? _L("Nothing to redo") : _L("Nothing to undo"));
+        m_status->Refresh();
+        return;
+    }
+    // The solid whole/face/edge pick and any in-place edit reference ids that recompute()
+    // invalidates — drop them before refreshing from the restored document.
+    m_sel_solid_body = m_sel_solid_face = m_sel_solid_edge = -1;
+    reset_edit_state();
+    after_tree_edit(true);   // refresh tree + viewport meshes + status from the restored doc
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(wxString::Format(redo ? _L("Redo  (%zu more)") : _L("Undo  (%zu more)"),
+                                        redo ? m_doc.redo_depth() : m_doc.undo_depth()));
     m_status->Refresh();
 }
 

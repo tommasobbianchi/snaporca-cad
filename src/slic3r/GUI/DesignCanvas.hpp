@@ -121,6 +121,7 @@ public:
     void clear_extrude_gizmo();
     void set_on_extrude_depth_changed(std::function<void(double, bool)> cb);
     void set_on_sketch_exit(std::function<void()> cb);           // Esc -> exit the tool
+    void set_on_undo_redo(std::function<void(bool /*redo*/)> cb); // Ctrl+Z / Ctrl+Shift+Z
     // Persistently draw committed sketches (un-consumed ones stay visible).
     void set_display_sketches(std::vector<DesignSketchTool::DisplaySketch> ds);
     void set_body_highlight(bool on);   // tint the solid when its feature is tree-selected

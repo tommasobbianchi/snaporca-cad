@@ -109,6 +109,9 @@ private:
     void       refresh_preview();
     void       confirm_tool();
     void       cancel_tool();
+    // Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y) from the viewport. With a tool/dialog open it
+    // cancels that (Esc-like); otherwise it undoes/redoes the committed feature history.
+    void       do_undo_redo(bool redo);
     CadFeature build_candidate(Tool t) const;
     int        resolve_extrude_sketch() const;
     // True when Extrude should build only the click-selected loop (a region of the

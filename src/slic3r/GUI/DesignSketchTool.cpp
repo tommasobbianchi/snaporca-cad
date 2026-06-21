@@ -241,6 +241,11 @@ void DesignSketchTool::request_exit()
     if (on_exit) on_exit(); else cancel();
 }
 
+void DesignSketchTool::request_undo_redo(bool redo)
+{
+    if (on_undo_redo) on_undo_redo(redo);
+}
+
 void DesignSketchTool::clear_selection()
 {
     if (m_selection.empty() && m_point_sel.empty()) return;

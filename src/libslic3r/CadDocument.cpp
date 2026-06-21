@@ -526,6 +526,39 @@ void CadDocument::clear()
     display_mesh = TriangleMesh{};
     display_tri_face.clear();
     error.clear();
+    // A cleared document is a fresh start with no history.
+    m_undo.clear();
+    m_redo.clear();
+}
+
+void CadDocument::checkpoint()
+{
+    m_undo.push_back(features);   // snapshot the pre-mutation recipe
+    m_redo.clear();               // any new action invalidates the redo branch
+    if (m_undo.size() > k_undo_cap)
+        m_undo.erase(m_undo.begin());
+}
+
+bool CadDocument::undo()
+{
+    if (m_undo.empty())
+        return false;
+    m_redo.push_back(std::move(features));   // current state becomes redoable
+    features = std::move(m_undo.back());
+    m_undo.pop_back();
+    recompute();   // benign-empty (only a sketch / empty doc) is a valid undo target
+    return true;
+}
+
+bool CadDocument::redo()
+{
+    if (m_redo.empty())
+        return false;
+    m_undo.push_back(std::move(features));
+    features = std::move(m_redo.back());
+    m_redo.pop_back();
+    recompute();
+    return true;
 }
 
 // Re-run recompute(); if it fails for a GENUINE geometry error, restore `snapshot`

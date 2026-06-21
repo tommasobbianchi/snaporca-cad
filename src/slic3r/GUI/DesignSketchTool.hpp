@@ -281,6 +281,11 @@ public:
     // first; a second Esc exits the session.
     std::function<void()> on_exit;
     void request_exit();
+    // Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y) while the Design canvas is focused: undo/redo the
+    // committed feature history. The tool just forwards to the host, which owns the
+    // CadDocument (the tool has no document of its own). redo == true requests redo.
+    std::function<void(bool /*redo*/)> on_undo_redo;
+    void request_undo_redo(bool redo);
 
 private:
     bool screen_to_plane(GLCanvas3D& canvas, const wxMouseEvent& evt, Vec2d& out) const;
