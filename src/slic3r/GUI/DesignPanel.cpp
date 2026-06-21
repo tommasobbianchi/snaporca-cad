@@ -1214,8 +1214,10 @@ DesignPanel::DesignPanel(wxWindow* parent)
     {
         auto* trow = new wxBoxSizer(wxHORIZONTAL);
         auto edit_btn = [this](const char* icon, const wxString& tip) {
-            auto* b = new ScalableButton(m_form, wxID_ANY, icon, "", wxSize(30, 30),
-                                         wxDefaultPosition, wxBU_EXACTFIT | wxBORDER_NONE, false, 20);
+            // Enlarged to match the main ribbon's weight (largest that fits 6
+            // across the ~264px form column).
+            auto* b = new ScalableButton(m_form, wxID_ANY, icon, "", wxSize(36, 36),
+                                         wxDefaultPosition, wxBU_EXACTFIT | wxBORDER_NONE, false, 30);
             b->SetToolTip(tip);
             return b;
         };
