@@ -25,6 +25,7 @@
 #include <algorithm>
 
 #include "slic3r/GUI/wxExtensions.hpp"   // ScalableButton, create_scaled_bitmap
+#include "Widgets/Label.hpp"             // HarmonyOS Sans fonts (Head_*/Body_*) shared with the rest of Orca
 #include "libslic3r/SketchImport.hpp"    // text_to_regions / svg_to_regions
 #include "libslic3r/ThreadStandards.hpp" // ISO metric / Unified imperial thread tables
 #include "libslic3r/Model.hpp"
@@ -122,10 +123,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     auto* root = new wxBoxSizer(wxVERTICAL);
     {
         auto* hdr = new wxStaticText(m_form, wxID_ANY, _L("Design"));
-        wxFont hf = hdr->GetFont();
-        hf.SetPointSize(hf.GetPointSize() + 2);
-        hf.SetWeight(wxFONTWEIGHT_BOLD);
-        hdr->SetFont(hf);
+        hdr->SetFont(Label::Head_16);   // Orca shared HarmonyOS section-title font
         root->Add(hdr, 0, wxLEFT | wxRIGHT | wxTOP, 12);
         root->AddSpacer(2);
     }
@@ -134,10 +132,12 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // Parented to the panel (sits above the form/viewport row). Only the active
     // mode's group is shown; the others are hidden by set_ui_mode().
     m_toolbar = new wxPanel(this, wxID_ANY);
-    m_toolbar->SetBackgroundColour(wxColour(0x32, 0x32, 0x37));
+    // Fixed-dark tool ribbon using Orca's dark-surface tokens (elevated surface
+    // #36363C / hover #4D4D54), coherent with Orca's viewport toolbars.
+    m_toolbar->SetBackgroundColour(wxColour(0x36, 0x36, 0x3C));
 
-    const wxColour tb_bg(0x32, 0x32, 0x37);
-    const wxColour tb_hover(0x45, 0x45, 0x4C);
+    const wxColour tb_bg(0x36, 0x36, 0x3C);
+    const wxColour tb_hover(0x4D, 0x4D, 0x54);
     auto icon_btn = [this, tb_bg, tb_hover](const char* icon, const wxString& tip) {
         auto* b = new ScalableButton(m_toolbar, wxID_ANY, icon, "", wxSize(34, 34),
                                      wxDefaultPosition, wxBU_EXACTFIT | wxBORDER_NONE, false, 22);
@@ -153,11 +153,9 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // Small grey group caption (Onshape-style section hint) for each toolbar mode.
     auto caption = [this](const wxString& t) {
         auto* s = new wxStaticText(m_toolbar, wxID_ANY, t);
-        wxFont f = s->GetFont();
-        f.SetPointSize(f.GetPointSize() - 2);
-        f.SetWeight(wxFONTWEIGHT_BOLD);
+        wxFont f = Label::Body_12; f.SetWeight(wxFONTWEIGHT_BOLD);
         s->SetFont(f);
-        s->SetForegroundColour(wxColour(0x80, 0x80, 0x88));
+        s->SetForegroundColour(wxColour(0x81, 0x81, 0x83));   // Orca dark secondary text
         return s;
     };
     auto add_sep = [this](wxSizer* row) {
@@ -556,10 +554,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         auto* h  = new wxBoxSizer(wxHORIZONTAL);
         auto* ic = new wxStaticBitmap(m_form, wxID_ANY, create_scaled_bitmap(icon, m_form, 18));
         out = new wxStaticText(m_form, wxID_ANY, title);
-        wxFont f = out->GetFont();
-        f.SetPointSize(f.GetPointSize() + 1);
-        f.SetWeight(wxFONTWEIGHT_BOLD);
-        out->SetFont(f);
+        out->SetFont(Label::Head_14);   // Orca shared HarmonyOS card-title font
         h->Add(ic,  0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
         h->Add(out, 0, wxALIGN_CENTER_VERTICAL);
         return h;
