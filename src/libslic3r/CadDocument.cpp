@@ -31,6 +31,9 @@
 #include <gp_Ax3.hxx>
 #include <gp_Pnt2d.hxx>
 #include <gp_Vec.hxx>
+#include <gp_Trsf.hxx>             // pattern: rigid copy transforms
+#include <gp_Ax1.hxx>             // pattern: rotation axis (circular)
+#include <BRepBuilderAPI_Transform.hxx>
 #include <cmath>
 #include <stdexcept>
 #include <algorithm>
@@ -558,6 +561,22 @@ int CadDocument::add_sweep(int profile_sketch_ref, int path_sketch_ref, BooleanM
     return int(features.size()) - 1;
 }
 
+int CadDocument::add_pattern(bool circular, int count, double spacing, int dir,
+                             double angle_deg, int target_body, const std::string& name)
+{
+    CadFeature f;
+    f.type             = CadFeatureType::Pattern;
+    f.name             = name;
+    f.pattern_circular = circular;
+    f.pattern_count    = count;
+    f.pattern_spacing  = spacing;
+    f.pattern_dir      = dir;
+    f.pattern_angle    = angle_deg;
+    f.target_body      = target_body;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
 int CadDocument::add_shell(double thickness, int face, int target_body, const std::string& name)
 {
     CadFeature f;
@@ -936,6 +955,35 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body,
             BRepAlgoAPI_Common common(result, tool);
             if (!common.IsDone()) throw std::runtime_error("intersect failed");
             result = common.Shape();
+        }
+        break;
+    }
+    case CadFeatureType::Pattern: {
+        // Replicate the target body. Each copy is a rigid gp_Trsf of the seed, all
+        // fused into one body. Linear: i*spacing along plane axis pattern_dir
+        // (0=X,1=Y). Circular: i*(angle/count) about the plane normal through the
+        // plane origin (so a seed offset from the origin orbits the axis).
+        if (!have_body) throw std::runtime_error("pattern needs a body");
+        const int n = std::max(1, f.pattern_count);
+        const TopoDS_Shape seed = result;
+        for (int i = 1; i < n; ++i) {
+            gp_Trsf trsf;
+            if (f.pattern_circular) {
+                Vec3d  o = f.plane.to_world(Vec2d(0, 0));
+                gp_Ax1 ax(gp_Pnt(o.x(), o.y(), o.z()),
+                          gp_Dir(f.plane.normal.x(), f.plane.normal.y(), f.plane.normal.z()));
+                const double step = (f.pattern_angle * M_PI / 180.0) / double(n);
+                trsf.SetRotation(ax, step * i);
+            } else {
+                const Vec3d& d = (f.pattern_dir == 1) ? f.plane.y_axis : f.plane.x_axis;
+                trsf.SetTranslation(gp_Vec(d.x() * f.pattern_spacing * i,
+                                           d.y() * f.pattern_spacing * i,
+                                           d.z() * f.pattern_spacing * i));
+            }
+            TopoDS_Shape copy = BRepBuilderAPI_Transform(seed, trsf, true).Shape();
+            BRepAlgoAPI_Fuse fuse(result, copy);
+            if (!fuse.IsDone()) throw std::runtime_error("pattern fuse failed");
+            result = fuse.Shape();
         }
         break;
     }

@@ -35,7 +35,7 @@ public:
     explicit DesignPanel(wxWindow* parent);
 
 private:
-    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve, Sweep };
+    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve, Sweep, Pattern };
 
     // Onshape-style contextual top toolbar: only the active mode's tool group is
     // shown (Feature = sketch/extrude/dress/hole/thread; Sketch = entity tools;
@@ -52,6 +52,7 @@ private:
     void apply_thread_standard();   // fill pitch/depth/radius from m_thread_std selection
     void on_add_revolve();
     void on_add_sweep();
+    void on_add_pattern();
     void on_add_shell();
     // Import rigid 2D art (Text / SVG) as a new Sketch feature carrying
     // imported_regions (no solver entities). on_add_text/on_import_svg gather
@@ -144,6 +145,7 @@ private:
     wxSizer*  m_box_shell{nullptr};
     wxSizer*  m_box_revolve{nullptr};
     wxSizer*  m_box_sweep{nullptr};
+    wxSizer*  m_box_pattern{nullptr};
 
     // Onshape-style dialog-card title rows (icon + bold feature name), retitled
     // per tool in open_tool() (edit-mode shows the feature's actual name).
@@ -159,6 +161,7 @@ private:
     wxStaticText* m_hdr_shell{nullptr};
     wxStaticText* m_hdr_revolve{nullptr};
     wxStaticText* m_hdr_sweep{nullptr};
+    wxStaticText* m_hdr_pattern{nullptr};
 
     wxScrolledWindow* m_form{nullptr};
     DesignCanvas*     m_viewport{nullptr};
@@ -203,6 +206,13 @@ private:
     wxChoice*         m_sweep_mode{nullptr};       // New/Add/Cut/Intersect
     int               m_sweep_profile_ref{-1};
     int               m_sweep_path_ref{-1};        // path Sketch feature index (for re-edit pre-select)
+
+    // Pattern controls (replicate the target body: linear or circular).
+    wxChoice*         m_pattern_type{nullptr};      // 0 = Linear, 1 = Circular
+    wxSpinCtrlDouble* m_pattern_count{nullptr};     // total instances incl. seed
+    wxSpinCtrlDouble* m_pattern_spacing{nullptr};   // linear step (mm)
+    wxChoice*         m_pattern_dir{nullptr};        // linear direction: 0 = plane X, 1 = plane Y
+    wxSpinCtrlDouble* m_pattern_angle{nullptr};     // circular total angle (deg)
     // Plate loop selection (click a committed sketch loop): the Sketch feature + the
     // clicked closed-region index, so Extrude builds just that one loop. -1 = none.
     int               m_sel_sketch_feat{-1};

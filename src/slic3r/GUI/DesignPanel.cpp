@@ -250,6 +250,19 @@ DesignPanel::DesignPanel(wxWindow* parent)
         });
         fadd(b_sweep);
 
+        auto* b_pattern = icon_btn("design_extrude", _L("Pattern"));
+        b_pattern->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            // Pattern replicates an existing body — needs at least one solid.
+            if (m_doc.bodies.empty()) {
+                m_status->SetForegroundColour(wxColour(235, 110, 110));
+                m_status->SetLabel(_L("Create a solid body to pattern first"));
+                m_status->Refresh();
+                return;
+            }
+            open_tool(Tool::Pattern);
+        });
+        fadd(b_pattern);
+
         auto* b_dressup = icon_btn("design_dressup", _L("Fillet / Chamfer"));
         b_dressup->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Dressup); });
         fadd(b_dressup);
@@ -876,6 +889,54 @@ DesignPanel::DesignPanel(wxWindow* parent)
     }
     root->Add(m_box_sweep, 0, wxEXPAND);
 
+    // --- Pattern (replicate the target body: linear or circular) ---
+    m_box_pattern = new wxBoxSizer(wxVERTICAL);
+    m_box_pattern->Add(card_header("design_extrude", _L("Pattern"), m_hdr_pattern), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_pattern->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
+    {
+        auto* pform = new wxFlexGridSizer(2, 6, 8);
+
+        m_pattern_type = new wxChoice(m_form, wxID_ANY);
+        m_pattern_type->Append("Linear");
+        m_pattern_type->Append("Circular");
+        m_pattern_type->SetSelection(0);
+        pform->Add(new wxStaticText(m_form, wxID_ANY, _L("Type")), 0, wxALIGN_CENTER_VERTICAL);
+        pform->Add(m_pattern_type);
+
+        m_pattern_count = make_spin(m_form, 3, 1, 999);
+        pform->Add(new wxStaticText(m_form, wxID_ANY, _L("Count")), 0, wxALIGN_CENTER_VERTICAL);
+        pform->Add(m_pattern_count);
+
+        m_pattern_spacing = make_spin(m_form, 20.0, 0.01, 100000.0);
+        pform->Add(new wxStaticText(m_form, wxID_ANY, _L("Spacing")), 0, wxALIGN_CENTER_VERTICAL);
+        pform->Add(m_pattern_spacing);
+
+        m_pattern_dir = new wxChoice(m_form, wxID_ANY);
+        m_pattern_dir->Append("Plane X");
+        m_pattern_dir->Append("Plane Y");
+        m_pattern_dir->SetSelection(0);
+        pform->Add(new wxStaticText(m_form, wxID_ANY, _L("Direction")), 0, wxALIGN_CENTER_VERTICAL);
+        pform->Add(m_pattern_dir);
+
+        m_pattern_angle = make_spin(m_form, 360.0, 1.0, 360.0);
+        pform->Add(new wxStaticText(m_form, wxID_ANY, _L("Total angle°")), 0, wxALIGN_CENTER_VERTICAL);
+        pform->Add(m_pattern_angle);
+
+        m_box_pattern->Add(pform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    }
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        m_confirm_btns.push_back(ok);
+        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
+        row->Add(ok, 0, wxRIGHT, 8);
+        row->Add(no, 0);
+        m_box_pattern->Add(row, 0, wxALL, 12);
+    }
+    root->Add(m_box_pattern, 0, wxEXPAND);
+
     // --- Shell (hollow the current body to a wall thickness, removing one picked face) ---
     auto* sform = new wxFlexGridSizer(2, 6, 8);
     m_shell_thickness = make_spin(m_form, 2.0, 0.01, 100000.0);
@@ -1081,6 +1142,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     root->Show(m_box_extrude, false, true);
     root->Show(m_box_revolve, false, true);
     root->Show(m_box_sweep, false, true);
+    root->Show(m_box_pattern, false, true);
     root->Show(m_box_dressup, false, true);
     root->Show(m_box_hole,    false, true);
     root->Show(m_box_thread,  false, true);
@@ -1855,6 +1917,29 @@ void DesignPanel::on_add_sweep()
     refresh_tree();
 }
 
+void DesignPanel::on_add_pattern()
+{
+    if (m_doc.bodies.empty()) {
+        m_status->SetLabel(_L("Pattern needs a body — add a solid first"));
+        return;
+    }
+    const bool circular = (m_pattern_type->GetSelection() == 1);
+    const int  target   = (m_sel_solid_body >= 0 && m_sel_solid_body < int(m_doc.bodies.size()))
+                          ? m_sel_solid_body : -1;
+    m_feature_counter++;
+    m_doc.add_pattern(circular, int(m_pattern_count->GetValue()),
+                      m_pattern_spacing->GetValue(), m_pattern_dir->GetSelection(),
+                      m_pattern_angle->GetValue(), target,
+                      "Pattern" + std::to_string(m_feature_counter));
+
+    if (!m_doc.recompute())
+        m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
+    else
+        set_status_ok();
+
+    refresh_tree();
+}
+
 void DesignPanel::on_add_shell()
 {
     if (m_doc.body.IsNull()) {
@@ -1887,6 +1972,7 @@ int DesignPanel::tree_icon_for(CadFeatureType t)
     case CadFeatureType::Shell:   return 5;
     case CadFeatureType::Revolve: return 1;
     case CadFeatureType::Sweep:   return 1;
+    case CadFeatureType::Pattern: return 1;
     }
     return 0;
 }
@@ -3487,6 +3573,13 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
         m_sweep_path_ref    = f.sweep_path_ref;   // show_tool pre-selects this in the picker
         m_sweep_mode->SetSelection(static_cast<int>(f.mode));
         break;
+    case CadFeatureType::Pattern:
+        m_pattern_type->SetSelection(f.pattern_circular ? 1 : 0);
+        m_pattern_count->SetValue(f.pattern_count);
+        m_pattern_spacing->SetValue(f.pattern_spacing);
+        m_pattern_dir->SetSelection(f.pattern_dir);
+        m_pattern_angle->SetValue(f.pattern_angle);
+        break;
     default: break;
     }
 }
@@ -3565,6 +3658,11 @@ void DesignPanel::on_edit_feature()
         m_edit_index = sel;
         load_feature_into_dialog(f);
         open_tool(Tool::Sweep);
+        break;
+    case CadFeatureType::Pattern:
+        m_edit_index = sel;
+        load_feature_into_dialog(f);
+        open_tool(Tool::Pattern);
         break;
     default: break;
     }
@@ -3708,6 +3806,14 @@ CadFeature DesignPanel::build_candidate(Tool t) const
         f.mode           = static_cast<BooleanMode>(m_sweep_mode->GetSelection());
         break;
     }
+    case Tool::Pattern:
+        f.type             = CadFeatureType::Pattern;
+        f.pattern_circular = (m_pattern_type->GetSelection() == 1);
+        f.pattern_count    = int(m_pattern_count->GetValue());
+        f.pattern_spacing  = m_pattern_spacing->GetValue();
+        f.pattern_dir      = m_pattern_dir->GetSelection();
+        f.pattern_angle    = m_pattern_angle->GetValue();
+        break;
     case Tool::None:
         break;
     }
@@ -3931,6 +4037,7 @@ void DesignPanel::open_tool(Tool t)
     s->Show(m_box_shell,   t == Tool::Shell,   true);
     s->Show(m_box_revolve, t == Tool::Revolve, true);
     s->Show(m_box_sweep,   t == Tool::Sweep,   true);
+    s->Show(m_box_pattern, t == Tool::Pattern, true);
 
     if (t == Tool::Revolve && m_revolve_sketch_ref >= 0
         && m_revolve_sketch_ref < int(m_doc.features.size()))
@@ -3997,6 +4104,7 @@ void DesignPanel::open_tool(Tool t)
     case Tool::Shell:   m_hdr_shell->SetLabel(title(_L("Shell")));     break;
     case Tool::Revolve: m_hdr_revolve->SetLabel(title(_L("Revolve"))); break;
     case Tool::Sweep:   m_hdr_sweep->SetLabel(title(_L("Sweep")));     break;
+    case Tool::Pattern: m_hdr_pattern->SetLabel(title(_L("Pattern"))); break;
     case Tool::None:    break;
     }
 
@@ -4018,6 +4126,7 @@ void DesignPanel::close_tool()
     s->Show(m_box_shell,   false, true);
     s->Show(m_box_revolve, false, true);
     s->Show(m_box_sweep,   false, true);
+    s->Show(m_box_pattern, false, true);
     m_viewport->clear_preview();
     m_viewport->clear_extrude_gizmo();
     m_viewport->clear_fillet_gizmo();
@@ -4054,6 +4163,7 @@ void DesignPanel::confirm_tool()
     case Tool::Shell:   on_add_shell();   break;
     case Tool::Revolve: on_add_revolve(); break;
     case Tool::Sweep:   on_add_sweep();   break;
+    case Tool::Pattern: on_add_pattern(); break;
     case Tool::None:    return;
     }
     close_tool(); // also clears the preview ghost; the committed body is now shown

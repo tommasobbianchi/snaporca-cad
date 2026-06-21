@@ -12,7 +12,7 @@
 
 namespace Slic3r {
 
-enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve, Sweep };
+enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve, Sweep, Pattern };
 enum class SketchShape    { Rectangle, Circle };
 enum class BooleanMode    { New, Add, Cut, Intersect };
 
@@ -122,6 +122,17 @@ struct CadFeature {
     // second Sketch referenced by sweep_path_ref (an open or closed wire). Reuses
     // mode (boolean) and target_body.
     int         sweep_path_ref{-1};        // index into features[] of the path Sketch
+
+    // Pattern: replicate the target body, copies fused into it. pattern_circular=false
+    // → linear (pattern_count instances spaced pattern_spacing along plane axis
+    // pattern_dir: 0=X, 1=Y); true → circular (pattern_count instances over
+    // pattern_angle° total about the plane normal through the plane origin, so a seed
+    // offset from the origin orbits the axis). Reuses target_body + plane.
+    bool        pattern_circular{false};
+    int         pattern_count{3};          // total instances incl. the seed (>=1)
+    double      pattern_spacing{20};       // linear step (mm)
+    int         pattern_dir{0};            // linear direction: 0 = plane X, 1 = plane Y
+    double      pattern_angle{360};        // circular total angle (degrees)
 };
 
 // One independent solid in a multi-body document.
@@ -187,6 +198,8 @@ public:
                               const SketchPlane& plane, double angle, int axis, bool flip,
                               BooleanMode mode, const std::string& name);
     // Sweep the profile Sketch (profile_sketch_ref) along the path Sketch (path_sketch_ref).
+    int  add_pattern(bool circular, int count, double spacing, int dir,
+                     double angle_deg, int target_body, const std::string& name);
     int  add_sweep(int profile_sketch_ref, int path_sketch_ref, BooleanMode mode,
                    const std::string& name);
     int  add_shell(double thickness, int face, int target_body, const std::string& name);

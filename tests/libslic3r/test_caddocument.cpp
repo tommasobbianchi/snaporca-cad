@@ -1017,6 +1017,54 @@ TEST_CASE("sweep builds a solid by sweeping a profile along a path", "[CadDocume
     REQUIRE_FALSE(bad.recompute());
 }
 
+TEST_CASE("pattern replicates a body linearly and circularly", "[CadDocument]")
+{
+    using namespace Slic3r;
+
+    // Linear: a 10x10x10 box (V=1000) repeated 3x at 20mm spacing along plane X.
+    // 20 > 10 so the copies are disjoint -> total V = 3*1000 = 3000.
+    {
+        CadDocument doc;
+        int sk = doc.add_sketch(SketchShape::Rectangle, SketchPlane::XY(),
+                                10, 10, 5, "Box");
+        doc.add_extrude(sk, 10.0, false, BooleanMode::New, "E");
+        doc.add_pattern(/*circular=*/false, /*count=*/3, /*spacing=*/20,
+                        /*dir=*/0, /*angle=*/0, /*target=*/-1, "LinearPattern");
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        const double v = double(doc.display_mesh.volume());
+        REQUIRE_THAT(v, Catch::Matchers::WithinRel(3000.0, 0.02));
+    }
+
+    // Circular: a 10x10x10 box centred at x=50 (radius 50 from the Z axis), 4 copies
+    // over 360deg about the plane normal through the origin -> a ring of 4 disjoint
+    // boxes -> V = 4*1000 = 4000.
+    {
+        CadDocument doc;
+        SketchProfile sp;
+        sp.points.push_back(Vec2d(45, -5));
+        sp.points.push_back(Vec2d(55, -5));
+        sp.points.push_back(Vec2d(55,  5));
+        sp.points.push_back(Vec2d(45,  5));
+        sp.closed = true;
+        int sk = doc.add_sketch_profile(sp, SketchPlane::XY(), "OffsetBox");
+        doc.add_extrude(sk, 10.0, false, BooleanMode::New, "E");
+        doc.add_pattern(/*circular=*/true, /*count=*/4, /*spacing=*/0,
+                        /*dir=*/0, /*angle=*/360, /*target=*/-1, "CircularPattern");
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        const double v = double(doc.display_mesh.volume());
+        REQUIRE_THAT(v, Catch::Matchers::WithinRel(4000.0, 0.02));
+    }
+
+    // A pattern with no body must error cleanly, not crash.
+    {
+        CadDocument bad;
+        bad.add_pattern(false, 3, 20, 0, 0, -1, "NoBody");
+        REQUIRE_FALSE(bad.recompute());
+    }
+}
+
 TEST_CASE("thread standards table carries correct ISO/UTS measures", "[CadDocument]")
 {
     using namespace Slic3r;
