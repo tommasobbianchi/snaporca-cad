@@ -1023,6 +1023,16 @@ DesignPanel::DesignPanel(wxWindow* parent)
         refresh_preview();   // rebuilds the candidate fillet ghost at the new radius
     });
 
+    // Hole gizmo: dragging/editing the centre, diameter, or depth handle writes the four Hole-card
+    // spins and refreshes the ghost. SetValue is silent in wx, so refresh explicitly.
+    m_viewport->set_on_hole_changed([this](double x, double y, double diameter, double depth) {
+        if (m_hole_x)        m_hole_x->SetValue(x);
+        if (m_hole_y)        m_hole_y->SetValue(y);
+        if (m_hole_diameter) m_hole_diameter->SetValue(diameter);
+        if (m_hole_depth)    m_hole_depth->SetValue(depth);
+        refresh_preview();   // rebuilds the candidate hole ghost at the new position/size
+    });
+
     // Esc exits the active sketch tool: drop the live session, restore Feature mode +
     // the committed-sketch overlay (an in-progress draw is discarded). The tool's layered
     // request_exit only calls this once it's an idle Select session.
@@ -3212,6 +3222,19 @@ void DesignPanel::update_fillet_gizmo()
     m_viewport->begin_fillet_gizmo(centroid, m_dressup_size->GetValue());
 }
 
+// Push the active Hole card's plane + position + diameter/depth to the viewport gizmo.
+// Self-gates: clears the gizmo unless the Hole card is open.
+void DesignPanel::update_hole_gizmo()
+{
+    if (!m_viewport) return;
+    if (m_active != Tool::Hole) { m_viewport->clear_hole_gizmo(); return; }
+    const SketchPlane plane = plane_from_index(m_hole_plane->GetSelection());
+    m_viewport->begin_hole_gizmo(plane,
+                                 m_hole_x->GetValue(), m_hole_y->GetValue(),
+                                 m_hole_diameter->GetValue(), m_hole_depth->GetValue(),
+                                 m_hole_through->GetValue());
+}
+
 void DesignPanel::update_extrude_gizmo()
 {
     if (!m_viewport) return;
@@ -3339,6 +3362,8 @@ void DesignPanel::refresh_preview()
     update_extrude_gizmo();
     // Same for the Fillet/Chamfer radius arrow (self-gates: Dressup card + a picked edge).
     update_fillet_gizmo();
+    // Same for the Hole footprint circle + diameter/depth arrows (self-gates: Hole card).
+    update_hole_gizmo();
 }
 
 void DesignPanel::open_tool(Tool t)
@@ -3399,6 +3424,7 @@ void DesignPanel::close_tool()
     m_viewport->clear_preview();
     m_viewport->clear_extrude_gizmo();
     m_viewport->clear_fillet_gizmo();
+    m_viewport->clear_hole_gizmo();
     m_form->Layout();
     m_form->FitInside();
 }

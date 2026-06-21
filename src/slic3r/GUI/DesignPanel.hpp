@@ -118,6 +118,7 @@ private:
     // plane + centroid + live depths while the Extrude card is open (self-gates on m_active).
     void       update_extrude_gizmo();
     void       update_fillet_gizmo();     // edge-anchored radius arrow (Dressup card)
+    void       update_hole_gizmo();       // footprint circle + diameter/depth arrows (Hole card)
 
     CadDocument m_doc;
 

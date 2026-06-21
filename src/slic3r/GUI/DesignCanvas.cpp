@@ -425,6 +425,26 @@ void DesignCanvas::set_on_fillet_radius_changed(std::function<void(double)> cb)
     m_sketch_tool.on_fillet_radius_changed = std::move(cb);
 }
 
+void DesignCanvas::begin_hole_gizmo(const SketchPlane& plane, double x, double y,
+                                    double diameter, double depth, bool through)
+{
+    m_sketch_tool.set_hole_gizmo(plane, x, y, diameter, depth, through);
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }   // llvmpipe: force repaint
+}
+
+void DesignCanvas::clear_hole_gizmo()
+{
+    m_sketch_tool.clear_hole_gizmo();
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
+bool DesignCanvas::holing() const { return m_sketch_tool.holing(); }
+
+void DesignCanvas::set_on_hole_changed(std::function<void(double, double, double, double)> cb)
+{
+    m_sketch_tool.on_hole_changed = std::move(cb);
+}
+
 void DesignCanvas::set_on_solid_selection_changed(std::function<void(int, int, int, int)> cb)
 {
     m_sketch_tool.on_solid_selection_changed = std::move(cb);

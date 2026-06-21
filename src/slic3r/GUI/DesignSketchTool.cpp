@@ -2748,6 +2748,222 @@ void DesignSketchTool::open_fillet_editor()
         []() {});
 }
 
+// ---- Hole gizmo -----------------------------------------------------------------------------
+// Positioned circular cut: footprint circle on the plane + a radial diameter arrow (plane u-axis)
+// + a normal-axis depth arrow (drawn only when !through, matching the kernel's blind cut) + a
+// draggable centre marker. The panel re-pushes this every preview, so (like the fillet gizmo) we
+// must NOT reset an in-progress drag when already active.
+void DesignSketchTool::set_hole_gizmo(const SketchPlane& plane, double x, double y,
+                                      double diameter, double depth, bool through)
+{
+    m_hl_plane    = plane;
+    m_hl_x        = x;
+    m_hl_y        = y;
+    m_hl_diameter = std::max(0.01, diameter);
+    m_hl_depth    = std::max(0.01, depth);
+    m_hl_through  = through;
+    if (!m_hl_active) m_hl_drag = -1;   // re-pushed every preview: preserve an in-progress drag
+    m_hl_active   = true;
+}
+
+void DesignSketchTool::clear_hole_gizmo()
+{
+    m_hl_active = false;
+    m_hl_drag   = -1;
+}
+
+void DesignSketchTool::render_hole_gizmo()
+{
+    if (!m_hl_active) return;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const Vec3d right = cam.get_dir_right().normalized();
+    const Vec3d up    = cam.get_dir_up().normalized();
+    const double upp  = 1.0 / std::max(cam.get_zoom(), 1e-6);
+    const double th   = std::max(15.0 * upp, 1e-4);
+
+    const Vec3d centre = m_hl_plane.to_world(Vec2d(m_hl_x, m_hl_y));
+    const Vec3d nrm    = m_hl_plane.normal.normalized();
+    const Vec3d ddir   = m_hl_plane.x_axis.normalized();     // diameter arrow runs along plane u
+    const double r     = std::max(0.01, m_hl_diameter * 0.5);
+
+    const SketchPlane saved = m_plane;
+
+    // (1) Footprint circle drawn ON the plane (lifts plane u/v -> world through to_world).
+    {
+        m_plane = m_hl_plane;
+        std::vector<std::pair<Vec2d, Vec2d>> segs;
+        const int N = 48;
+        for (int i = 0; i < N; ++i) {
+            const double a0 = (2.0 * M_PI * i) / N, a1 = (2.0 * M_PI * (i + 1)) / N;
+            segs.emplace_back(Vec2d(m_hl_x + r * std::cos(a0), m_hl_y + r * std::sin(a0)),
+                              Vec2d(m_hl_x + r * std::cos(a1), m_hl_y + r * std::sin(a1)));
+        }
+        glsafe(::glDisable(GL_DEPTH_TEST));
+        draw_strokes(m_hl_stroke_model, segs, std::max(0.6 * upp, 1e-4), ColorRGBA(1.0f, 0.62f, 0.16f, 1.0f));
+        m_plane = saved;
+    }
+
+    // (2) Billboarded handles (centre marker + diameter arrow + depth arrow), screen-facing frame
+    // at the centre so draw_strokes/draw_text read on top regardless of orientation.
+    SketchPlane bb; bb.origin = centre; bb.x_axis = right; bb.y_axis = up; bb.normal = cam.get_dir_forward().normalized();
+    m_plane = bb;
+    const ColorRGBA amber(1.0f, 0.62f, 0.16f, 1.0f);
+    const ColorRGBA blue (0.30f, 0.55f, 1.0f, 1.0f);
+
+    auto arrow_to = [&](const Vec3d& tipw, const ColorRGBA& col, const DimAnnot& da) {
+        const Vec2d tip2((tipw - centre).dot(right), (tipw - centre).dot(up));
+        if (tip2.norm() <= 1e-6) return;
+        const Vec2d u = tip2.normalized();
+        const Vec2d nrm2(-u.y(), u.x());
+        std::vector<std::pair<Vec2d, Vec2d>> segs;
+        segs.emplace_back(Vec2d(0, 0), tip2);
+        const double as = std::max(tip2.norm() * 0.20, th * 0.9);
+        const Vec2d back = tip2 - u * as;
+        segs.emplace_back(tip2, back + nrm2 * (as * 0.5));
+        segs.emplace_back(tip2, back - nrm2 * (as * 0.5));
+        glsafe(::glDisable(GL_DEPTH_TEST));
+        draw_strokes(m_hl_stroke_model, segs, std::max(0.7 * upp, 1e-4), col);
+        draw_text(m_line_model, dim_text(da), tip2 + u * (th * 1.4), th, col);
+    };
+
+    // Diameter arrow: WYSIWYG radius, floored to a grabbable handle; label shows Ø (full diameter).
+    {
+        const double L = std::max(r, 40.0 * upp);
+        DimAnnot da; da.kind = DimType::Diameter; da.value = m_hl_diameter;
+        arrow_to(centre + ddir * L, amber, da);
+    }
+    // Depth arrow along +normal (blind cut). Through cuts ignore depth, so skip the arrow then.
+    if (!m_hl_through) {
+        const double L = std::max(m_hl_depth, 40.0 * upp);
+        DimAnnot da; da.kind = DimType::Distance; da.value = m_hl_depth;
+        arrow_to(centre + nrm * L, blue, da);
+    }
+
+    // Centre marker: a small billboarded square so the reposition handle is visible + grabbable.
+    {
+        const double s = 7.0 * upp;
+        std::vector<std::pair<Vec2d, Vec2d>> segs;
+        segs.emplace_back(Vec2d(-s, -s), Vec2d(s, -s));
+        segs.emplace_back(Vec2d( s, -s), Vec2d(s,  s));
+        segs.emplace_back(Vec2d( s,  s), Vec2d(-s, s));
+        segs.emplace_back(Vec2d(-s,  s), Vec2d(-s, -s));
+        glsafe(::glDisable(GL_DEPTH_TEST));
+        draw_strokes(m_hl_stroke_model, segs, std::max(0.7 * upp, 1e-4), amber);
+    }
+
+    m_plane = saved;
+}
+
+// Best-matching hole handle under the cursor: centre (0) / diameter (1) / depth (2), or -1.
+// Tested by ray-to-segment distance in world; ~12 px tolerance. Centre wins at the shared base.
+int DesignSketchTool::hit_test_hole_handle(GLCanvas3D& canvas, const wxMouseEvent& evt) const
+{
+    if (!m_hl_active) return -1;
+    const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = r.a, rd = r.b - r.a;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const double upp = 1.0 / std::max(cam.get_zoom(), 1e-6);
+
+    const Vec3d centre = m_hl_plane.to_world(Vec2d(m_hl_x, m_hl_y));
+    const Vec3d nrm    = m_hl_plane.normal.normalized();
+    const Vec3d ddir   = m_hl_plane.x_axis.normalized();
+    const double rad   = std::max(m_hl_diameter * 0.5, 40.0 * upp);
+    const double depL  = std::max(m_hl_depth, 40.0 * upp);
+    const double tol   = 12.0 * upp;
+
+    // Centre wins at the shared base: all three handles spring from the centre, so a grab within
+    // tolerance of the centre point is a reposition (the arrows are only grabbable along the shaft
+    // that extends outward from here). This also keeps an edge-on arrow — e.g. the depth arrow in
+    // top view, which collapses onto the centre — from stealing the reposition grab.
+    if (ray_segment_dist3(ro, rd, centre, centre) <= tol) return 0;
+
+    int best = -1; double bestd = tol;
+    const double dD = ray_segment_dist3(ro, rd, centre, centre + ddir * rad);
+    if (dD < bestd) { bestd = dD; best = 1; }
+    if (!m_hl_through) {
+        const double dZ = ray_segment_dist3(ro, rd, centre, centre + nrm * depL);
+        if (dZ < bestd) { bestd = dZ; best = 2; }
+    }
+    return best;
+}
+
+// Skew-line closest point of the mouse ray to an axis (anchor + t*dir) -> signed distance along
+// dir. NaN when the camera is ~parallel to the axis (no meaningful projection).
+double DesignSketchTool::hole_axis_proj(GLCanvas3D& canvas, const wxMouseEvent& evt,
+                                        const Vec3d& anchor, const Vec3d& dir) const
+{
+    const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = r.a, rd = r.b - r.a;
+    const Vec3d e = dir;
+    const Vec3d w0 = anchor - ro;
+    const double a = e.dot(e), b = e.dot(rd), c = rd.dot(rd), dd = e.dot(w0), ee = rd.dot(w0);
+    const double denom = a * c - b * b;
+    // Relative near-parallel guard: when the camera ray is ~along the axis (e.g. the depth axis in
+    // top view) denom collapses; a tiny absolute floor lets a huge, unstable projection through.
+    if (std::abs(denom) < 1e-4 * std::max(a * c, 1e-12)) return std::nan("");
+    return (b * ee - c * dd) / denom;
+}
+
+void DesignSketchTool::start_hole_drag(GLCanvas3D& canvas, const wxMouseEvent& evt, int which)
+{
+    m_hl_drag    = which;
+    m_hl_press_x = evt.GetX();
+    m_hl_press_y = evt.GetY();
+    const Vec3d centre = m_hl_plane.to_world(Vec2d(m_hl_x, m_hl_y));
+    if (which == 0) {
+        const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+        m_hl_grab_uv = m_hl_plane.project(r.a, r.b - r.a);
+        m_hl_grab_x  = m_hl_x;
+        m_hl_grab_y  = m_hl_y;
+    } else {
+        const Vec3d dir = (which == 1) ? m_hl_plane.x_axis.normalized() : m_hl_plane.normal.normalized();
+        const double p  = hole_axis_proj(canvas, evt, centre, dir);
+        m_hl_grab_proj  = std::isnan(p) ? 0.0 : p;
+        m_hl_grab_val   = (which == 1) ? m_hl_diameter * 0.5 : m_hl_depth;
+    }
+}
+
+void DesignSketchTool::drag_hole_handle(GLCanvas3D& canvas, const wxMouseEvent& evt)
+{
+    if (m_hl_drag == 0) {                          // reposition centre on the plane
+        const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+        const Vec2d uv = m_hl_plane.project(r.a, r.b - r.a);
+        m_hl_x = m_hl_grab_x + (uv.x() - m_hl_grab_uv.x());
+        m_hl_y = m_hl_grab_y + (uv.y() - m_hl_grab_uv.y());
+    } else {                                       // diameter (1) or depth (2): relative axis drag
+        const Vec3d centre = m_hl_plane.to_world(Vec2d(m_hl_x, m_hl_y));
+        const Vec3d dir = (m_hl_drag == 1) ? m_hl_plane.x_axis.normalized() : m_hl_plane.normal.normalized();
+        const double proj = hole_axis_proj(canvas, evt, centre, dir);
+        if (std::isnan(proj)) return;              // camera ∥ axis: leave value as-is
+        const double v = std::max(0.01, m_hl_grab_val + (proj - m_hl_grab_proj));
+        if (m_hl_drag == 1) m_hl_diameter = 2.0 * v;
+        else                m_hl_depth    = v;
+    }
+    if (on_hole_changed) on_hole_changed(m_hl_x, m_hl_y, m_hl_diameter, m_hl_depth);
+}
+
+void DesignSketchTool::open_hole_editor(int which)
+{
+    if (!on_inline_edit) return;
+    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    if (which == 1) {
+        on_inline_edit(px, m_hl_diameter,
+            [this](double v) {
+                m_hl_diameter = std::max(0.01, v);
+                if (on_hole_changed) on_hole_changed(m_hl_x, m_hl_y, m_hl_diameter, m_hl_depth);
+            },
+            []() {});
+    } else if (which == 2) {
+        on_inline_edit(px, m_hl_depth,
+            [this](double v) {
+                m_hl_depth = std::max(0.01, v);
+                if (on_hole_changed) on_hole_changed(m_hl_x, m_hl_y, m_hl_diameter, m_hl_depth);
+            },
+            []() {});
+    }
+    // which == 0 (centre): no scalar to edit inline — it's a drag-only reposition handle.
+}
+
 // Closed loops + the entity indices that form each one. A circle/ellipse is its own loop;
 // line/arc chains are walked endpoint-to-endpoint. Entity membership lets a single loop be
 // highlighted and extruded on its own.
@@ -4502,6 +4718,7 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         if (m_ex_active) render_extrude_gizmo();
         if (m_mv_active) render_move_gizmo();
         if (m_fl_active) render_fillet_gizmo();
+        if (m_hl_active) render_hole_gizmo();
         shader->stop_using();
         glsafe(::glEnable(GL_CULL_FACE));
         glsafe(::glEnable(GL_DEPTH_TEST));
@@ -5197,6 +5414,26 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             if (evt.LeftDown() && hit_test_fillet_arrow(canvas, evt)) {
                 start_fillet_drag(canvas, evt);
                 return true;
+            }
+        }
+        // Hole gizmo: drag the centre to reposition / the diameter or depth arrow to resize; a
+        // stationary click on an arrow opens its inline editor. A LeftDown that misses any handle
+        // falls through to solid/loop picking.
+        if (m_hl_active) {
+            if (m_hl_drag >= 0 && evt.Dragging() && evt.LeftIsDown()) {
+                drag_hole_handle(canvas, evt);
+                return true;
+            }
+            if (evt.LeftUp() && m_hl_drag >= 0) {
+                const int which = m_hl_drag; m_hl_drag = -1;
+                const bool moved = std::abs(evt.GetX() - m_hl_press_x) +
+                                   std::abs(evt.GetY() - m_hl_press_y) > 3;
+                if (!moved) open_hole_editor(which);   // stationary click = edit
+                return true;
+            }
+            if (evt.LeftDown()) {
+                const int which = hit_test_hole_handle(canvas, evt);
+                if (which >= 0) { start_hole_drag(canvas, evt, which); return true; }
             }
         }
         if (!evt.LeftDown()) return false;

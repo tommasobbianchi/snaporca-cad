@@ -96,6 +96,13 @@ public:
     void clear_fillet_gizmo();
     bool filleting() const;
     void set_on_fillet_radius_changed(std::function<void(double)> cb);
+    // Visual Hole gizmo: the panel feeds the hole plane + position + diameter/depth/through while
+    // its Hole card is open; drag/edit fire the hole callback (x, y, diameter, depth).
+    void begin_hole_gizmo(const SketchPlane& plane, double x, double y,
+                          double diameter, double depth, bool through);
+    void clear_hole_gizmo();
+    bool holing() const;
+    void set_on_hole_changed(std::function<void(double, double, double, double)> cb);
     // Visual Extrude depth-arrow gizmo (C5b): the panel feeds the profile plane + centroid +
     // live depths/flags while its Extrude card is open; drag/edit fire the depth callback.
     void set_extrude_gizmo(const SketchPlane& plane, const Vec2d& centroid,

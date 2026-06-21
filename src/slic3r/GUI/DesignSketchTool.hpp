@@ -72,7 +72,8 @@ public:
     void set_display_sketches(std::vector<DisplaySketch> ds) { m_display_sketches = std::move(ds); }
     bool has_display() const { return m_active || !m_display_sketches.empty()
                                       || (m_solid_bodies != nullptr && !m_solid_bodies->empty())
-                                      || m_ex_active || m_mv_active || m_fl_active; }
+                                      || m_ex_active || m_mv_active || m_fl_active
+                                      || m_hl_active; }
 
     // Solid topology selection on the committed bodies: clicking a solid cycles
     // whole-solid -> face -> edge (Onshape-style) to target fillet/chamfer/extrude. With
@@ -136,6 +137,19 @@ public:
     void clear_fillet_gizmo();
     bool filleting() const { return m_fl_active; }
     std::function<void(double radius)> on_fillet_radius_changed;
+
+    // Visual Hole gizmo. Like Dressup, the Hole tool is a DesignPanel docked card, so the sketch
+    // tool is NOT active during it; the panel passes the hole plane + position + diameter + depth +
+    // through flag, and the tool draws an on-plane footprint circle plus a radial diameter arrow,
+    // a normal-axis depth arrow (only when !through), and a draggable centre marker. Dragging the
+    // centre repositions (plane u/v), the diameter arrow resizes, the depth arrow deepens — all
+    // live; a stationary click on an arrow opens its inline editor. Every change fires
+    // on_hole_changed back to the panel, which writes the spins + refreshes the ghost.
+    void set_hole_gizmo(const SketchPlane& plane, double x, double y,
+                        double diameter, double depth, bool through);
+    void clear_hole_gizmo();
+    bool holing() const { return m_hl_active; }
+    std::function<void(double x, double y, double diameter, double depth)> on_hole_changed;
 
     // Constrain mode: load an already-committed profile for entity picking +
     // constraint application (the geometry is solved in the kernel, not here).
@@ -712,6 +726,31 @@ private:
     void  drag_fillet_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt);
     void  open_fillet_editor();
     GLModel m_fl_arrow_model;
+
+    // Hole gizmo state. The hole is a positioned circular cut on m_hl_plane at (m_hl_x, m_hl_y);
+    // the footprint circle is drawn on the plane, the diameter arrow runs along the plane u-axis,
+    // the depth arrow along +normal (matching the kernel's make_extrude). Three draggable handles:
+    // 0 = centre (reposition in plane u/v), 1 = diameter, 2 = depth (only shown when !through).
+    bool        m_hl_active{false};
+    SketchPlane m_hl_plane;
+    double      m_hl_x{0.0}, m_hl_y{0.0};      // centre on the plane (u/v mm)
+    double      m_hl_diameter{6.0};
+    double      m_hl_depth{10.0};
+    bool        m_hl_through{true};
+    int         m_hl_drag{-1};                 // 0=centre, 1=diameter, 2=depth, -1=none
+    int         m_hl_press_x{0}, m_hl_press_y{0};
+    double      m_hl_grab_proj{0.0};           // diameter/depth axis projection at grab (relative)
+    double      m_hl_grab_val{0.0};            // radius (diameter drag) or depth at grab
+    Vec2d       m_hl_grab_uv{0.0, 0.0};        // centre drag: plane-projected grab point
+    double      m_hl_grab_x{0.0}, m_hl_grab_y{0.0};   // centre drag: x/y at grab
+    void   render_hole_gizmo();
+    int    hit_test_hole_handle(GLCanvas3D& canvas, const wxMouseEvent& evt) const;  // 0/1/2/-1
+    double hole_axis_proj(GLCanvas3D& canvas, const wxMouseEvent& evt,
+                          const Vec3d& anchor, const Vec3d& dir) const;   // NaN if camera∥axis
+    void   start_hole_drag(GLCanvas3D& canvas, const wxMouseEvent& evt, int which);
+    void   drag_hole_handle(GLCanvas3D& canvas, const wxMouseEvent& evt);
+    void   open_hole_editor(int which);
+    GLModel m_hl_stroke_model;
 };
 
 }} // namespace Slic3r::GUI
