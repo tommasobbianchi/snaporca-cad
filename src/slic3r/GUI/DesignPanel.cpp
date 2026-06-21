@@ -141,8 +141,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
     auto icon_btn = [this, tb_bg, tb_hover](const char* icon, const wxString& tip) {
         // Prepare-toolbar-sized buttons (40px cell / 28px glyph) so the Design
         // ribbon matches the rest of the app instead of feeling tiny.
-        auto* b = new ScalableButton(m_toolbar, wxID_ANY, icon, "", wxSize(40, 40),
-                                     wxDefaultPosition, wxBU_EXACTFIT | wxBORDER_NONE, false, 28);
+        auto* b = new ScalableButton(m_toolbar, wxID_ANY, icon, "", wxSize(52, 52),
+                                     wxDefaultPosition, wxBU_EXACTFIT | wxBORDER_NONE, false, 42);
         b->SetToolTip(tip);
         b->SetBackgroundColour(tb_bg);
         m_tool_btns.push_back(b);
