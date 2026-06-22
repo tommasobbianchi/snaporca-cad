@@ -4530,11 +4530,27 @@ void DesignPanel::update_extrude_gizmo()
             have_centroid = true;
         }
         // Primitive shape sketches (no entities/profile) are centred at the plane origin -> (0,0).
-    } else if (m_extrude_face_src >= 0 && !m_doc.body.IsNull()) {
-        // Face-as-profile (push/pull): anchor the arrow at the picked solid face's centre,
-        // pointing along its normal. from_face's origin == face centroid, so centroid=(0,0).
-        TopoDS_Face srcf = GeometryEngine::face_by_index(m_doc.body, m_extrude_face_src);
-        if (!srcf.IsNull()) { plane = SketchPlane::from_face(srcf); have = true; }
+    } else if (m_extrude_face_src >= 0 && !m_doc.bodies.empty()) {
+        // Face-as-profile (push/pull): anchor the arrow at the picked face's CENTROID, pointing
+        // along its outward normal. The face id is LOCAL to the owner body — route_feature reads
+        // it from `context` (the target, else the last body) — so look it up on that SAME body,
+        // never the whole-document compound (m_doc.body). from_face's plane origin sits at the
+        // plane's canonical point near the world origin, NOT on the face, which is why the arrow
+        // used to land on the bed. Carry the body's display Move transform so the arrow sits where
+        // the body is actually shown.
+        const int b = int(m_doc.bodies.size()) - 1;   // matches route_feature's default context
+        TopoDS_Face srcf = GeometryEngine::face_by_index(m_doc.bodies[b].shape, m_extrude_face_src);
+        if (!srcf.IsNull()) {
+            plane = SketchPlane::from_face(srcf);
+            Vec3d c = GeometryEngine::face_centroid_world(srcf);
+            Vec3d n = GeometryEngine::face_normal_world(srcf);
+            if (srcf.Orientation() == TopAbs_REVERSED) n = -n;   // outward, matches the kernel push
+            sync_body_xform();
+            if (b < int(m_body_xform.size())) { c = m_body_xform[b] * c; n = m_body_xform[b].linear() * n; }
+            plane.origin = c;
+            if (n.norm() > 1e-9) plane.normal = n.normalized();
+            have = true;
+        }
     }
     if (!have) { m_viewport->clear_extrude_gizmo(); return; }
 
