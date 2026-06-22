@@ -146,18 +146,22 @@ void DesignCanvas::reload(bool keep_view)
             // Object 0 holds one volume per body — colour each by its body index so
             // multiple coexisting solids are visually distinct (Onshape per-part colour).
             const int b = v->volume_idx();
-            const bool hidden = (b >= 0 && b < int(m_body_visible.size())) && !m_body_visible[b];
+            bool hidden = (b >= 0 && b < int(m_body_visible.size())) && !m_body_visible[b];
+            // Preview-only mode (fillet/chamfer/draft, once a valid target is picked): hide
+            // every base body so only the result ghost is on screen until Confirm.
+            if (m_body_hidden) hidden = true;
             v->is_active = !hidden;   // per-body visibility toggle
             if (!hidden) {
                 ColorRGBA c = m_body_selected ? sel_gold : body_palette(b);
-                // #1: during a fillet/chamfer preview the body is rendered see-through so the
-                // (already translucent) result ghost — and thus the small rounded/chamfered edge —
-                // reads against it. A bright wireframe was useless; semitransparent parts reveal it.
                 if (m_body_translucent) c.a(0.30f);
                 v->set_color(c);
             }
-        } else if (obj_idx == 1)
-            v->set_color(ghost);
+        } else if (obj_idx == 1) {
+            // The ghost is normally a faint blue overlay on the visible body. In preview-only
+            // mode it IS the result (base bodies hidden), so render it opaque so it reads as a
+            // finished solid rather than a see-through hint.
+            v->set_color(m_body_hidden ? ColorRGBA(0.40f, 0.82f, 1.0f, 1.0f) : ghost);
+        }
     }
 
     if (!keep_view) {
@@ -601,6 +605,13 @@ void DesignCanvas::set_body_translucent(bool on)
     if (m_body_translucent == on) return;
     m_body_translucent = on;
     reload(true);   // re-applies object-0 alpha so the solid fades for the fillet preview
+}
+
+void DesignCanvas::set_body_hidden(bool on)
+{
+    if (m_body_hidden == on) return;
+    m_body_hidden = on;
+    reload(true);   // hides/show base bodies + flips the ghost opaque/faint for preview-only mode
 }
 
 void DesignCanvas::delete_selected_sketch_entities()

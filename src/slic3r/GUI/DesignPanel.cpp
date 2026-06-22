@@ -1550,8 +1550,9 @@ DesignPanel::DesignPanel(wxWindow* parent)
         // makes Extrude build a DETACHED new body from the last sketch instead of push/pulling
         // the face the user just clicked.
         if (level >= 1) { m_sel_sketch_region = -1; m_sel_sketch_feat = -1; }
-        // If the Fillet/Chamfer card is open, re-anchor (or drop) the radius arrow on the new pick.
-        if (m_active == Tool::Dressup) update_fillet_gizmo();
+        // If the Fillet/Chamfer card is open, re-anchor (or drop) the radius arrow on the new pick
+        // and rebuild the ghost — once an edge is picked the preview-only mode hides the base body.
+        if (m_active == Tool::Dressup) { update_fillet_gizmo(); refresh_preview(); }
         // If the Shell card is open, a face pick chooses the open face: update the label + gizmo
         // + ghost so the hollow updates live.
         if (m_active == Tool::Shell) {
@@ -4721,6 +4722,10 @@ void DesignPanel::refresh_preview()
     // Confirm so the user sees the gate before clicking; the red status says why.
     for (wxButton* b : m_confirm_btns)
         if (b != nullptr) b->Enable(ok);
+    // Fillet/Chamfer/Draft: once the target edge/face yields a valid result, show ONLY the
+    // preview (hide the base bodies) so the user sees the finished shape, not the old solid
+    // doubled with the ghost. Before a valid pick the body stays visible so it can be picked.
+    m_viewport->set_body_hidden((m_active == Tool::Dressup || m_active == Tool::Draft) && ok);
     m_status->Refresh();
 
     // Refresh the in-canvas Extrude depth arrow (self-gates: only while the Extrude card is open).
@@ -4742,7 +4747,10 @@ void DesignPanel::refresh_preview()
 void DesignPanel::open_tool(Tool t)
 {
     m_active = t;
-    if (m_viewport) m_viewport->set_body_translucent(t == Tool::Dressup);  // #1: see-through for fillet/chamfer
+    // Fillet/Chamfer/Draft no longer fade the body see-through; instead, once a valid target
+    // is picked, refresh_preview hides the base bodies entirely (preview-only). Keep it opaque
+    // here so the body is fully visible for picking the edge/face.
+    if (m_viewport) { m_viewport->set_body_translucent(false); m_viewport->set_body_hidden(false); }
     wxSizer* s = m_form->GetSizer();
     s->Show(m_box_sketch,  t == Tool::Sketch,  true);
     s->Show(m_box_extrude, t == Tool::Extrude, true);
@@ -4859,7 +4867,7 @@ void DesignPanel::close_tool()
 {
     m_active = Tool::None;
     set_active_tool_btn(nullptr);   // clear the active-tool teal highlight
-    if (m_viewport) m_viewport->set_body_translucent(false);   // restore the opaque solid
+    if (m_viewport) { m_viewport->set_body_translucent(false); m_viewport->set_body_hidden(false); }   // restore the opaque solid
     wxSizer* s = m_form->GetSizer();
     s->Show(m_box_sketch,  false, true);
     s->Show(m_box_extrude, false, true);

@@ -143,6 +143,7 @@ public:
     void set_display_sketches(std::vector<DesignSketchTool::DisplaySketch> ds);
     void set_body_highlight(bool on);   // tint the solid when its feature is tree-selected
     void set_body_translucent(bool on); // render the solid see-through (fillet/chamfer preview)
+    void set_body_hidden(bool on);      // preview-only: hide base bodies, show only the result ghost
     void delete_selected_sketch_entities();
     void clear_sketch_selection();
 
@@ -202,6 +203,7 @@ private:
     bool        m_first_frame{true};
     bool        m_body_selected{false};   // tree selected a body feature → tint the solid
     bool        m_body_translucent{false};// fillet/chamfer preview → render the body see-through
+    bool        m_body_hidden{false};     // preview-only mode → hide base bodies, ghost = the result
     std::vector<bool> m_body_visible;     // per-body visibility (empty => all visible)
 
     DesignSketchTool m_sketch_tool;
