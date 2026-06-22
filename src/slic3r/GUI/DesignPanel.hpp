@@ -177,6 +177,10 @@ private:
     wxSizer*  m_box_boolean{nullptr};
     wxSizer*  m_box_insert{nullptr};   // Confirm/Cancel card for placing Text/SVG art
     int       m_insert_feat{-1};       // provisional imported-art feature awaiting Confirm
+    // Move-body gizmo runs through the unified action bar too: Confirm keeps the placement,
+    // Cancel reverts to the pose captured when the move started.
+    int         m_move_body{-1};
+    Transform3d m_move_prev{Transform3d::Identity()};
 
     // Onshape-style dialog-card title rows (icon + bold feature name), retitled
     // per tool in open_tool() (edit-mode shows the feature's actual name).

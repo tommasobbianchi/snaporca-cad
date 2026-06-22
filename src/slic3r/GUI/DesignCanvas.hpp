@@ -144,6 +144,7 @@ public:
     void set_body_highlight(bool on);   // tint the solid when its feature is tree-selected
     void set_body_translucent(bool on); // render the solid see-through (fillet/chamfer preview)
     void set_body_hidden(bool on);      // preview-only: hide base bodies, show only the result ghost
+    void set_on_move_exit(std::function<void()> cb);   // right-click finished the move-body gizmo
     void delete_selected_sketch_entities();
     void clear_sketch_selection();
 

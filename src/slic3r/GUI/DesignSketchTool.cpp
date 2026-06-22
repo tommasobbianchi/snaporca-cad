@@ -6147,7 +6147,7 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 if (!moved && d < 3) open_move_editor(d);   // stationary click on an arrow = edit offset
                 return true;
             }
-            if (evt.RightDown()) { clear_move_gizmo(); canvas.set_as_dirty(); return true; }
+            if (evt.RightDown()) { clear_move_gizmo(); canvas.set_as_dirty(); if (on_move_exit) on_move_exit(); return true; }
             if (evt.LeftDown()) {
                 int axis = -1;
                 if (hit_test_move_arrow(canvas, evt, axis)) {   // translate arrows win over rings

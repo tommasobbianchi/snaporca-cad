@@ -305,6 +305,7 @@ public:
     // Feature mode). Layered: an in-progress entity or a non-Select draw tool is dropped
     // first; a second Esc exits the session.
     std::function<void()> on_exit;
+    std::function<void()> on_move_exit;   // right-click finished the move-body gizmo
     void request_exit();
     // Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y) while the Design canvas is focused: undo/redo the
     // committed feature history. The tool just forwards to the host, which owns the

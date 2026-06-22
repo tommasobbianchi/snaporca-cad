@@ -1677,9 +1677,14 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // Sketch/Constrain keep the viewport's per-gesture Esc (abort the current point first),
     // so we only intercept Esc here when a feature/insert card is the thing to dismiss.
     Bind(wxEVT_CHAR_HOOK, [this](wxKeyEvent& e) {
-        if (e.GetKeyCode() == WXK_ESCAPE && m_active != Tool::None) { tool_cancel(); return; }
+        const bool dismissable = m_active != Tool::None || (m_viewport && m_viewport->moving_body());
+        if (e.GetKeyCode() == WXK_ESCAPE && dismissable) { tool_cancel(); return; }
         e.Skip();
     });
+
+    // Right-click finishes the move gizmo in the viewport; mirror that on the panel so the
+    // action bar (shown while moving) hides and the move state clears.
+    m_viewport->set_on_move_exit([this]() { m_move_body = -1; update_action_bar(); });
 
     // The Line tool's length and the Dimension tool's value are both entered in-canvas now
     // (live quote labels + the floating SketchInlineEditor), so the old docked-card
@@ -2612,8 +2617,11 @@ void DesignPanel::on_move_body()
     const Transform3d base = m_body_xform[b];
     const Vec3d pivot = base * m_doc.display_body_meshes[b].bounding_box().center();
     m_viewport->begin_move_body(b, pivot, base);
+    m_move_body = b;          // for the action bar: Cancel reverts to this pose
+    m_move_prev = base;
+    update_action_bar();      // surface the unified ✓/✗ while moving
     m_status->SetForegroundColour(wxNullColour);
-    m_status->SetLabel(_L("Drag the arrows to move, the rings to rotate — click an arrow to type an offset, right-click to finish"));
+    m_status->SetLabel(_L("Drag the arrows to move, the rings to rotate — then Confirm (Esc cancels)"));
     m_status->Refresh();
 }
 
@@ -4676,6 +4684,13 @@ void DesignPanel::refresh_preview()
         return;
     }
 
+    // Trim m_body_xform to the LIVE committed bodies before building the ghost. A move
+    // writes a per-body display transform keyed by index; if a moved body is later deleted
+    // or consumed, its stale transform must not survive and get re-applied to whatever new
+    // body lands at that index — that was painting fresh extrudes as a moved+rotated ghost
+    // far from the sketch. resize() drops entries beyond the current body count.
+    sync_body_xform();
+
     CadFeature   cand = build_candidate(m_active);
     TriangleMesh mesh;
     std::string  err;
@@ -4948,6 +4963,13 @@ void DesignPanel::cancel_tool()
 // a feature card, the Insert placement, the Sketch session, or the Constrain session.
 void DesignPanel::tool_confirm()
 {
+    if (m_viewport && m_viewport->moving_body()) {   // keep the placement, drop the gizmo
+        m_viewport->clear_move_gizmo();
+        m_move_body = -1;
+        update_action_bar();
+        set_status_ok();
+        return;
+    }
     if (m_active == Tool::Insert) { finalize_insert(); return; }
     if (m_active != Tool::None)   { confirm_tool();   return; }
     if (m_ui_mode == UiMode::Sketch) {
@@ -4970,6 +4992,19 @@ void DesignPanel::tool_confirm()
 // drawn-but-uncommitted Sketch, or exits Constrain.
 void DesignPanel::tool_cancel()
 {
+    if (m_viewport && m_viewport->moving_body()) {   // revert to the pose at move-start
+        sync_body_xform();
+        if (m_move_body >= 0 && m_move_body < int(m_body_xform.size()))
+            m_body_xform[m_move_body] = m_move_prev;
+        m_viewport->clear_move_gizmo();
+        m_move_body = -1;
+        feed_bodies();           // re-render the reverted placement
+        update_action_bar();
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(_L("Move cancelled"));
+        m_status->Refresh();
+        return;
+    }
     if (m_active == Tool::Insert) { cancel_insert(); return; }
     if (m_active != Tool::None)   { cancel_tool();   return; }
     if (m_ui_mode == UiMode::Sketch) {
@@ -5001,7 +5036,8 @@ void DesignPanel::update_action_bar()
     if (s == nullptr) return;
     const bool active = (m_active != Tool::None)
                      || m_ui_mode == UiMode::Sketch
-                     || m_ui_mode == UiMode::Constrain;
+                     || m_ui_mode == UiMode::Constrain
+                     || (m_viewport && m_viewport->moving_body());
     s->Show(m_tb_action, active, true);
     m_toolbar->Layout();
 }

@@ -579,6 +579,11 @@ void DesignCanvas::set_on_sketch_exit(std::function<void()> cb)
     m_sketch_tool.on_exit = std::move(cb);
 }
 
+void DesignCanvas::set_on_move_exit(std::function<void()> cb)
+{
+    m_sketch_tool.on_move_exit = std::move(cb);
+}
+
 void DesignCanvas::set_on_undo_redo(std::function<void(bool)> cb)
 {
     m_sketch_tool.on_undo_redo = std::move(cb);
