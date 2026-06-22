@@ -461,13 +461,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
              }},
         });
         add_sep(m_tb_feature);
-        // Insert: Text / SVG (2D profiles)
-        feat_dropdown("design_text", _L("Insert (text / SVG)"), {
-            {"design_text", _L("Text"), _L("Emboss text as a profile"),
-             [this] { on_add_text(); }},
-            {"design_svg", _L("Import SVG"), _L("Import an SVG outline as a profile"),
-             [this] { on_import_svg(); }},
-        });
+        // Text / SVG insert tools live in the SKETCH toolbar (they produce 2D profiles =
+        // sketches), not here. STEP stays in Features: it imports a whole B-rep solid.
         // Import STEP — standalone: a STEP comes in as a whole editable B-rep body, not a profile.
         auto* b_step = icon_btn("design_step", _L("Import STEP (editable B-rep solid)"));
         b_step->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_import_step(); });
@@ -591,6 +586,18 @@ DesignPanel::DesignPanel(wxWindow* parent)
               _L("Click control points; double-click or right-click to finish"));
         skbtn("design_point",   DesignSketchTool::Mode::Point,   _L("Point"),
               _L("Click to place a point"));
+        add_sep(m_tb_sketch);
+        // Insert tools — Text / SVG produce a 2D profile (a sketch), so they belong with
+        // the sketch tools, not in the generic Features strip. Each places the art
+        // in-canvas, then commits via the Insert card's Confirm.
+        {
+            auto* b_text = icon_btn("design_text", _L("Text — emboss text as a profile"));
+            b_text->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_text(); });
+            sadd(b_text);
+            auto* b_svg = icon_btn("design_svg", _L("SVG — import an outline as a profile"));
+            b_svg->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_import_svg(); });
+            sadd(b_svg);
+        }
         add_sep(m_tb_sketch);
         // In-canvas edit-op tools (drag gizmo / click label), grouped by family.
         dropdown("design_filletedge", _L("Fillet / chamfer"), {
@@ -1171,6 +1178,25 @@ DesignPanel::DesignPanel(wxWindow* parent)
     }
     root->Add(m_box_boolean, 0, wxEXPAND);
 
+    // --- Insert (Text / SVG placement): Confirm/Cancel for the in-canvas art transform ---
+    m_box_insert = new wxBoxSizer(wxVERTICAL);
+    m_box_insert->Add(card_header("design_text", _L("Insert"), m_hdr_insert), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_insert->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
+    m_box_insert->Add(new wxStaticText(m_form, wxID_ANY,
+        _L("Drag a corner to size, the centre to move.\nConfirm to keep, Cancel to discard.")),
+        0, wxLEFT | wxRIGHT, 12);
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { finalize_insert(); });
+        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_insert(); });
+        row->Add(ok, 0, wxRIGHT, 8);
+        row->Add(no, 0);
+        m_box_insert->Add(row, 0, wxALL, 12);
+    }
+    root->Add(m_box_insert, 0, wxEXPAND);
+
     // --- Plane (datum/reference plane: offset + tilt from a base plane; no solid) ---
     m_box_plane = new wxBoxSizer(wxVERTICAL);
     m_box_plane->Add(card_header("design_sketch", _L("Plane"), m_hdr_plane), 0, wxLEFT | wxRIGHT | wxTOP, 12);
@@ -1498,6 +1524,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     root->Show(m_box_loft, false, true);
     root->Show(m_box_draft, false, true);
     root->Show(m_box_boolean, false, true);
+    root->Show(m_box_insert,  false, true);
     root->Show(m_box_dressup, false, true);
     root->Show(m_box_hole,    false, true);
     root->Show(m_box_thread,  false, true);
@@ -1770,6 +1797,9 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // the committed-sketch overlay (an in-progress draw is discarded). The tool's layered
     // request_exit only calls this once it's an idle Select session.
     m_viewport->set_on_sketch_exit([this]() {
+        // While placing imported Text/SVG art, right-click = Confirm (keep the art) — the
+        // Insert card is the explicit gate, this is the in-canvas shortcut to it.
+        if (m_active == Tool::Insert) { finalize_insert(); return; }
         if (m_viewport) m_viewport->cancel_sketch();
         m_edit_index = -1;
         set_ui_mode(UiMode::Feature);
@@ -2093,11 +2123,54 @@ void DesignPanel::add_imported_sketch(
     const int newidx = int(m_doc.features.size()) - 1;
     set_tree_selection(newidx);   // select the new art
     sync_sketch_display();
-    on_transform_imported(newidx);   // #4: edit/move-scale mode ON by default
+    on_transform_imported(newidx);   // in-canvas place/size gizmo ON
+    // The feature is provisional until the user explicitly Confirms (Onshape gate). The
+    // Insert card carries Confirm/Cancel; Cancel undoes this insert.
+    m_insert_feat = newidx;
+    open_insert_card(base_name);
+}
+
+// Show the Insert Confirm/Cancel card while the imported art is being placed/sized.
+void DesignPanel::open_insert_card(const wxString& base_name)
+{
+    m_active = Tool::Insert;
+    if (m_hdr_insert) m_hdr_insert->SetLabel(base_name);
+    wxSizer* s = m_form->GetSizer();
+    s->Show(m_box_insert, true, true);
+    m_form->Layout();
+    m_form->FitInside();
     m_status->SetForegroundColour(wxNullColour);
-    m_status->SetLabel(on_face
-        ? base_name + _L(" on face — drag a corner to size, then Extrude (Cut to engrave)")
-        : base_name + _L(" added — drag to place/size, then Extrude"));
+    m_status->SetLabel(base_name + _L(" — drag to place/size, then Confirm"));
+    m_status->Refresh();
+}
+
+// Confirm: keep the placed art and leave the placement gizmo. The feature is already in
+// the timeline (added provisionally); we just tear down the transient tool/gizmo state.
+void DesignPanel::finalize_insert()
+{
+    const int feat = m_insert_feat;
+    m_insert_feat = -1;
+    if (m_viewport) m_viewport->cancel_sketch();   // exit the TransformArt gizmo
+    close_tool();                                  // hides the Insert card, clears m_active
+    set_ui_mode(UiMode::Feature);                  // imported art lives in the feature timeline
+    if (feat >= 0 && feat < int(m_doc.features.size())) set_tree_selection(feat);
+    sync_sketch_display();
+    refresh_tree();
+    set_status_ok();
+}
+
+// Cancel: discard the provisional insert (undo restores the pre-insert feature list).
+void DesignPanel::cancel_insert()
+{
+    m_insert_feat = -1;
+    if (m_viewport) m_viewport->cancel_sketch();   // exit the TransformArt gizmo
+    m_doc.undo();                                  // remove the just-added imported feature
+    close_tool();
+    set_ui_mode(UiMode::Feature);
+    sync_sketch_display();
+    refresh_tree();
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(_L("Insert cancelled"));
     m_status->Refresh();
 }
 
@@ -4232,9 +4305,13 @@ void DesignPanel::on_edit_feature()
     switch (f.type) {
     case CadFeatureType::Sketch:
         // Imported Text/SVG art has no editable sketch dialog — edit means
-        // move / scale its placement instead.
+        // move / scale its placement instead, behind the same Confirm/Cancel gate as
+        // the initial insert (Cancel = undo restores the prior placement).
         if (!f.imported_regions.empty()) {
+            m_doc.checkpoint();   // undo boundary: re-placing imported art
             on_transform_imported(sel);
+            m_insert_feat = sel;
+            open_insert_card(wxString::FromUTF8(f.name));
             break;
         }
         m_edit_index = sel;
@@ -4497,6 +4574,7 @@ CadFeature DesignPanel::build_candidate(Tool t) const
         f.bool_tolerance = m_bool_tol->GetValue();   // OCCT fuzzy: robust cut on near-coincident faces
         break;
     }
+    case Tool::Insert:   // imported art is committed by add_imported_sketch, not build_candidate
     case Tool::None:
         break;
     }
@@ -4810,6 +4888,7 @@ void DesignPanel::open_tool(Tool t)
     s->Show(m_box_loft,    t == Tool::Loft,    true);
     s->Show(m_box_boolean, t == Tool::Boolean, true);
     s->Show(m_box_draft,   t == Tool::Draft,   true);
+    s->Show(m_box_insert,  t == Tool::Insert,  true);
 
     if (t == Tool::Revolve && m_revolve_sketch_ref >= 0
         && m_revolve_sketch_ref < int(m_doc.features.size()))
@@ -4897,6 +4976,7 @@ void DesignPanel::open_tool(Tool t)
     case Tool::Loft:    m_hdr_loft->SetLabel(title(_L("Loft")));       break;
     case Tool::Draft:   m_hdr_draft->SetLabel(title(_L("Draft")));     break;
     case Tool::Boolean: m_hdr_boolean->SetLabel(title(_L("Boolean"))); break;
+    case Tool::Insert:  break;   // header set by open_insert_card()
     case Tool::None:    break;
     }
 
@@ -4924,6 +5004,7 @@ void DesignPanel::close_tool()
     s->Show(m_box_loft,    false, true);
     s->Show(m_box_boolean, false, true);
     s->Show(m_box_draft,   false, true);
+    s->Show(m_box_insert,  false, true);
     m_viewport->clear_preview();
     m_viewport->clear_extrude_gizmo();
     m_viewport->clear_fillet_gizmo();
@@ -4967,6 +5048,7 @@ void DesignPanel::confirm_tool()
     case Tool::Loft:    on_add_loft();    break;
     case Tool::Draft:   on_add_draft();   break;
     case Tool::Boolean: on_add_boolean(); break;
+    case Tool::Insert:  return;   // committed via finalize_insert(), never here
     case Tool::None:    return;
     }
     close_tool(); // also clears the preview ghost; the committed body is now shown

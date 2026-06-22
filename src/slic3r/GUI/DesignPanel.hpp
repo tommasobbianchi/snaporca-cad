@@ -37,7 +37,7 @@ public:
     explicit DesignPanel(wxWindow* parent);
 
 private:
-    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft, Draft, Boolean };
+    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft, Draft, Boolean, Insert };
 
     // Onshape-style contextual top toolbar: only the active mode's tool group is
     // shown (Feature = sketch/extrude/dress/hole/thread; Sketch = entity tools;
@@ -70,6 +70,12 @@ private:
     bool place_on_face();    // Prepare's Place on Face (F): lay the selected body face on the bed
     void add_imported_sketch(const std::vector<std::vector<std::vector<Vec2d>>>& regions,
                              const wxString& base_name);
+    // Imported Text/SVG art is placed/sized in-canvas then explicitly committed via a
+    // small Confirm/Cancel card (Onshape Button->Dialog->Preview->Confirm). The feature
+    // is added provisionally by add_imported_sketch; Confirm keeps it, Cancel undoes it.
+    void open_insert_card(const wxString& base_name);
+    void finalize_insert();   // Confirm: keep the placed art, leave the placement gizmo
+    void cancel_insert();     // Cancel: undo the provisional insert
     // Move / enlarge / stretch (independent X/Y) an imported Text/SVG sketch:
     // a modal dialog editing the feature's placement transform in place.
     void on_transform_imported(int feat_idx);
@@ -165,6 +171,8 @@ private:
     wxSizer*  m_box_loft{nullptr};
     wxSizer*  m_box_draft{nullptr};
     wxSizer*  m_box_boolean{nullptr};
+    wxSizer*  m_box_insert{nullptr};   // Confirm/Cancel card for placing Text/SVG art
+    int       m_insert_feat{-1};       // provisional imported-art feature awaiting Confirm
 
     // Onshape-style dialog-card title rows (icon + bold feature name), retitled
     // per tool in open_tool() (edit-mode shows the feature's actual name).
@@ -185,6 +193,7 @@ private:
     wxStaticText* m_hdr_loft{nullptr};
     wxStaticText* m_hdr_draft{nullptr};
     wxStaticText* m_hdr_boolean{nullptr};
+    wxStaticText* m_hdr_insert{nullptr};
 
     wxScrolledWindow* m_form{nullptr};
     DesignCanvas*     m_viewport{nullptr};
