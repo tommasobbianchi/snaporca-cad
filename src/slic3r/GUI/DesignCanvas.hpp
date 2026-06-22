@@ -83,6 +83,7 @@ public:
                         const std::vector<bool>* visible = nullptr,
                         const std::vector<Transform3d>* xform = nullptr);
     void set_on_solid_selection_changed(std::function<void(int, int, int, int)> cb);
+    void set_on_place_on_face(std::function<bool()> cb);   // F key: Place on Face
     void select_body(int body);   // Parts-list -> highlight a whole body by index
     // Move-body gizmo (M5): three world-axis drag arrows on a body; drag fires the move
     // callback with the body index + accumulated translation (display-only, host applies it).

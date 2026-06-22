@@ -3187,6 +3187,18 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
         }
     }
 
+    // SnapOrca Design: F = Place on Face (Prepare's lay-flat), when the Design viewport is up
+    // and a body face is selected. The tool forwards to DesignPanel::place_on_face; it returns
+    // false (no face picked) so F falls through to the default handler below.
+    if (m_design_sketch_tool != nullptr && m_design_sketch_tool->has_display()
+        && (keyCode == 'f' || keyCode == 'F') && (evt.GetModifiers() & ctrlMask) == 0) {
+        if (m_design_sketch_tool->request_place_on_face()) {
+            m_dirty = true;
+            render();
+            return;
+        }
+    }
+
     bool is_in_painting_mode = false;
     GLGizmoPainterBase *current_gizmo_painter = dynamic_cast<GLGizmoPainterBase *>(get_gizmos_manager().get_current());
     if (current_gizmo_painter != nullptr) {

@@ -100,6 +100,9 @@ public:
     void clear_move_gizmo();
     bool moving_body() const { return m_mv_active; }
     int  move_body_index() const { return m_mv_body; }
+    // F key forwarded from the canvas (Prepare's Place on Face): returns true if it acted.
+    bool request_place_on_face() { return on_place_on_face ? on_place_on_face() : false; }
+    std::function<bool()> on_place_on_face;
     std::function<void(int body, Vec3d offset)> on_body_move_changed;
     // Fired on each cycle change: (level 0=None/1=Whole/2=Face/3=Edge, body index, face id, edge id).
     std::function<void(int level, int body, int face, int edge)> on_solid_selection_changed;

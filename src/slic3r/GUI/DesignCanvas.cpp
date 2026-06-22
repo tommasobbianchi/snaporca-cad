@@ -541,6 +541,11 @@ void DesignCanvas::set_on_solid_selection_changed(std::function<void(int, int, i
     m_sketch_tool.on_solid_selection_changed = std::move(cb);
 }
 
+void DesignCanvas::set_on_place_on_face(std::function<bool()> cb)
+{
+    m_sketch_tool.on_place_on_face = std::move(cb);
+}
+
 void DesignCanvas::select_body(int body)
 {
     m_sketch_tool.select_body(body);

@@ -447,15 +447,17 @@ DesignPanel::DesignPanel(wxWindow* parent)
              }},
         });
         add_sep(m_tb_feature);
-        // Insert: Text / SVG / STEP
-        feat_dropdown("design_text", _L("Insert (text / SVG / STEP)"), {
+        // Insert: Text / SVG (2D profiles)
+        feat_dropdown("design_text", _L("Insert (text / SVG)"), {
             {"design_text", _L("Text"), _L("Emboss text as a profile"),
              [this] { on_add_text(); }},
             {"design_svg", _L("Import SVG"), _L("Import an SVG outline as a profile"),
              [this] { on_import_svg(); }},
-            {"design_step", _L("Import STEP"), _L("Import a STEP file as an editable B-rep solid"),
-             [this] { on_import_step(); }},
         });
+        // Import STEP — standalone: a STEP comes in as a whole editable B-rep body, not a profile.
+        auto* b_step = icon_btn("design_step", _L("Import STEP (editable B-rep solid)"));
+        b_step->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_import_step(); });
+        fadd(b_step);
         add_sep(m_tb_feature);
         auto* b_constrain = icon_btn("design_constrain", _L("Constrain selected sketch"));
         b_constrain->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
@@ -1383,6 +1385,12 @@ DesignPanel::DesignPanel(wxWindow* parent)
         root->Add(trow, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
     }
 
+    // Prepare's "Place on Face (F)" for the selected body: pick a face, lay it flat on the bed.
+    auto* place = new wxButton(m_form, wxID_ANY, _L("Place on Face (F)"));
+    place->SetToolTip(_L("Select a body face (click a solid, click again to a face), then lay that face on the bed"));
+    place->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { place_on_face(); });
+    root->Add(place, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
+
     m_status = new wxStaticText(m_form, wxID_ANY, "");
     root->Add(m_status, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
 
@@ -1563,6 +1571,11 @@ DesignPanel::DesignPanel(wxWindow* parent)
             : _L("Sketch selected — Extrude it, or Edit / Delete from the tree"));
         m_status->Refresh();
     });
+
+    // F key (Prepare's Place on Face): the tool forwards it here when the Design viewport
+    // has focus; we lay the selected body face on the bed. Returns false when no face is
+    // selected so the key can fall through to the default handler.
+    m_viewport->set_on_place_on_face([this]() { return place_on_face(); });
 
     // Clicking a solid cycles whole -> face -> edge. The tool draws the cyan overlay for ALL
     // levels now (per-body, so other bodies stay untinted) — no whole-compound set_body_highlight.
@@ -2543,6 +2556,45 @@ void DesignPanel::on_move_body()
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(_L("Drag the X/Y/Z arrows to move the body — click an arrow to type an offset, right-click to finish"));
     m_status->Refresh();
+}
+
+// Prepare's "Place on Face" (F), ported to Design. Pick a body face, then this rotates the
+// body so that face's outward normal points straight down (-Z) and drops it onto the bed —
+// Orca's exact math (Selection::flattening_rotate). Writes the per-body display transform
+// m_body_xform (baked into the mesh at Commit), like the Move gizmo; no shape mutation.
+// Returns false (with a hint) when no body face is selected, so the F key can fall through.
+bool DesignPanel::place_on_face()
+{
+    const int b = m_sel_solid_body;
+    if (b < 0 || b >= int(m_doc.bodies.size()) || m_sel_solid_face < 0
+        || b >= int(m_doc.display_body_meshes.size())) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Pick a body face first (click a solid, then click again to a face), then press F"));
+        m_status->Refresh();
+        return false;
+    }
+    const TopoDS_Face face = GeometryEngine::face_by_index(m_doc.bodies[b].shape, m_sel_solid_face);
+    if (face.IsNull()) return false;
+    sync_body_xform();
+    const Transform3d old_x = m_body_xform[b];
+    // Outward face normal in the body's CURRENT displayed orientation.
+    const Vec3d n = (old_x.linear() * GeometryEngine::face_normal_world(face)).normalized();
+    if (!n.allFinite() || n.norm() < 0.5) return false;
+    // Align that normal with the down vector (-Z): the face ends up on the bed.
+    const Transform3d R(Eigen::Quaterniond().setFromTwoVectors(n, -Vec3d::UnitZ()));
+    // Rotate about the body's current world centroid so it spins in place, not about the origin.
+    const Vec3d c = old_x * m_doc.display_body_meshes[b].bounding_box().center();
+    Transform3d x = Eigen::Translation3d(c) * R * Eigen::Translation3d(-c) * old_x;
+    // Drop the re-oriented body so its lowest point sits on the bed (min Z -> 0).
+    TriangleMesh probe = m_doc.display_body_meshes[b];
+    probe.transform(x);
+    x = Transform3d(Eigen::Translation3d(0.0, 0.0, -probe.bounding_box().min.z())) * x;
+    m_body_xform[b] = x;
+    set_status_ok();   // rebuild display/pick meshes, re-point picking; resets face selection
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(_L("Placed on face — body laid flat on the bed"));
+    m_status->Refresh();
+    return true;
 }
 
 int DesignPanel::tree_selection() const
