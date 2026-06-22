@@ -1411,7 +1411,7 @@ void CadDocument::apply_cut(std::vector<CadBody>& bodies, const CadFeature& f) c
     if (f.cut_keep_upper && f.cut_keep_lower) {
         bodies[tgt].shape = upper_piece;
         bodies.insert(bodies.begin() + tgt + 1,
-                      CadBody{ lower_piece, bodies[tgt].name + "_lower" });
+                      CadBody{ lower_piece, bodies[tgt].name + " (2)" });
     } else if (f.cut_keep_upper) {
         bodies[tgt].shape = upper_piece;
     } else {

@@ -279,13 +279,11 @@ private:
     wxCheckBox*       m_bool_keep{nullptr};          // keep the tool body after the op
     wxSpinCtrlDouble* m_bool_tol{nullptr};           // OCCT fuzzy tolerance (mm); robust cut on near-coincident faces
 
-    // Plane Cut (Onshape split-by-plane): a reference plane + offset trims the target body.
+    // Plane Cut (split-by-plane): a reference plane + offset splits the target body into
+    // two separate bodies (both pieces kept).
     wxChoice*         m_cut_plane{nullptr};          // XY/XZ/YZ + datum planes (cut plane)
     wxChoice*         m_cut_target{nullptr};         // body to cut (selection == body index)
     wxSpinCtrlDouble* m_cut_offset{nullptr};         // offset along the plane normal (mm)
-    wxCheckBox*       m_cut_flip{nullptr};           // flip normal => swap which side is "upper"
-    wxCheckBox*       m_cut_keep_upper{nullptr};     // keep the +normal half
-    wxCheckBox*       m_cut_keep_lower{nullptr};     // keep the -normal half (both => split into two)
     // Datum plane controls (derive a selectable sketch plane: offset + tilt from a base).
     wxChoice*         m_plane_base{nullptr};         // 0=XY,1=XZ,2=YZ, 3+N = Nth datum plane
     wxSpinCtrlDouble* m_plane_offset{nullptr};       // offset along base normal (mm)

@@ -1128,19 +1128,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
         cform->Add(m_cut_offset);
 
         m_box_cut->Add(cform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
-
-        m_cut_flip = new wxCheckBox(m_form, wxID_ANY, _L("Flip plane"));
-        m_cut_flip->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { refresh_preview(); });
-        m_box_cut->Add(m_cut_flip, 0, wxLEFT | wxRIGHT | wxTOP, 12);
-
-        m_cut_keep_upper = new wxCheckBox(m_form, wxID_ANY, _L("Keep upper part"));
-        m_cut_keep_upper->SetValue(true);
-        m_cut_keep_upper->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { refresh_preview(); });
-        m_box_cut->Add(m_cut_keep_upper, 0, wxLEFT | wxRIGHT | wxTOP, 12);
-
-        m_cut_keep_lower = new wxCheckBox(m_form, wxID_ANY, _L("Keep lower part"));
-        m_cut_keep_lower->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { refresh_preview(); });
-        m_box_cut->Add(m_cut_keep_lower, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+        // The cut always leaves BOTH pieces as separate bodies (a non-destructive split);
+        // delete one from the tree afterwards if you only want a half.
     }
     root->Add(m_box_cut, 0, wxEXPAND);
 
@@ -2467,17 +2456,10 @@ void DesignPanel::on_add_cut()
         m_status->SetLabel(_L("Cut needs a body"));
         return;
     }
-    if (!m_cut_keep_upper->GetValue() && !m_cut_keep_lower->GetValue()) {
-        m_status->SetForegroundColour(wxColour(235, 110, 110));
-        m_status->SetLabel(_L("Cut: keep at least one side"));
-        m_status->Refresh();
-        return;
-    }
     m_feature_counter++;
     m_doc.add_cut(plane_from_choice(m_cut_plane->GetSelection()), m_cut_offset->GetValue(),
-                  m_cut_flip->GetValue(), m_cut_keep_upper->GetValue(),
-                  m_cut_keep_lower->GetValue(), m_cut_target->GetSelection(),
-                  "Cut" + std::to_string(m_feature_counter));
+                  /*flip*/ false, /*keep_upper*/ true, /*keep_lower*/ true,
+                  m_cut_target->GetSelection(), "Cut" + std::to_string(m_feature_counter));
     if (!m_doc.recompute())
         m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
     else
@@ -4537,9 +4519,9 @@ CadFeature DesignPanel::build_candidate(Tool t) const
         f.type           = CadFeatureType::Cut;
         f.plane          = plane_from_choice(m_cut_plane->GetSelection());
         f.cut_offset     = m_cut_offset->GetValue();
-        f.cut_flip       = m_cut_flip->GetValue();
-        f.cut_keep_upper = m_cut_keep_upper->GetValue();
-        f.cut_keep_lower = m_cut_keep_lower->GetValue();
+        f.cut_flip       = false;
+        f.cut_keep_upper = true;   // always split: keep both pieces as separate bodies
+        f.cut_keep_lower = true;
         f.target_body    = m_cut_target->GetSelection();
         break;
     case Tool::Insert:   // imported art is committed by add_imported_sketch, not build_candidate
