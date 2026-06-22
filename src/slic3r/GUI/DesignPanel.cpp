@@ -793,12 +793,14 @@ DesignPanel::DesignPanel(wxWindow* parent)
         eform->Add(m_taper);
 
         m_mode = new wxChoice(m_form, wxID_ANY);
-        m_mode->Append("New");
-        m_mode->Append("Add");
-        m_mode->Append("Cut");
-        m_mode->Append("Intersect");
+        // Order is load-bearing: index maps to BooleanMode (New=0, Add=1, Cut=2, Intersect=3).
+        // Labels use Onshape wording so the choice reads as the user thinks of it.
+        m_mode->Append(_L("New body"));   // separate coexisting solid
+        m_mode->Append(_L("Join"));       // fuse into the target body (was "Add")
+        m_mode->Append(_L("Cut"));        // subtract from the target body
+        m_mode->Append(_L("Intersect"));  // keep only the overlap
         m_mode->SetSelection(0);
-        eform->Add(new wxStaticText(m_form, wxID_ANY, _L("Mode")), 0, wxALIGN_CENTER_VERTICAL);
+        eform->Add(new wxStaticText(m_form, wxID_ANY, _L("Result")), 0, wxALIGN_CENTER_VERTICAL);
         eform->Add(m_mode);
 
         m_flip = new wxCheckBox(m_form, wxID_ANY, _L("Flip direction"));
@@ -4856,9 +4858,10 @@ void DesignPanel::open_tool(Tool t)
         else if (m_extrude_sketch_ref >= 0 && m_extrude_sketch_ref < int(m_doc.features.size()))
             m_extrude_sketch_label->SetLabel(_L("Sketch: ") +
                 wxString::FromUTF8(m_doc.features[m_extrude_sketch_ref].name));
-        // Onshape-style: the first solid is New; once a body exists, a fresh extrude
-        // defaults to Add (union) so extruding further loops accumulates instead of
-        // replacing the body. (Edit-mode keeps the feature's stored mode, set below.)
+        // A fresh extrude defaults to New body — even when other bodies exist — so
+        // overlapping extrudes stay SEPARATE solids instead of silently fusing. Joining
+        // is opt-in (pick "Join"). Engraving art onto a face still defaults to Cut.
+        // (Edit-mode keeps the feature's stored mode, set below.)
         if (m_edit_index < 0) {
             const bool on_face_import =
                 m_extrude_sketch_ref >= 0 && m_extrude_sketch_ref < int(m_doc.features.size())
@@ -4867,7 +4870,7 @@ void DesignPanel::open_tool(Tool t)
                 m_mode->SetSelection(2);     // Cut — engrave into the face
                 m_flip->SetValue(true);      // extrude inward (the face normal points out)
             } else {
-                m_mode->SetSelection(m_doc.body.IsNull() ? 0 : 1);
+                m_mode->SetSelection(0);     // New body (was: Add when a body already existed)
             }
         }
     }
