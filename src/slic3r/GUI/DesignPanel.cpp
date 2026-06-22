@@ -447,12 +447,14 @@ DesignPanel::DesignPanel(wxWindow* parent)
              }},
         });
         add_sep(m_tb_feature);
-        // Insert: Text / SVG
-        feat_dropdown("design_text", _L("Insert (text / SVG)"), {
+        // Insert: Text / SVG / STEP
+        feat_dropdown("design_text", _L("Insert (text / SVG / STEP)"), {
             {"design_text", _L("Text"), _L("Emboss text as a profile"),
              [this] { on_add_text(); }},
             {"design_svg", _L("Import SVG"), _L("Import an SVG outline as a profile"),
              [this] { on_import_svg(); }},
+            {"design_step", _L("Import STEP"), _L("Import a STEP file as an editable B-rep solid"),
+             [this] { on_import_step(); }},
         });
         add_sep(m_tb_feature);
         auto* b_constrain = icon_btn("design_constrain", _L("Constrain selected sketch"));
@@ -1901,6 +1903,52 @@ void DesignPanel::on_import_svg()
     add_imported_sketch(svg_to_regions(path, 1.0), _L("SVG"));
 }
 
+void DesignPanel::on_import_step()
+{
+    wxFileDialog dlg(this, _L("Import STEP"), wxEmptyString, wxEmptyString,
+                     "STEP files (*.step;*.stp)|*.step;*.stp|All files|*.*",
+                     wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+    if (dlg.ShowModal() != wxID_OK)
+        return;
+    const std::string path(dlg.GetPath().ToUTF8().data());
+    std::string err;
+    // Keep the OCCT B-rep (don't mesh it like the slicer importer): each top-level solid
+    // becomes a coexisting CadBody, fully editable by the on-face/edge feature tools.
+    const std::vector<TopoDS_Shape> solids = GeometryEngine::read_step_solids(path, err);
+    if (solids.empty()) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(err.empty() ? _L("No solids found in STEP")
+                                       : (_L("STEP import failed: ") + wxString::FromUTF8(err)));
+        m_status->Refresh();
+        return;
+    }
+    m_doc.checkpoint();   // undo boundary: importing STEP solids
+    for (const TopoDS_Shape& s : solids) {
+        m_feature_counter++;
+        CadFeature f;
+        f.type           = CadFeatureType::Import;
+        f.name           = std::string("STEP") + std::to_string(m_feature_counter);
+        f.imported_solid = s;
+        f.mode           = BooleanMode::New;   // each solid is its own coexisting body
+        m_doc.features.push_back(f);
+    }
+    if (!m_doc.recompute()) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("STEP import failed: ") + wxString::FromUTF8(m_doc.error));
+        m_status->Refresh();
+        return;
+    }
+    set_ui_mode(UiMode::Feature);   // imported solids live in the feature timeline
+    refresh_tree();
+    set_tree_selection(int(m_doc.features.size()) - 1);
+    set_status_ok();                // canonical post-recompute viewport/pick/parts refresh
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(wxString::Format(
+        _L("Imported %d solid(s) — pick a face or edge, then Fillet / Cut / Shell to modify"),
+        int(solids.size())));
+    m_status->Refresh();
+}
+
 void DesignPanel::add_imported_sketch(
     const std::vector<std::vector<std::vector<Vec2d>>>& regions,
     const wxString& base_name)
@@ -2371,6 +2419,7 @@ int DesignPanel::tree_icon_for(CadFeatureType t)
     case CadFeatureType::Plane:   return 0;   // datum plane: sketch-family icon
     case CadFeatureType::Loft:    return 1;
     case CadFeatureType::Draft:   return 5;   // dressup-family icon
+    case CadFeatureType::Import:  return 1;   // imported solid: solid-family icon
     }
     return 0;
 }

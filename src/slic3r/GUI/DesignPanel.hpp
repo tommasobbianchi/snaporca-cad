@@ -64,6 +64,7 @@ private:
     // input; add_imported_sketch builds the feature, refreshes tree + display.
     void on_add_text();
     void on_import_svg();
+    void on_import_step();   // STEP -> editable B-rep body (keeps the OCCT solid, not a mesh)
     void add_imported_sketch(const std::vector<std::vector<std::vector<Vec2d>>>& regions,
                              const wxString& base_name);
     // Move / enlarge / stretch (independent X/Y) an imported Text/SVG sketch:

@@ -13,7 +13,7 @@
 
 namespace Slic3r {
 
-enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft, Draft };
+enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft, Draft, Import };
 enum class SketchShape    { Rectangle, Circle };
 enum class BooleanMode    { New, Add, Cut, Intersect };
 
@@ -55,6 +55,13 @@ struct CadFeature {
     // pollutes the constraint solver / DoF readout. When non-empty it takes
     // precedence over the entities/profile/shape paths in the Extrude case.
     std::vector<std::vector<std::vector<Vec2d>>> imported_regions;
+
+    // Imported rigid 3D B-rep solid (STEP). When the feature type is Import this carries
+    // the OCCT shape verbatim — it is adopted as a base body in route_feature (no parametric
+    // recipe). Downstream face/edge features (fillet/chamfer/cut/shell/...) act on it like any
+    // other body. TopoDS_Shape is a cheap handle, so copying it through recompute/checkpoint
+    // snapshots is cheap. In-session only for now (no BRep serialization yet).
+    TopoDS_Shape imported_solid;
 
     // Non-destructive placement transform for imported_regions (Text/SVG),
     // applied at display + extrude time as

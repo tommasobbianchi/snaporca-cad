@@ -24,8 +24,37 @@
 #include <GeomLProp_SLProps.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <GCPnts_TangentialDeflection.hxx>
+#include <STEPControl_Reader.hxx>
+#include <IFSelect_ReturnStatus.hxx>
+#include <Standard_Failure.hxx>
 
 namespace Slic3r {
+
+// ---- STEP import (B-rep, not mesh) ----
+std::vector<TopoDS_Shape> GeometryEngine::read_step_solids(const std::string& path, std::string& err)
+{
+    err.clear();
+    std::vector<TopoDS_Shape> out;
+    try {
+        STEPControl_Reader reader;
+        if (reader.ReadFile(path.c_str()) != IFSelect_RetDone) {
+            err = "cannot read STEP file";
+            return out;
+        }
+        reader.TransferRoots();
+        const TopoDS_Shape shape = reader.OneShape();
+        if (shape.IsNull()) { err = "STEP file has no geometry"; return out; }
+        // One body per top-level solid; fall back to the whole shape (shells/faces) if none.
+        for (TopExp_Explorer ex(shape, TopAbs_SOLID); ex.More(); ex.Next())
+            out.push_back(ex.Current());
+        if (out.empty())
+            out.push_back(shape);
+    } catch (const Standard_Failure& e) {
+        err = e.GetMessageString() ? e.GetMessageString() : "OCCT failed to read STEP";
+        out.clear();
+    }
+    return out;
+}
 
 // ---- Primitive creation ----
 

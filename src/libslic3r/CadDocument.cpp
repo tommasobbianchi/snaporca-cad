@@ -896,6 +896,12 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body,
     switch (f.type) {
     case CadFeatureType::Sketch:
         return; // sketches carry no solid; consumed by an extrude
+    case CadFeatureType::Import:
+        // Imported B-rep (STEP): rigid data carried on the feature, not built from
+        // parameters — adopt it as the new body (New-path: result starts empty).
+        result    = f.imported_solid;
+        have_body = !result.IsNull();
+        return;
     case CadFeatureType::Extrude: {
         const bool sym = (f.extrude_end == ExtrudeEnd::Symmetric);
         const double signed_d = f.flip ? -f.distance : f.distance;
@@ -1289,6 +1295,7 @@ void CadDocument::route_feature(std::vector<CadBody>& bodies, const CadFeature& 
     // A New extrude (or the very first solid feature) starts a fresh body; everything else
     // mutates the target body in place.
     const bool starts_new = bodies.empty()
+        || f.type == CadFeatureType::Import   // an imported solid is always its own base body
         || ((f.type == CadFeatureType::Extrude || f.type == CadFeatureType::Revolve
              || f.type == CadFeatureType::Sweep || f.type == CadFeatureType::Loft)
             && f.mode == BooleanMode::New);

@@ -13,6 +13,7 @@
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Edge.hxx>
 #include <vector>
+#include <string>
 
 namespace Slic3r {
 
@@ -52,6 +53,11 @@ class GeometryEngine
 {
 public:
     static TopoDS_Solid make_primitive(const PrimitiveParams& params);
+
+    // Read a STEP file into its top-level solids (one TopoDS_Shape per solid; falls back to
+    // the whole shape if it contains no closed solids). Reuses OCCT's STEPControl_Reader,
+    // already linked via Format/STEP.cpp — no new dependency. err is set on failure (empty result).
+    static std::vector<TopoDS_Shape> read_step_solids(const std::string& path, std::string& err);
 
     static TopoDS_Shape apply_fillet(const TopoDS_Shape& solid, double radius,
                                      FaceGroup faces = FaceGroup::All);
