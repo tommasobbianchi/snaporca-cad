@@ -392,9 +392,9 @@ void DesignCanvas::set_solid_pick(const std::vector<CadBody>* bodies, const Tria
     m_sketch_tool.set_solid_pick(bodies, mesh, tri_face, tri_body, visible, xform);
 }
 
-void DesignCanvas::begin_move_body(int body, const Vec3d& base, const Vec3d& offset)
+void DesignCanvas::begin_move_body(int body, const Vec3d& pivot, const Transform3d& base_xform)
 {
-    m_sketch_tool.set_move_gizmo(body, base, offset);
+    m_sketch_tool.set_move_gizmo(body, pivot, base_xform);
     if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }   // llvmpipe: force repaint
 }
 
@@ -406,7 +406,7 @@ void DesignCanvas::clear_move_gizmo()
 
 bool DesignCanvas::moving_body() const { return m_sketch_tool.moving_body(); }
 
-void DesignCanvas::set_on_body_move_changed(std::function<void(int, Vec3d)> cb)
+void DesignCanvas::set_on_body_move_changed(std::function<void(int, const Transform3d&)> cb)
 {
     m_sketch_tool.on_body_move_changed = std::move(cb);
 }

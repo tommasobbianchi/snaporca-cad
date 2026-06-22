@@ -87,10 +87,10 @@ public:
     void select_body(int body);   // Parts-list -> highlight a whole body by index
     // Move-body gizmo (M5): three world-axis drag arrows on a body; drag fires the move
     // callback with the body index + accumulated translation (display-only, host applies it).
-    void begin_move_body(int body, const Vec3d& base, const Vec3d& offset);
+    void begin_move_body(int body, const Vec3d& pivot, const Transform3d& base_xform);
     void clear_move_gizmo();
     bool moving_body() const;
-    void set_on_body_move_changed(std::function<void(int, Vec3d)> cb);
+    void set_on_body_move_changed(std::function<void(int, const Transform3d&)> cb);
     // Visual Fillet/Chamfer radius gizmo: when a solid edge is picked, anchor a radius arrow on
     // it; drag/edit fire the radius callback. Returns false if no edge is currently picked.
     bool begin_fillet_gizmo(const Vec3d& body_centroid, double radius);

@@ -2502,13 +2502,15 @@ void DesignSketchTool::open_extrude_editor(int which)
 }
 
 // ---- Move-body gizmo (M5) -------------------------------------------------------------
-void DesignSketchTool::set_move_gizmo(int body, const Vec3d& base, const Vec3d& offset)
+void DesignSketchTool::set_move_gizmo(int body, const Vec3d& pivot, const Transform3d& base_xform)
 {
-    m_mv_active = true;
-    m_mv_body   = body;
-    m_mv_base   = base;
-    m_mv_offset = offset;
-    m_mv_drag   = -1;
+    m_mv_active     = true;
+    m_mv_body       = body;
+    m_mv_base       = pivot;          // body's world centroid at Move-open = rotation pivot
+    m_mv_base_xform = base_xform;     // pose the deltas compose onto
+    m_mv_offset     = Vec3d::Zero();
+    m_mv_rot        = Eigen::Matrix3d::Identity();
+    m_mv_drag       = -1;
 }
 
 void DesignSketchTool::clear_move_gizmo()
@@ -2516,6 +2518,29 @@ void DesignSketchTool::clear_move_gizmo()
     m_mv_active = false;
     m_mv_drag   = -1;
     m_mv_body   = -1;
+    m_mv_offset = Vec3d::Zero();
+    m_mv_rot    = Eigen::Matrix3d::Identity();
+}
+
+// Final body transform = translate(delta) then rotate(delta, about pivot) on the open pose.
+Transform3d DesignSketchTool::compose_move_xform() const
+{
+    const Vec3d p = m_mv_base;
+    Transform3d R = Transform3d::Identity();
+    R.linear() = m_mv_rot;
+    const Transform3d rot_about_pivot =
+        Transform3d(Eigen::Translation3d(p)) * R * Transform3d(Eigen::Translation3d(-p));
+    return Transform3d(Eigen::Translation3d(m_mv_offset)) * rot_about_pivot * m_mv_base_xform;
+}
+
+// World axis `e` of ring `axis` plus an in-plane orthonormal basis (u,v).
+void DesignSketchTool::ring_basis(int axis, Vec3d& e, Vec3d& u, Vec3d& v) const
+{
+    switch (axis) {
+    case 0: e = Vec3d::UnitX(); u = Vec3d::UnitY(); v = Vec3d::UnitZ(); break;
+    case 1: e = Vec3d::UnitY(); u = Vec3d::UnitZ(); v = Vec3d::UnitX(); break;
+    default:e = Vec3d::UnitZ(); u = Vec3d::UnitX(); v = Vec3d::UnitY(); break;
+    }
 }
 
 // Three world-axis arrows (X red / Y green / Z blue) from the body centroid + current
@@ -2562,6 +2587,25 @@ void DesignSketchTool::render_move_gizmo()
         }
     }
     m_plane = saved;
+
+    // Three world-axis rotation rings (X/Y/Z), each a circle in the plane perpendicular to
+    // its axis through the gizmo anchor — drag a ring to rotate the body about that axis.
+    const double R = 58.0 * upp;
+    for (int a = 0; a < 3; ++a) {
+        Vec3d e, u, v; ring_basis(a, e, u, v);
+        SketchPlane rp; rp.origin = anchor; rp.x_axis = u; rp.y_axis = v; rp.normal = e;
+        m_plane = rp;
+        std::vector<std::pair<Vec2d, Vec2d>> segs;
+        const int N = 48;
+        Vec2d prev(R, 0.0);
+        for (int i = 1; i <= N; ++i) {
+            const double t = 2.0 * M_PI * double(i) / double(N);
+            const Vec2d cur(R * std::cos(t), R * std::sin(t));
+            segs.emplace_back(prev, cur); prev = cur;
+        }
+        draw_strokes(m_mv_arrow_model, segs, std::max(0.55 * upp, 1e-4), cols[a]);
+    }
+    m_plane = saved;
 }
 
 // Ray vs each world-axis arrow segment; nearest within ~7 px wins.
@@ -2597,7 +2641,7 @@ void DesignSketchTool::drag_move_arrow(GLCanvas3D& canvas, const wxMouseEvent& e
     const double denom = a * c - b * b;
     if (std::abs(denom) < 1e-7) return;             // camera ∥ axis: leave offset as-is
     m_mv_offset[axis] = (b * ee - c * dd) / denom;
-    if (on_body_move_changed) on_body_move_changed(m_mv_body, m_mv_offset);
+    if (on_body_move_changed) on_body_move_changed(m_mv_body, compose_move_xform());
 }
 
 void DesignSketchTool::open_move_editor(int axis)
@@ -2607,9 +2651,62 @@ void DesignSketchTool::open_move_editor(int axis)
     on_inline_edit(px, m_mv_offset[axis],
         [this, axis](double v) {
             m_mv_offset[axis] = v;
-            if (on_body_move_changed) on_body_move_changed(m_mv_body, m_mv_offset);
+            if (on_body_move_changed) on_body_move_changed(m_mv_body, compose_move_xform());
         },
         []() {});
+}
+
+// Ray vs each rotation ring (sampled polyline); nearest within ~7 px wins -> axis 0/1/2.
+bool DesignSketchTool::hit_test_move_arc(GLCanvas3D& canvas, const wxMouseEvent& evt, int& axis) const
+{
+    if (!m_mv_active) return false;
+    const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = r.a, rd = r.b - r.a;
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const double upp = 1.0 / std::max(cam.get_zoom(), 1e-6);
+    const double R = 58.0 * upp;
+    const Vec3d anchor = m_mv_base + m_mv_offset;
+    int best = -1; double bestd = 7.0 * upp;
+    const int N = 48;
+    for (int a = 0; a < 3; ++a) {
+        Vec3d e, u, v; ring_basis(a, e, u, v);
+        Vec3d prev = anchor + R * u;
+        for (int i = 1; i <= N; ++i) {
+            const double t = 2.0 * M_PI * double(i) / double(N);
+            const Vec3d cur = anchor + R * (std::cos(t) * u + std::sin(t) * v);
+            const double d = ray_segment_dist3(ro, rd, prev, cur);
+            if (d <= bestd) { bestd = d; best = a; }
+            prev = cur;
+        }
+    }
+    if (best < 0) return false;
+    axis = best; return true;
+}
+
+// Intersect the mouse ray with ring `axis`'s plane through the anchor -> in-plane angle.
+bool DesignSketchTool::arc_mouse_angle(GLCanvas3D& canvas, const wxMouseEvent& evt, int axis, double& ang) const
+{
+    const Linef3 r = canvas.mouse_ray(Point(evt.GetX(), evt.GetY()));
+    const Vec3d ro = r.a, rd = r.b - r.a;
+    Vec3d e, u, v; ring_basis(axis, e, u, v);
+    const Vec3d p = m_mv_base + m_mv_offset;
+    const double denom = rd.dot(e);
+    if (std::abs(denom) < 1e-9) return false;          // ray ∥ ring plane
+    const Vec3d hit = ro + ((p - ro).dot(e) / denom) * rd;
+    const Vec3d d = hit - p;
+    ang = std::atan2(d.dot(v), d.dot(u));
+    return true;
+}
+
+// Drag a ring -> rotate the body about that world axis by (mouse angle - grab angle).
+void DesignSketchTool::drag_move_arc(GLCanvas3D& canvas, const wxMouseEvent& evt, int axis)
+{
+    double ang;
+    if (!arc_mouse_angle(canvas, evt, axis, ang)) return;
+    Vec3d e, u, v; ring_basis(axis, e, u, v);
+    const double delta = ang - m_mv_arc_a0;
+    m_mv_rot = Eigen::AngleAxisd(delta, e).toRotationMatrix() * m_mv_rot_start;
+    if (on_body_move_changed) on_body_move_changed(m_mv_body, compose_move_xform());
 }
 
 // ---- Fillet/Chamfer radius gizmo ------------------------------------------------------
@@ -6039,21 +6136,28 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
         // exits move mode. A LeftDown that misses the arrows falls through to solid re-pick.
         if (m_mv_active) {
             if (m_mv_drag >= 0 && evt.Dragging() && evt.LeftIsDown()) {
-                drag_move_arrow(canvas, evt, m_mv_drag);
+                if (m_mv_drag < 3) drag_move_arrow(canvas, evt, m_mv_drag);
+                else               drag_move_arc(canvas, evt, m_mv_drag - 3);
                 return true;
             }
             if (evt.LeftUp() && m_mv_drag >= 0) {
-                const int axis = m_mv_drag; m_mv_drag = -1;
+                const int d = m_mv_drag; m_mv_drag = -1;
                 const bool moved = std::abs(evt.GetX() - m_mv_press_x) +
                                    std::abs(evt.GetY() - m_mv_press_y) > 3;
-                if (!moved) open_move_editor(axis);   // stationary click = edit
+                if (!moved && d < 3) open_move_editor(d);   // stationary click on an arrow = edit offset
                 return true;
             }
             if (evt.RightDown()) { clear_move_gizmo(); canvas.set_as_dirty(); return true; }
             if (evt.LeftDown()) {
                 int axis = -1;
-                if (hit_test_move_arrow(canvas, evt, axis)) {
+                if (hit_test_move_arrow(canvas, evt, axis)) {   // translate arrows win over rings
                     m_mv_drag = axis; m_mv_press_x = evt.GetX(); m_mv_press_y = evt.GetY();
+                    return true;
+                }
+                if (hit_test_move_arc(canvas, evt, axis)) {
+                    m_mv_drag = 3 + axis; m_mv_press_x = evt.GetX(); m_mv_press_y = evt.GetY();
+                    m_mv_rot_start = m_mv_rot;
+                    double a0; if (arc_mouse_angle(canvas, evt, axis, a0)) m_mv_arc_a0 = a0;
                     return true;
                 }
             }

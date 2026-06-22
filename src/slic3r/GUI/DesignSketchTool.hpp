@@ -96,14 +96,14 @@ public:
     // keeps a per-body Transform3d and re-feeds the moved display/pick meshes; the OCCT
     // shape (and thus face/edge global ids) is never touched. Drag fires on_body_move_changed
     // live; a stationary click on an arrow opens the inline offset editor for that axis.
-    void set_move_gizmo(int body, const Vec3d& base, const Vec3d& offset);
+    void set_move_gizmo(int body, const Vec3d& pivot, const Transform3d& base_xform);
     void clear_move_gizmo();
     bool moving_body() const { return m_mv_active; }
     int  move_body_index() const { return m_mv_body; }
     // F key forwarded from the canvas (Prepare's Place on Face): returns true if it acted.
     bool request_place_on_face() { return on_place_on_face ? on_place_on_face() : false; }
     std::function<bool()> on_place_on_face;
-    std::function<void(int body, Vec3d offset)> on_body_move_changed;
+    std::function<void(int body, const Transform3d& xform)> on_body_move_changed;
     // Fired on each cycle change: (level 0=None/1=Whole/2=Face/3=Edge, body index, face id, edge id).
     std::function<void(int level, int body, int face, int edge)> on_solid_selection_changed;
     // Click a committed sketch overlay (no live session) -> select that loop: the Sketch
@@ -747,16 +747,27 @@ private:
     void  open_extrude_editor(int which);
     GLModel m_ex_arrow_model;
 
-    // Move-body gizmo state (3 world-axis arrows from m_mv_base + m_mv_offset).
+    // Move-body gizmo state: 3 world-axis translate arrows + 3 world-axis rotate rings.
+    // Delta model: offset/rot are deltas about a fixed pivot, composed onto m_mv_base_xform
+    // (the body's pose when Move opened) so rotation works even on an already-placed body.
     bool        m_mv_active{false};
     int         m_mv_body{-1};
-    Vec3d       m_mv_base{Vec3d::Zero()};      // original body centroid (world)
-    Vec3d       m_mv_offset{Vec3d::Zero()};    // current translation applied to the body
-    int         m_mv_drag{-1};                 // 0=X, 1=Y, 2=Z, -1=none
+    Vec3d       m_mv_base{Vec3d::Zero()};      // pivot = body's world centroid at Move-open
+    Vec3d       m_mv_offset{Vec3d::Zero()};    // delta translation along world X/Y/Z
+    Transform3d m_mv_base_xform{Transform3d::Identity()};  // pose when Move opened
+    Eigen::Matrix3d m_mv_rot{Eigen::Matrix3d::Identity()}; // accumulated delta rotation (world, about pivot)
+    Eigen::Matrix3d m_mv_rot_start{Eigen::Matrix3d::Identity()}; // rot snapshot at arc-drag start
+    double      m_mv_arc_a0{0.0};              // mouse angle on the ring at drag start
+    int         m_mv_drag{-1};                 // 0..2 = X/Y/Z arrow, 3..5 = X/Y/Z ring, -1 none
     int         m_mv_press_x{0}, m_mv_press_y{0};
+    Transform3d compose_move_xform() const;    // T(offset)*T(pivot)*rot*T(-pivot)*base_xform
+    void  ring_basis(int axis, Vec3d& e, Vec3d& u, Vec3d& v) const;  // world axis + in-plane basis
     void  render_move_gizmo();
     bool  hit_test_move_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt, int& axis) const;
+    bool  hit_test_move_arc(GLCanvas3D& canvas, const wxMouseEvent& evt, int& axis) const;
     void  drag_move_arrow(GLCanvas3D& canvas, const wxMouseEvent& evt, int axis);
+    void  drag_move_arc(GLCanvas3D& canvas, const wxMouseEvent& evt, int axis);
+    bool  arc_mouse_angle(GLCanvas3D& canvas, const wxMouseEvent& evt, int axis, double& ang) const;
     void  open_move_editor(int axis);
     GLModel m_mv_arrow_model;
 

@@ -1624,16 +1624,17 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // Move-body gizmo (M5): each drag/edit reports the body's new translation. Store it as a
     // display-only per-body transform and re-feed the moved meshes (the OCCT shape is untouched,
     // so face/edge ids the dress-up ops target stay valid).
-    m_viewport->set_on_body_move_changed([this](int body, Vec3d offset) {
+    m_viewport->set_on_body_move_changed([this](int body, const Transform3d& xform) {
         sync_body_xform();
         if (body < 0 || body >= int(m_body_xform.size())) return;
-        m_body_xform[body] = Transform3d(Eigen::Translation3d(offset));
+        m_body_xform[body] = xform;   // full move+rotate transform, baked into the mesh at Commit
         feed_bodies();   // rebuilds the transformed meshes in place + refreshes display + pick
         const int nb = int(m_doc.bodies.size());
         const wxString tag = (nb > 1) ? wxString::Format(_L("Body %d "), body + 1) : wxString();
+        const Vec3d t = xform.translation();
         m_status->SetForegroundColour(wxNullColour);
-        m_status->SetLabel(tag + wxString::Format(_L("moved (%.1f, %.1f, %.1f) mm"),
-                                                  offset.x(), offset.y(), offset.z()));
+        m_status->SetLabel(tag + wxString::Format(_L("placed (%.1f, %.1f, %.1f) mm — drag arrows to move, rings to rotate"),
+                                                  t.x(), t.y(), t.z()));
         m_status->Refresh();
     });
 
@@ -2546,15 +2547,13 @@ void DesignPanel::on_move_body()
     const int b = m_sel_solid_body;
     if (m_viewport == nullptr || b < 0 || b >= int(m_doc.display_body_meshes.size())) return;
     sync_body_xform();
-    // Anchor the gizmo at the UNtransformed body centroid (bbox centre); the tool adds the
-    // current offset so the arrows sit on the body wherever it has been moved to.
-    const BoundingBoxf3 bb = m_doc.display_body_meshes[b].bounding_box();
-    const Vec3d base = bb.center();
-    Vec3d offset = Vec3d::Zero();
-    if (b < int(m_body_xform.size())) offset = m_body_xform[b].translation();
-    m_viewport->begin_move_body(b, base, offset);
+    // Delta gizmo: pivot at the body's CURRENT world centroid; the tool composes the drag deltas
+    // onto its current pose, so move + rotate both work (incl. on an already place-on-face'd body).
+    const Transform3d base = m_body_xform[b];
+    const Vec3d pivot = base * m_doc.display_body_meshes[b].bounding_box().center();
+    m_viewport->begin_move_body(b, pivot, base);
     m_status->SetForegroundColour(wxNullColour);
-    m_status->SetLabel(_L("Drag the X/Y/Z arrows to move the body — click an arrow to type an offset, right-click to finish"));
+    m_status->SetLabel(_L("Drag the arrows to move, the rings to rotate — click an arrow to type an offset, right-click to finish"));
     m_status->Refresh();
 }
 
