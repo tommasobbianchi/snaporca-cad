@@ -13,7 +13,7 @@
 
 namespace Slic3r {
 
-enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft, Draft, Import, Boolean };
+enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft, Draft, Import, Boolean, Cut };
 enum class SketchShape    { Rectangle, Circle };
 enum class BooleanMode    { New, Add, Cut, Intersect };
 
@@ -173,6 +173,13 @@ struct CadFeature {
     double bool_tolerance{0.0};
     int    bool_target_face{-1};   // global face id on the target body to mate (-1 = none)
     int    bool_tool_face{-1};     // global face id on the tool body to mate (-1 = none)
+
+    // Cut: split one target body with a plane, keeping the upper half, lower half, or both.
+    // Reuses `plane` for the cut plane and `target_body` for which body is cut.
+    double cut_offset{0.0};       // offset along the cut-plane normal (mm)
+    bool   cut_flip{false};       // flip the normal => swaps which side is "upper"
+    bool   cut_keep_upper{true};  // keep the +normal half
+    bool   cut_keep_lower{false}; // keep the -normal half (both => split into two bodies)
 };
 
 // One independent solid in a multi-body document.
@@ -252,6 +259,11 @@ public:
     // tolerance = OCCT fuzzy value; target_face/tool_face (-1 = none) drive the per-face snap+merge.
     int  add_boolean(BooleanMode op, int target_body, int tool_body, bool keep_tool,
                      double tolerance, int target_face, int tool_face, const std::string& name);
+    // Plane Cut (Onshape split-by-plane): trim target_body by the plane (origin offset along
+    // its normal by `offset`, normal flipped iff `flip`). keep_upper/keep_lower select the
+    // +normal / -normal half; both => the body is split into two coexisting bodies.
+    int  add_cut(const SketchPlane& plane, double offset, bool flip,
+                 bool keep_upper, bool keep_lower, int target_body, const std::string& name);
     // Datum plane: derived from base (0=XY/1=XZ/2=YZ/3+N=Nth earlier datum), offset
     // along its normal, optional tilt about a base axis. Produces no solid.
     int  add_plane(int base, double offset, double angle_tilt, int axis,
@@ -323,6 +335,7 @@ private:
     // target and erase the consumed tool. Mutates the bodies vector directly (unlike apply_feature,
     // which works on a single result shape). Throws std::runtime_error on a failed op.
     void apply_boolean(std::vector<CadBody>& bodies, const CadFeature& f) const;
+    void apply_cut(std::vector<CadBody>& bodies, const CadFeature& f) const;
 
     // Undo/redo stacks of feature-list snapshots. checkpoint() pushes onto m_undo and
     // clears m_redo; undo()/redo() shuffle the current state between them. Capped so a

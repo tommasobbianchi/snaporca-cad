@@ -637,6 +637,23 @@ int CadDocument::add_boolean(BooleanMode op, int target_body, int tool_body, boo
     return int(features.size()) - 1;
 }
 
+int CadDocument::add_cut(const SketchPlane& plane, double offset, bool flip,
+                         bool keep_upper, bool keep_lower, int target_body,
+                         const std::string& name)
+{
+    CadFeature f;
+    f.type           = CadFeatureType::Cut;
+    f.name           = name;
+    f.plane          = plane;
+    f.cut_offset     = offset;
+    f.cut_flip       = flip;
+    f.cut_keep_upper = keep_upper;
+    f.cut_keep_lower = keep_lower;
+    f.target_body    = target_body;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
 int CadDocument::add_plane(int base, double offset, double angle_tilt, int axis,
                            const std::string& name)
 {
@@ -1340,10 +1357,73 @@ void CadDocument::apply_boolean(std::vector<CadBody>& bodies, const CadFeature& 
     if (!f.bool_keep_tool) bodies.erase(bodies.begin() + tool);   // consume the tool body
 }
 
+void CadDocument::apply_cut(std::vector<CadBody>& bodies, const CadFeature& f) const
+{
+    const int nb  = int(bodies.size());
+    if (nb == 0) throw std::runtime_error("cut: no target body");
+    const int tgt = (f.target_body >= 0 && f.target_body < nb) ? f.target_body : nb - 1;
+    if (tgt < 0 || bodies[tgt].shape.IsNull()) throw std::runtime_error("cut: no target body");
+
+    if (!f.cut_keep_upper && !f.cut_keep_lower)
+        throw std::runtime_error("cut keeps nothing");
+
+    SketchPlane cp = f.plane;
+    cp.origin += cp.normal * f.cut_offset;
+    if (f.cut_flip) cp.normal = -cp.normal;
+
+    // Build a large square wire in the cut plane, centered at plane origin.
+    const double L = 1.0e5;
+    Vec3d x = cp.x_axis * L;
+    Vec3d y = cp.y_axis * L;
+    Vec3d o = cp.origin;
+    auto p = [&](double sx, double sy) {
+        Vec3d v = o + x * sx + y * sy;
+        return gp_Pnt(v.x(), v.y(), v.z());
+    };
+    BRepBuilderAPI_MakePolygon poly;
+    poly.Add(p( 1,  1));
+    poly.Add(p( 1, -1));
+    poly.Add(p(-1, -1));
+    poly.Add(p(-1,  1));
+    poly.Close();
+    if (!poly.IsDone()) throw std::runtime_error("cut: failed to build cut wire");
+    TopoDS_Wire wire = poly.Wire();
+
+    TopoDS_Shape upper_piece, lower_piece;
+    const TopoDS_Shape& target = bodies[tgt].shape;
+
+    if (f.cut_keep_upper) {
+        TopoDS_Shape upper_tool = SketchEngine::make_extrude(wire, cp, L, false, 0.0);
+        BRepAlgoAPI_Common common(target, upper_tool);
+        if (!common.IsDone()) throw std::runtime_error("cut operation failed");
+        upper_piece = common.Shape();
+    }
+
+    if (f.cut_keep_lower) {
+        SketchPlane lp = cp;
+        lp.normal = -lp.normal;
+        TopoDS_Shape lower_tool = SketchEngine::make_extrude(wire, lp, L, false, 0.0);
+        BRepAlgoAPI_Common common(target, lower_tool);
+        if (!common.IsDone()) throw std::runtime_error("cut operation failed");
+        lower_piece = common.Shape();
+    }
+
+    if (f.cut_keep_upper && f.cut_keep_lower) {
+        bodies[tgt].shape = upper_piece;
+        bodies.insert(bodies.begin() + tgt + 1,
+                      CadBody{ lower_piece, bodies[tgt].name + "_lower" });
+    } else if (f.cut_keep_upper) {
+        bodies[tgt].shape = upper_piece;
+    } else {
+        bodies[tgt].shape = lower_piece;
+    }
+}
+
 void CadDocument::route_feature(std::vector<CadBody>& bodies, const CadFeature& f) const
 {
     if (f.type == CadFeatureType::Plane) return;   // datum plane: not part of the body pipeline
     if (f.type == CadFeatureType::Boolean) { apply_boolean(bodies, f); return; }   // body-body op
+    if (f.type == CadFeatureType::Cut)     { apply_cut(bodies, f);     return; }   // plane-split body
     // Resolve the target body: explicit target_body when valid, else the last body.
     const int t = (f.target_body >= 0 && f.target_body < int(bodies.size()))
                   ? f.target_body : int(bodies.size()) - 1;

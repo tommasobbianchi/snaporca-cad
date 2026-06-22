@@ -1236,3 +1236,131 @@ TEST_CASE("draft tapers a solid face about the body base", "[CadDocument]")
     bad.add_draft(5.0, 0, -1, "NoBody");
     REQUIRE_FALSE(bad.recompute());
 }
+
+TEST_CASE("cut splits a body with a plane", "[cut]")
+{
+    using Catch::Matchers::WithinRel;
+
+    auto make_box = [](CadDocument& doc, double w, double h, double d) {
+        CadFeature sk;
+        sk.type  = CadFeatureType::Sketch;
+        sk.plane = SketchPlane::XY();
+        sk.imported_regions = {{
+            {Vec2d(-w / 2, -h / 2), Vec2d(w / 2, -h / 2),
+             Vec2d(w / 2,  h / 2), Vec2d(-w / 2, h / 2)},
+        }};
+        doc.features.push_back(sk);
+        CadFeature ex;
+        ex.type       = CadFeatureType::Extrude;
+        ex.sketch_ref = 0;
+        ex.distance   = d;
+        doc.features.push_back(ex);
+    };
+
+    SECTION("keep upper half only") {
+        CadDocument doc;
+        make_box(doc, 20.0, 20.0, 20.0);
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        const double v_orig   = double(doc.display_mesh.volume());
+        const int    n_before = int(doc.bodies.size());
+        REQUIRE(v_orig > 0.0);
+
+        CadFeature cut;
+        cut.type           = CadFeatureType::Cut;
+        cut.plane          = SketchPlane::XY();
+        cut.cut_offset     = 10.0;   // mid-height of the 0..20 box
+        cut.cut_keep_upper = true;
+        cut.cut_keep_lower = false;
+        doc.features.push_back(cut);
+
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        REQUIRE(int(doc.bodies.size()) == n_before);
+        REQUIRE_THAT(double(doc.display_mesh.volume()), WithinRel(v_orig * 0.5, 0.01));
+    }
+
+    SECTION("keep both halves splits into two bodies") {
+        CadDocument doc;
+        make_box(doc, 20.0, 20.0, 20.0);
+        REQUIRE(doc.recompute());
+        const double v_orig   = double(doc.display_mesh.volume());
+        const int    n_before = int(doc.bodies.size());
+        REQUIRE(v_orig > 0.0);
+
+        CadFeature cut;
+        cut.type           = CadFeatureType::Cut;
+        cut.plane          = SketchPlane::XY();
+        cut.cut_offset     = 10.0;
+        cut.cut_keep_upper = true;
+        cut.cut_keep_lower = true;
+        doc.features.push_back(cut);
+
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        REQUIRE(int(doc.bodies.size()) == n_before + 1);
+        REQUIRE_THAT(double(doc.display_mesh.volume()), WithinRel(v_orig, 0.01));
+
+        for (const auto& b : doc.bodies) {
+            double v = double(SketchEngine::tessellate(b.shape).volume());
+            REQUIRE_THAT(v, WithinRel(v_orig * 0.5, 0.01));
+        }
+    }
+
+    SECTION("keep lower half only") {
+        CadDocument doc;
+        make_box(doc, 20.0, 20.0, 20.0);
+        REQUIRE(doc.recompute());
+        const double v_orig   = double(doc.display_mesh.volume());
+        const int    n_before = int(doc.bodies.size());
+
+        CadFeature cut;
+        cut.type           = CadFeatureType::Cut;
+        cut.plane          = SketchPlane::XY();
+        cut.cut_offset     = 10.0;
+        cut.cut_keep_upper = false;
+        cut.cut_keep_lower = true;
+        doc.features.push_back(cut);
+
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        REQUIRE(int(doc.bodies.size()) == n_before);
+        REQUIRE_THAT(double(doc.display_mesh.volume()), WithinRel(v_orig * 0.5, 0.01));
+    }
+
+    SECTION("flip swaps which side is kept") {
+        CadDocument doc;
+        make_box(doc, 20.0, 20.0, 20.0);
+        REQUIRE(doc.recompute());
+        const double v_orig = double(doc.display_mesh.volume());
+
+        // cut with flip=true, keep_upper=true → the -normal side (original bottom half)
+        CadFeature cut;
+        cut.type           = CadFeatureType::Cut;
+        cut.plane          = SketchPlane::XY();
+        cut.cut_offset     = 10.0;
+        cut.cut_flip       = true;
+        cut.cut_keep_upper = true;
+        cut.cut_keep_lower = false;
+        doc.features.push_back(cut);
+
+        REQUIRE(doc.recompute());
+        REQUIRE(doc.error.empty());
+        REQUIRE_THAT(double(doc.display_mesh.volume()), WithinRel(v_orig * 0.5, 0.01));
+    }
+
+    SECTION("both keep flags false throws") {
+        CadDocument doc;
+        make_box(doc, 20.0, 20.0, 20.0);
+        REQUIRE(doc.recompute());
+
+        CadFeature cut;
+        cut.type           = CadFeatureType::Cut;
+        cut.plane          = SketchPlane::XY();
+        cut.cut_keep_upper = false;
+        cut.cut_keep_lower = false;
+        doc.features.push_back(cut);
+
+        REQUIRE_FALSE(doc.recompute());
+    }
+}
