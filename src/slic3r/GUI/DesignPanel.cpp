@@ -1564,6 +1564,9 @@ DesignPanel::DesignPanel(wxWindow* parent)
         if (feat < 0 || feat >= int(m_doc.features.size())) return;
         m_sel_sketch_feat   = feat;
         m_sel_sketch_region = region;
+        // Last pick wins (symmetric with the solid-pick handler): selecting a sketch loop drops
+        // any stale solid face/edge pick so Extrude treats this loop as the profile.
+        m_sel_solid_face = m_sel_solid_edge = -1;
         set_tree_selection(feat);
         m_status->SetForegroundColour(wxNullColour);
         m_status->SetLabel(region >= 0
@@ -1586,6 +1589,12 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_sel_solid_body = (level >= 1) ? body : -1;
         m_sel_solid_face = (level >= 2) ? face : -1;
         m_sel_solid_edge = (level == 3) ? edge : -1;
+        // Last pick wins: selecting a solid drops any stale committed-sketch loop selection.
+        // Otherwise a leftover loop keeps `m_sel_sketch_region >= 0`, which blocks the face
+        // push/pull branch in Extrude (`m_sel_solid_face >= 0 && m_sel_sketch_region < 0`) and
+        // makes Extrude build a DETACHED new body from the last sketch instead of push/pulling
+        // the face the user just clicked.
+        if (level >= 1) { m_sel_sketch_region = -1; m_sel_sketch_feat = -1; }
         // If the Fillet/Chamfer card is open, re-anchor (or drop) the radius arrow on the new pick.
         if (m_active == Tool::Dressup) update_fillet_gizmo();
         // If the Shell card is open, a face pick chooses the open face: update the label + gizmo
