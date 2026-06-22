@@ -44,6 +44,10 @@ private:
     // Constrain = constraints + edit ops). Replaces the old always-visible wall.
     enum class UiMode { Feature, Sketch, Constrain };
     void set_ui_mode(UiMode m);
+    // Unified action-bar dispatch: one Confirm / one Cancel for every tool and mode.
+    void tool_confirm();        // ✓ : commit the active feature / sketch / constrain session
+    void tool_cancel();         // ✗ / Esc : cancel the active feature / discard / exit
+    void update_action_bar();   // show the ✓/✗ bar iff a tool or mode is active
 
     void on_shape_changed();
     void on_add_sketch();
@@ -204,6 +208,9 @@ private:
     wxSizer*  m_tb_feature{nullptr};
     wxSizer*  m_tb_sketch{nullptr};
     wxSizer*  m_tb_constrain{nullptr};
+    // Unified Confirm/Cancel action bar (right end of the ribbon). Shown whenever any
+    // tool or mode is active; the single confirm/cancel surface for the whole tab.
+    wxSizer*  m_tb_action{nullptr};
     // All tool buttons, for the active-tool teal highlight (Onshape-style).
     std::vector<ScalableButton*> m_tool_btns;
     ScalableButton*              m_active_tool_btn{nullptr};

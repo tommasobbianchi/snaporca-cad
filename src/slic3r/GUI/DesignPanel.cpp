@@ -39,6 +39,15 @@
 #include "slic3r/GUI/MainFrame.hpp"
 #include "slic3r/GUI/GUI_ObjectList.hpp"
 
+// Apple-esque consistency: the Design tab speaks ONE uniform vocabulary — English — so it
+// never reads as a half-Italian/half-English patchwork against the host's localized chrome.
+// Bypass the gettext catalog for every _L() in this TU (the surrounding Orca UI still follows
+// the app locale; only our tool/card/toolbar strings are pinned). One lever, whole file.
+#ifdef _L
+#undef _L
+#endif
+#define _L(s) wxString::FromUTF8(s)
+
 namespace Slic3r { namespace GUI {
 
 // Format a value with the international ('.') decimal separator regardless of the
@@ -644,12 +653,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         b_del->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
             if (m_viewport) m_viewport->delete_selected_sketch_entities(); });
         sadd(b_del);
-        add_sep(m_tb_sketch);
-        auto* b_finish = icon_btn("design_check", _L("Finish sketch"));
-        b_finish->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-            if (m_viewport && m_viewport->is_sketching()) m_viewport->finish_sketch();
-            set_ui_mode(UiMode::Feature); });
-        sadd(b_finish);
+        // Finish sketch = the unified ✓ Confirm in the action bar (tool_confirm).
     }
 
     // --- Constrain group: geometric constraints + dimensions + edit ops + Done
@@ -688,17 +692,23 @@ DesignPanel::DesignPanel(wxWindow* parent)
         // card are retired. Only the pick-only Trim/Extend remain here.
         ebtn("design_trim",       _L("Trim"),         EditOp::Trim);
         ebtn("design_extend",     _L("Extend"),       EditOp::Extend);
-        add_sep(m_tb_constrain);
-        auto* b_done = icon_btn("design_check", _L("Done constraining"));
-        b_done->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-            cancel_value();                              // drop any open value card
-            if (m_viewport) m_viewport->end_constrain(); // clear viewport pick highlight
-            m_constrain_feat = -1;
-            set_ui_mode(UiMode::Feature);
-            m_status->SetForegroundColour(wxNullColour);
-            m_status->SetLabel(wxString());
-            m_status->Refresh(); });
-        cadd(b_done);
+        // Done constraining = the unified ✓ Confirm in the action bar (tool_confirm).
+    }
+
+    // Unified action bar: the ONE Confirm/Cancel surface for every tool and mode. Lives at
+    // the right end of the ribbon (the "tool dashboard"); shown only while a tool/mode is
+    // active (update_action_bar). Replaces the 13 per-card buttons + sketch Finish + Done.
+    m_tb_action = new wxBoxSizer(wxHORIZONTAL);
+    {
+        auto* ok = new wxButton(m_toolbar, wxID_ANY, _L("✓ Confirm"));
+        ok->SetForegroundColour(*wxWHITE);
+        ok->SetBackgroundColour(wxColour(0x00, 0x96, 0x88));   // Orca teal accent
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { tool_confirm(); });
+        m_confirm_btns.push_back(ok);   // refresh_preview greys this on an invalid candidate
+        auto* no = new wxButton(m_toolbar, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { tool_cancel(); });
+        m_tb_action->Add(ok, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+        m_tb_action->Add(no, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 10);
     }
 
     auto* tbrow = new wxBoxSizer(wxHORIZONTAL);
@@ -707,6 +717,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     tbrow->Add(m_tb_sketch,    0, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, 5);
     tbrow->Add(m_tb_constrain, 0, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, 5);
     tbrow->AddStretchSpacer();
+    tbrow->Add(m_tb_action,    0, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, 5);
     m_toolbar->SetSizer(tbrow);
 
     // Onshape-style dialog-card header: feature icon + bold title. out receives
@@ -755,17 +766,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_box_sketch->Add(card_header("design_sketch", _L("Sketch"), m_hdr_sketch), 0, wxLEFT | wxRIGHT | wxTOP, 12);
     m_box_sketch->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
     m_box_sketch->Add(form, 0, wxALL, 12);
-    {
-        auto* row = new wxBoxSizer(wxHORIZONTAL);
-        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
-        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
-        m_confirm_btns.push_back(ok);
-        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
-        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
-        row->Add(ok, 0, wxRIGHT, 8);
-        row->Add(no, 0);
-        m_box_sketch->Add(row, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
-    }
     root->Add(m_box_sketch, 0, wxEXPAND);
 
     // --- Extrude dialog (consumes the selected sketch) ---
@@ -816,17 +816,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
 
         m_box_extrude->Add(eform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
     }
-    {
-        auto* row = new wxBoxSizer(wxHORIZONTAL);
-        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
-        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
-        m_confirm_btns.push_back(ok);
-        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
-        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
-        row->Add(ok, 0, wxRIGHT, 8);
-        row->Add(no, 0);
-        m_box_extrude->Add(row, 0, wxALL, 12);
-    }
     root->Add(m_box_extrude, 0, wxEXPAND);
 
     // --- Dress-up (Fillet / Chamfer) ---
@@ -856,17 +845,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_box_dressup->Add(card_header("design_dressup", _L("Fillet / Chamfer"), m_hdr_dressup), 0, wxLEFT | wxRIGHT | wxTOP, 12);
     m_box_dressup->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
     m_box_dressup->Add(dform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
-    {
-        auto* row = new wxBoxSizer(wxHORIZONTAL);
-        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
-        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
-        m_confirm_btns.push_back(ok);
-        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
-        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
-        row->Add(ok, 0, wxRIGHT, 8);
-        row->Add(no, 0);
-        m_box_dressup->Add(row, 0, wxALL, 12);
-    }
     root->Add(m_box_dressup, 0, wxEXPAND);
 
     // --- Hole (positioned circular cut) ---
@@ -905,17 +883,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_box_hole->Add(card_header("design_hole", _L("Hole"), m_hdr_hole), 0, wxLEFT | wxRIGHT | wxTOP, 12);
     m_box_hole->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
     m_box_hole->Add(hform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
-    {
-        auto* row = new wxBoxSizer(wxHORIZONTAL);
-        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
-        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
-        m_confirm_btns.push_back(ok);
-        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
-        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
-        row->Add(ok, 0, wxRIGHT, 8);
-        row->Add(no, 0);
-        m_box_hole->Add(row, 0, wxALL, 12);
-    }
     root->Add(m_box_hole, 0, wxEXPAND);
 
     // --- Thread (helical) ---
@@ -979,17 +946,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_box_thread->Add(card_header("design_thread", _L("Thread"), m_hdr_thread), 0, wxLEFT | wxRIGHT | wxTOP, 12);
     m_box_thread->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
     m_box_thread->Add(tform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
-    {
-        auto* row = new wxBoxSizer(wxHORIZONTAL);
-        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
-        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
-        m_confirm_btns.push_back(ok);
-        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
-        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
-        row->Add(ok, 0, wxRIGHT, 8);
-        row->Add(no, 0);
-        m_box_thread->Add(row, 0, wxALL, 12);
-    }
     root->Add(m_box_thread, 0, wxEXPAND);
 
     // --- Revolve (sweep a sketch profile about an in-plane axis) ---
@@ -1027,17 +983,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
 
         m_box_revolve->Add(rform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
     }
-    {
-        auto* row = new wxBoxSizer(wxHORIZONTAL);
-        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
-        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
-        m_confirm_btns.push_back(ok);
-        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
-        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
-        row->Add(ok, 0, wxRIGHT, 8);
-        row->Add(no, 0);
-        m_box_revolve->Add(row, 0, wxALL, 12);
-    }
     root->Add(m_box_revolve, 0, wxEXPAND);
 
     // --- Sweep (sweep a profile sketch along a path sketch) ---
@@ -1063,17 +1008,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
         sform->Add(m_sweep_mode);
 
         m_box_sweep->Add(sform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
-    }
-    {
-        auto* row = new wxBoxSizer(wxHORIZONTAL);
-        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
-        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
-        m_confirm_btns.push_back(ok);
-        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
-        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
-        row->Add(ok, 0, wxRIGHT, 8);
-        row->Add(no, 0);
-        m_box_sweep->Add(row, 0, wxALL, 12);
     }
     root->Add(m_box_sweep, 0, wxEXPAND);
 
@@ -1111,17 +1045,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
         pform->Add(m_pattern_angle);
 
         m_box_pattern->Add(pform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
-    }
-    {
-        auto* row = new wxBoxSizer(wxHORIZONTAL);
-        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
-        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
-        m_confirm_btns.push_back(ok);
-        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
-        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
-        row->Add(ok, 0, wxRIGHT, 8);
-        row->Add(no, 0);
-        m_box_pattern->Add(row, 0, wxALL, 12);
     }
     root->Add(m_box_pattern, 0, wxEXPAND);
 
@@ -1165,17 +1088,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_bool_keep->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { refresh_preview(); });
         m_box_boolean->Add(m_bool_keep, 0, wxLEFT | wxRIGHT | wxTOP, 12);
     }
-    {
-        auto* row = new wxBoxSizer(wxHORIZONTAL);
-        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
-        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
-        m_confirm_btns.push_back(ok);
-        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
-        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
-        row->Add(ok, 0, wxRIGHT, 8);
-        row->Add(no, 0);
-        m_box_boolean->Add(row, 0, wxALL, 12);
-    }
     root->Add(m_box_boolean, 0, wxEXPAND);
 
     // --- Insert (Text / SVG placement): Confirm/Cancel for the in-canvas art transform ---
@@ -1183,18 +1095,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_box_insert->Add(card_header("design_text", _L("Insert"), m_hdr_insert), 0, wxLEFT | wxRIGHT | wxTOP, 12);
     m_box_insert->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
     m_box_insert->Add(new wxStaticText(m_form, wxID_ANY,
-        _L("Drag a corner to size, the centre to move.\nConfirm to keep, Cancel to discard.")),
-        0, wxLEFT | wxRIGHT, 12);
-    {
-        auto* row = new wxBoxSizer(wxHORIZONTAL);
-        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
-        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { finalize_insert(); });
-        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
-        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_insert(); });
-        row->Add(ok, 0, wxRIGHT, 8);
-        row->Add(no, 0);
-        m_box_insert->Add(row, 0, wxALL, 12);
-    }
+        _L("Drag a corner to size, the centre to move.\nConfirm or Cancel in the toolbar above.")),
+        0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
     root->Add(m_box_insert, 0, wxEXPAND);
 
     // --- Plane (datum/reference plane: offset + tilt from a base plane; no solid) ---
@@ -1226,17 +1128,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
 
         m_box_plane->Add(plform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
     }
-    {
-        auto* row = new wxBoxSizer(wxHORIZONTAL);
-        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
-        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
-        m_confirm_btns.push_back(ok);
-        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
-        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
-        row->Add(ok, 0, wxRIGHT, 8);
-        row->Add(no, 0);
-        m_box_plane->Add(row, 0, wxALL, 12);
-    }
     root->Add(m_box_plane, 0, wxEXPAND);
 
     // --- Loft (skin a solid through 2+ ordered profile sketches) ---
@@ -1264,17 +1155,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
     }
     m_loft_ruled = new wxCheckBox(m_form, wxID_ANY, _L("Ruled (straight) sections"));
     m_box_loft->Add(m_loft_ruled, 0, wxLEFT | wxRIGHT | wxTOP, 12);
-    {
-        auto* row = new wxBoxSizer(wxHORIZONTAL);
-        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
-        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
-        m_confirm_btns.push_back(ok);
-        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
-        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
-        row->Add(ok, 0, wxRIGHT, 8);
-        row->Add(no, 0);
-        m_box_loft->Add(row, 0, wxALL, 12);
-    }
     root->Add(m_box_loft, 0, wxEXPAND);
 
     // --- Shell (hollow the current body to a wall thickness, removing one picked face) ---
@@ -1293,17 +1173,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
                         _L("Pick a solid face to open it, then set the wall thickness.")),
                      0, wxLEFT | wxRIGHT, 12);
     m_box_shell->Add(sform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
-    {
-        auto* row = new wxBoxSizer(wxHORIZONTAL);
-        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
-        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
-        m_confirm_btns.push_back(ok);
-        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
-        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
-        row->Add(ok, 0, wxRIGHT, 8);
-        row->Add(no, 0);
-        m_box_shell->Add(row, 0, wxALL, 12);
-    }
     root->Add(m_box_shell, 0, wxEXPAND);
 
     // --- Draft (taper a single picked solid face about the body bottom) ---
@@ -1322,17 +1191,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
                         _L("Pick a side face, then set the draft angle. The face pivots about the body base.")),
                      0, wxLEFT | wxRIGHT, 12);
     m_box_draft->Add(drform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
-    {
-        auto* row = new wxBoxSizer(wxHORIZONTAL);
-        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
-        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
-        m_confirm_btns.push_back(ok);
-        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
-        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
-        row->Add(ok, 0, wxRIGHT, 8);
-        row->Add(no, 0);
-        m_box_draft->Add(row, 0, wxALL, 12);
-    }
     root->Add(m_box_draft, 0, wxEXPAND);
 
     // --- Docked value-entry card (Onshape Button->Dialog->Confirm for dimensions) ---
@@ -1813,6 +1671,15 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y) from the viewport → feature-history undo/redo.
     m_viewport->set_on_undo_redo([this](bool redo) { do_undo_redo(redo); });
 
+    // Esc = the unified Cancel everywhere. Feature cards had no key exit (only the button);
+    // CHAR_HOOK on the panel catches Esc from the card or viewport and routes to tool_cancel.
+    // Sketch/Constrain keep the viewport's per-gesture Esc (abort the current point first),
+    // so we only intercept Esc here when a feature/insert card is the thing to dismiss.
+    Bind(wxEVT_CHAR_HOOK, [this](wxKeyEvent& e) {
+        if (e.GetKeyCode() == WXK_ESCAPE && m_active != Tool::None) { tool_cancel(); return; }
+        e.Skip();
+    });
+
     // The Line tool's length and the Dimension tool's value are both entered in-canvas now
     // (live quote labels + the floating SketchInlineEditor), so the old docked-card
     // callbacks (on_segment_drawn / on_dimension_pick_complete) are no longer wired.
@@ -1889,6 +1756,7 @@ void DesignPanel::set_ui_mode(UiMode m)
         m_form->Layout();
         m_form->FitInside();
     }
+    update_action_bar();   // Sketch/Constrain modes show the unified ✓/✗; Feature idle hides it
 }
 
 void DesignPanel::on_shape_changed()
@@ -2139,6 +2007,7 @@ void DesignPanel::open_insert_card(const wxString& base_name)
     s->Show(m_box_insert, true, true);
     m_form->Layout();
     m_form->FitInside();
+    update_action_bar();   // surface the unified ✓/✗
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(base_name + _L(" — drag to place/size, then Confirm"));
     m_status->Refresh();
@@ -4982,6 +4851,7 @@ void DesignPanel::open_tool(Tool t)
 
     m_form->Layout();
     m_form->FitInside();
+    update_action_bar();   // a tool is now active -> show the unified ✓/✗
     refresh_preview();
 }
 
@@ -5015,6 +4885,7 @@ void DesignPanel::close_tool()
     m_viewport->clear_pattern_gizmo();
     m_form->Layout();
     m_form->FitInside();
+    update_action_bar();   // no feature tool active -> hide the bar (unless a mode keeps it)
 }
 
 void DesignPanel::confirm_tool()
@@ -5063,6 +4934,68 @@ void DesignPanel::cancel_tool()
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(wxString());
     m_status->Refresh();
+}
+
+// One Confirm surface for the whole tab. Routes to the right commit by current context:
+// a feature card, the Insert placement, the Sketch session, or the Constrain session.
+void DesignPanel::tool_confirm()
+{
+    if (m_active == Tool::Insert) { finalize_insert(); return; }
+    if (m_active != Tool::None)   { confirm_tool();   return; }
+    if (m_ui_mode == UiMode::Sketch) {
+        if (m_viewport && m_viewport->is_sketching()) m_viewport->finish_sketch();
+        set_ui_mode(UiMode::Feature);
+        return;
+    }
+    if (m_ui_mode == UiMode::Constrain) {
+        cancel_value();
+        if (m_viewport) m_viewport->end_constrain();
+        m_constrain_feat = -1;
+        set_ui_mode(UiMode::Feature);
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(wxString());
+        m_status->Refresh();
+    }
+}
+
+// One Cancel/exit surface (also bound to Esc). Discards the active feature/insert, or a
+// drawn-but-uncommitted Sketch, or exits Constrain.
+void DesignPanel::tool_cancel()
+{
+    if (m_active == Tool::Insert) { cancel_insert(); return; }
+    if (m_active != Tool::None)   { cancel_tool();   return; }
+    if (m_ui_mode == UiMode::Sketch) {
+        if (m_viewport) m_viewport->cancel_sketch();   // drop the live session (committed art stays)
+        m_edit_index = -1;
+        set_ui_mode(UiMode::Feature);
+        sync_sketch_display();
+        refresh_tree();
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(wxString());
+        m_status->Refresh();
+        return;
+    }
+    if (m_ui_mode == UiMode::Constrain) {
+        cancel_value();
+        if (m_viewport) m_viewport->end_constrain();
+        m_constrain_feat = -1;
+        set_ui_mode(UiMode::Feature);
+        m_status->SetForegroundColour(wxNullColour);
+        m_status->SetLabel(wxString());
+        m_status->Refresh();
+    }
+}
+
+void DesignPanel::update_action_bar()
+{
+    if (m_tb_action == nullptr || m_toolbar == nullptr) return;
+    wxSizer* s = m_toolbar->GetSizer();
+    if (s == nullptr) return;
+    const bool active = (m_active != Tool::None)
+                     || m_ui_mode == UiMode::Sketch
+                     || m_ui_mode == UiMode::Constrain;
+    s->Show(m_tb_action, active, true);
+    m_toolbar->Layout();
 }
 
 void DesignPanel::do_undo_redo(bool redo)
