@@ -14,6 +14,7 @@
 #include <wx/imaglist.h>
 #include <wx/statline.h>
 #include <wx/statbmp.h>
+#include <wx/image.h>
 #include <wx/font.h>
 #include <wx/textdlg.h>
 #include <wx/filedlg.h>
@@ -417,13 +418,36 @@ DesignPanel::DesignPanel(wxWindow* parent)
             DropDown drop;                 // declared LAST: destroyed before the vectors it references
             ToolFlyout() : drop(texts, tips, icons) {}
         };
+        // Re-tint each glyph to the DropDown's resolved TEXT colour so it reads on the
+        // popup in either theme: text_color is 0x363636, which darkModeColorFor() maps
+        // to a light tone in dark mode (the popup bg is darkModeColorFor(white) = dark)
+        // and leaves dark in light mode. Matching it keeps icons visible both ways.
+        // The alpha (the glyph shape) is preserved; only RGB is replaced.
+        // ponytail: wxBitmap(img) drops the HiDPI scale factor (no scale ctor before
+        // wx 3.1.6); the deploy target runs at scale 1.0, so this is exact there.
+        const wxColour drop_icon_col = StateColor::darkModeColorFor(wxColour(0x36, 0x36, 0x36));
+        auto tint = [](wxBitmap bmp, const wxColour& c) -> wxBitmap {
+            if (!bmp.IsOk()) return bmp;
+            wxImage img = bmp.ConvertToImage();
+            if (!img.HasAlpha()) img.InitAlpha();
+            const int w = img.GetWidth(), h = img.GetHeight();
+            for (int y = 0; y < h; ++y)
+                for (int x = 0; x < w; ++x)
+                    img.SetRGB(x, y, c.Red(), c.Green(), c.Blue());
+            return wxBitmap(img);
+        };
         auto dropdown = [&](const char* def_icon, const wxString& grp, std::vector<SkVar> vars) {
             auto* b = icon_btn(def_icon, grp);
+            // messureSize() measures labels with the PARENT's font (this button) but the
+            // popup draws them in Body_14 — so an under-sized button font truncates rows.
+            // The button is icon-only (no label), so giving it Body_14 is invisible and
+            // makes the content-width measure match the draw.
+            b->SetFont(Label::Body_14);
             auto fo = std::make_shared<ToolFlyout>();
             for (auto& v : vars) {
                 fo->texts.push_back(v.tip);
                 fo->tips.push_back(v.hint);
-                fo->icons.push_back(create_scaled_bitmap(v.icon, m_form, 18));
+                fo->icons.push_back(tint(create_scaled_bitmap(v.icon, m_form, 18), drop_icon_col));
                 fo->modes.push_back(v.mode);
                 fo->hints.push_back(v.hint);
                 fo->icon_names.emplace_back(v.icon);
@@ -442,7 +466,14 @@ DesignPanel::DesignPanel(wxWindow* parent)
                 }
             });
             b->Bind(wxEVT_BUTTON, [b, fp](wxCommandEvent&) {
-                // Drop the flyout just below the button (autoPosition() is private).
+                // autoPosition()/messureSize() are private; ComboBox calls them before
+                // Popup() so the window is sized to its content first. Without that the
+                // popup maps at a stale narrow size and labels ellipsize ("Oblique
+                // rectang…"). Force a fresh content measure by toggling use_content_width
+                // (messureSize only runs when the flag actually changes), then show.
+                fp->drop.Invalidate(true);
+                fp->drop.SetUseContentWidth(false, false);
+                fp->drop.SetUseContentWidth(true, false);
                 wxPoint pos = b->ClientToScreen(wxPoint(0, -6));
                 fp->drop.Position(pos, wxSize(0, b->GetSize().y + 12));
                 fp->drop.Popup();
