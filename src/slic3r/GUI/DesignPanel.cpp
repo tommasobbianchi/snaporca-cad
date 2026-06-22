@@ -23,6 +23,7 @@
 
 #include <string>
 #include <memory>
+#include <functional>
 #include <cmath>
 #include <cstdio>
 #include <algorithm>
@@ -198,11 +199,86 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_status->Refresh();
     };
 
+    // Shared flyout glyph tint (used by BOTH the feature and sketch toolbars). Re-tint each
+    // design_* glyph to the DropDown's resolved TEXT colour so it reads on the popup in either
+    // theme: text_color is 0x363636, which darkModeColorFor() maps to a light tone in dark mode
+    // (the popup bg is darkModeColorFor(white) = dark) and leaves dark in light mode. The alpha
+    // (the glyph shape) is preserved; only RGB is replaced.
+    // ponytail: wxBitmap(img) drops the HiDPI scale factor (no scale ctor before wx 3.1.6); the
+    // deploy target runs at scale 1.0, so this is exact there.
+    const wxColour drop_icon_col = StateColor::darkModeColorFor(wxColour(0x36, 0x36, 0x36));
+    auto tint = [](wxBitmap bmp, const wxColour& c) -> wxBitmap {
+        if (!bmp.IsOk()) return bmp;
+        wxImage img = bmp.ConvertToImage();
+        if (!img.HasAlpha()) img.InitAlpha();
+        const int w = img.GetWidth(), h = img.GetHeight();
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x)
+                img.SetRGB(x, y, c.Red(), c.Green(), c.Blue());
+        return wxBitmap(img);
+    };
+
     // --- Feature group: Sketch / Extrude / Fillet-Chamfer / Hole / Thread / Constrain
     m_tb_feature = new wxBoxSizer(wxHORIZONTAL);
     auto fadd = [this](wxWindow* w) { m_tb_feature->Add(w, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 2); };
     m_tb_feature->Add(caption(_L("FEATURES")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
     {
+        // Onshape-style FEATURE flyouts: same themed-DropDown pattern as the sketch toolbar
+        // (tinted glyphs, Body_14 measure, content-width popup) but each entry runs an
+        // arbitrary action — the existing per-feature handler — instead of selecting a Mode.
+        struct FeatVar { const char* icon; wxString tip; wxString hint; std::function<void()> action; };
+        struct FeatFlyout {
+            std::vector<wxString> texts, tips;
+            std::vector<wxBitmap> icons;
+            std::vector<std::function<void()>> actions;
+            std::vector<std::string> icon_names;
+            ScalableButton* btn = nullptr;
+            DropDown drop;                 // declared LAST: destroyed before the vectors it references
+            FeatFlyout() : drop(texts, tips, icons) {}
+        };
+        auto feat_dropdown = [&](const char* def_icon, const wxString& grp, std::vector<FeatVar> vars) {
+            auto* b = icon_btn(def_icon, grp);
+            b->SetFont(Label::Body_14);   // measure popup labels in the popup's font (no truncation)
+            auto fo = std::make_shared<FeatFlyout>();
+            for (auto& v : vars) {
+                fo->texts.push_back(v.tip);
+                fo->tips.push_back(v.hint);
+                fo->icons.push_back(tint(create_scaled_bitmap(v.icon, m_form, 18), drop_icon_col));
+                fo->actions.push_back(std::move(v.action));
+                fo->icon_names.emplace_back(v.icon);
+            }
+            fo->btn = b;
+            fo->drop.Create(b);
+            fo->drop.SetUseContentWidth(true, false);
+            fo->drop.Invalidate(true);
+            FeatFlyout* fp = fo.get();
+            fo->drop.Bind(wxEVT_COMBOBOX, [this, fp](wxCommandEvent& e) {
+                int i = e.GetInt();
+                if (i >= 0 && i < (int) fp->actions.size()) {
+                    fp->btn->SetBitmap_(fp->icon_names[i]);   // button face follows the last pick
+                    fp->actions[i]();
+                    set_active_tool_btn(fp->btn);
+                }
+            });
+            b->Bind(wxEVT_BUTTON, [b, fp](wxCommandEvent&) {
+                // Force a fresh content measure before Popup() (ComboBox does this via the
+                // private autoPosition()); otherwise the popup maps at a stale narrow size.
+                fp->drop.Invalidate(true);
+                fp->drop.SetUseContentWidth(false, false);
+                fp->drop.SetUseContentWidth(true, false);
+                wxPoint pos = b->ClientToScreen(wxPoint(0, -6));
+                fp->drop.Position(pos, wxSize(0, b->GetSize().y + 12));
+                fp->drop.Popup();
+            });
+            m_flyout_keepalive.push_back(fo);
+            fadd(b);
+            auto* chev = new wxStaticText(m_toolbar, wxID_ANY, wxString::FromUTF8("\xE2\x96\xBE"));
+            chev->SetForegroundColour(wxColour(0x81, 0x81, 0x83));
+            chev->SetFont(Label::Body_9);
+            m_tb_feature->Add(chev, 0, wxALIGN_BOTTOM | wxBOTTOM | wxRIGHT, 5);
+            return b;
+        };
+
         auto* b_sketch = icon_btn("design_sketch", _L("Sketch"));
         b_sketch->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
             populate_plane_choices(m_draw_plane);   // surface datum planes in the picker
@@ -213,55 +289,68 @@ DesignPanel::DesignPanel(wxWindow* parent)
         });
         fadd(b_sketch);
         add_sep(m_tb_feature);
-        auto* b_extrude = icon_btn("design_extrude", _L("Extrude"));
-        b_extrude->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-            // Onshape push/pull: an explicitly picked solid face (Face-level cycle, no loop
-            // selected) is extruded as the profile — this takes priority over re-extruding an
-            // already-consumed sketch (resolve_extrude_sketch always returns the last Sketch).
-            if (m_sel_solid_face >= 0 && !m_doc.body.IsNull() && m_sel_sketch_region < 0) {
-                m_extrude_face_src   = m_sel_solid_face;
-                m_extrude_sketch_ref = -1;
+        // Add material: Extrude / Revolve / Sweep / Loft
+        feat_dropdown("design_extrude", _L("Add material (extrude / revolve / sweep / loft)"), {
+            {"design_extrude", _L("Extrude"), _L("Extrude a sketch profile, or push/pull a picked face"),
+             [this] {
+                // Onshape push/pull: an explicitly picked solid face (Face-level cycle, no loop
+                // selected) is extruded as the profile — this takes priority over re-extruding an
+                // already-consumed sketch (resolve_extrude_sketch always returns the last Sketch).
+                if (m_sel_solid_face >= 0 && !m_doc.body.IsNull() && m_sel_sketch_region < 0) {
+                    m_extrude_face_src   = m_sel_solid_face;
+                    m_extrude_sketch_ref = -1;
+                    open_tool(Tool::Extrude);
+                    return;
+                }
+                m_extrude_face_src   = -1;   // ordinary sketch/loop extrude
+                m_extrude_sketch_ref = resolve_extrude_sketch();
+                if (m_extrude_sketch_ref < 0) {
+                    m_status->SetForegroundColour(wxColour(235, 110, 110));
+                    m_status->SetLabel(_L("Create a sketch, or pick a solid face, first"));
+                    m_status->Refresh();
+                    return;
+                }
                 open_tool(Tool::Extrude);
-                return;
-            }
-            m_extrude_face_src   = -1;   // ordinary sketch/loop extrude
-            m_extrude_sketch_ref = resolve_extrude_sketch();
-            if (m_extrude_sketch_ref < 0) {
-                m_status->SetForegroundColour(wxColour(235, 110, 110));
-                m_status->SetLabel(_L("Create a sketch, or pick a solid face, first"));
-                m_status->Refresh();
-                return;
-            }
-            open_tool(Tool::Extrude);
+             }},
+            {"design_revolve", _L("Revolve"), _L("Revolve a profile about an axis"),
+             [this] {
+                m_revolve_sketch_ref = resolve_extrude_sketch();
+                if (m_revolve_sketch_ref < 0) {
+                    m_status->SetForegroundColour(wxColour(235, 110, 110));
+                    m_status->SetLabel(_L("Create a sketch profile to revolve first"));
+                    m_status->Refresh();
+                    return;
+                }
+                open_tool(Tool::Revolve);
+             }},
+            {"design_sweep", _L("Sweep"), _L("Sweep a profile along a path"),
+             [this] {
+                m_sweep_profile_ref = resolve_extrude_sketch();
+                m_sweep_path_ref    = -1;   // fresh sweep: default the picker to the first sketch
+                if (m_sweep_profile_ref < 0) {
+                    m_status->SetForegroundColour(wxColour(235, 110, 110));
+                    m_status->SetLabel(_L("Create a profile sketch to sweep first"));
+                    m_status->Refresh();
+                    return;
+                }
+                open_tool(Tool::Sweep);
+             }},
+            {"design_loft", _L("Loft"), _L("Loft (skin) between two or more profiles"),
+             [this] {
+                // Loft skins 2+ profile sketches; need at least two to be meaningful.
+                int n = 0;
+                for (const auto& f : m_doc.features)
+                    if (f.type == CadFeatureType::Sketch) ++n;
+                if (n < 2) {
+                    m_status->SetForegroundColour(wxColour(235, 110, 110));
+                    m_status->SetLabel(_L("Create at least two profile sketches to loft"));
+                    m_status->Refresh();
+                    return;
+                }
+                m_loft_refs.clear();   // fresh loft: nothing pre-checked
+                open_tool(Tool::Loft);
+             }},
         });
-        fadd(b_extrude);
-
-        auto* b_revolve = icon_btn("design_revolve", _L("Revolve"));
-        b_revolve->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-            m_revolve_sketch_ref = resolve_extrude_sketch();
-            if (m_revolve_sketch_ref < 0) {
-                m_status->SetForegroundColour(wxColour(235, 110, 110));
-                m_status->SetLabel(_L("Create a sketch profile to revolve first"));
-                m_status->Refresh();
-                return;
-            }
-            open_tool(Tool::Revolve);
-        });
-        fadd(b_revolve);
-
-        auto* b_sweep = icon_btn("design_sweep", _L("Sweep"));
-        b_sweep->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-            m_sweep_profile_ref = resolve_extrude_sketch();
-            m_sweep_path_ref    = -1;   // fresh sweep: default the picker to the first sketch
-            if (m_sweep_profile_ref < 0) {
-                m_status->SetForegroundColour(wxColour(235, 110, 110));
-                m_status->SetLabel(_L("Create a profile sketch to sweep first"));
-                m_status->Refresh();
-                return;
-            }
-            open_tool(Tool::Sweep);
-        });
-        fadd(b_sweep);
 
         auto* b_pattern = icon_btn("design_pattern", _L("Pattern"));
         b_pattern->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
@@ -283,103 +372,88 @@ DesignPanel::DesignPanel(wxWindow* parent)
         });
         fadd(b_plane);
 
-        auto* b_loft = icon_btn("design_loft", _L("Loft"));
-        b_loft->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-            // Loft skins 2+ profile sketches; need at least two to be meaningful.
-            int n = 0;
-            for (const auto& f : m_doc.features)
-                if (f.type == CadFeatureType::Sketch) ++n;
-            if (n < 2) {
-                m_status->SetForegroundColour(wxColour(235, 110, 110));
-                m_status->SetLabel(_L("Create at least two profile sketches to loft"));
-                m_status->Refresh();
-                return;
-            }
-            m_loft_refs.clear();   // fresh loft: nothing pre-checked
-            open_tool(Tool::Loft);
+        // Dress-up: Fillet/Chamfer / Draft / Shell
+        feat_dropdown("design_dressup", _L("Dress-up (fillet / chamfer / draft / shell)"), {
+            {"design_dressup", _L("Fillet / Chamfer"), _L("Round or bevel a picked edge"),
+             [this] { open_tool(Tool::Dressup); }},
+            {"design_draft", _L("Draft (taper a face)"), _L("Tilt a picked face by a draft angle"),
+             [this] { open_tool(Tool::Draft); }},
+            {"design_shell", _L("Shell"), _L("Hollow the body to a wall thickness, opening a picked face"),
+             [this] { open_tool(Tool::Shell); }},
         });
-        fadd(b_loft);
 
-        auto* b_draft = icon_btn("design_draft", _L("Draft (taper a face)"));
-        b_draft->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Draft); });
-        fadd(b_draft);
-
-        auto* b_dressup = icon_btn("design_dressup", _L("Fillet / Chamfer"));
-        b_dressup->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Dressup); });
-        fadd(b_dressup);
-        auto* b_hole = icon_btn("design_hole", _L("Hole"));
-        b_hole->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-            // #2: drill on the picked solid face, centred on it (origin = face centroid,
-            // normal = inward). Otherwise fall back to the plane dropdown. m_hole_x/y then
-            // read as the offset from the face centre (editable for precise placement).
-            m_hole_on_face   = false;
-            m_hole_face_body = -1;
-            m_hole_has_bounds = false;
-            if (m_sel_solid_face >= 0 && m_sel_solid_body >= 0
-                && m_sel_solid_body < int(m_doc.bodies.size())) {
-                const TopoDS_Face face = GeometryEngine::face_by_index(
-                    m_doc.bodies[m_sel_solid_body].shape, m_sel_solid_face);
-                if (!face.IsNull()) {
-                    m_hole_face_plane = face_plane_inward(face);
-                    m_hole_on_face    = true;
-                    m_hole_face_body  = m_sel_solid_body;
-                    // Face (u,v) extents so the hole dims read from the sides (#2 Part B).
-                    m_hole_has_bounds = GeometryEngine::face_plane_bounds(
-                        face, m_hole_face_plane.origin, m_hole_face_plane.x_axis,
-                        m_hole_face_plane.y_axis, m_hole_umin, m_hole_umax, m_hole_vmin, m_hole_vmax);
-                    if (m_hole_x) m_hole_x->SetValue(0.0);   // start at the face centre
-                    if (m_hole_y) m_hole_y->SetValue(0.0);
+        // Hole / Thread — drilling into a solid (both face-aware)
+        feat_dropdown("design_hole", _L("Hole / thread"), {
+            {"design_hole", _L("Hole"), _L("Drill a hole, centred on a picked face or placed on a plane"),
+             [this] {
+                // #2: drill on the picked solid face, centred on it (origin = face centroid,
+                // normal = inward). Otherwise fall back to the plane dropdown. m_hole_x/y then
+                // read as the offset from the face centre (editable for precise placement).
+                m_hole_on_face   = false;
+                m_hole_face_body = -1;
+                m_hole_has_bounds = false;
+                if (m_sel_solid_face >= 0 && m_sel_solid_body >= 0
+                    && m_sel_solid_body < int(m_doc.bodies.size())) {
+                    const TopoDS_Face face = GeometryEngine::face_by_index(
+                        m_doc.bodies[m_sel_solid_body].shape, m_sel_solid_face);
+                    if (!face.IsNull()) {
+                        m_hole_face_plane = face_plane_inward(face);
+                        m_hole_on_face    = true;
+                        m_hole_face_body  = m_sel_solid_body;
+                        // Face (u,v) extents so the hole dims read from the sides (#2 Part B).
+                        m_hole_has_bounds = GeometryEngine::face_plane_bounds(
+                            face, m_hole_face_plane.origin, m_hole_face_plane.x_axis,
+                            m_hole_face_plane.y_axis, m_hole_umin, m_hole_umax, m_hole_vmin, m_hole_vmax);
+                        if (m_hole_x) m_hole_x->SetValue(0.0);   // start at the face centre
+                        if (m_hole_y) m_hole_y->SetValue(0.0);
+                    }
                 }
-            }
-            open_tool(Tool::Hole);
-        });
-        fadd(b_hole);
-        auto* b_thread = icon_btn("design_thread", _L("Thread"));
-        b_thread->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-            // #3: invoke on a picked CYLINDRICAL face — a hole bore (internal thread) or a
-            // cylinder's lateral surface (external) — deriving axis, radius and internal/
-            // external from it. Otherwise fall back to the plane dropdown.
-            m_thread_on_face   = false;
-            m_thread_face_body = -1;
-            if (m_sel_solid_face >= 0 && m_sel_solid_body >= 0
-                && m_sel_solid_body < int(m_doc.bodies.size())) {
-                const TopoDS_Face face = GeometryEngine::face_by_index(
-                    m_doc.bodies[m_sel_solid_body].shape, m_sel_solid_face);
-                const GeometryEngine::CylinderFace cf = GeometryEngine::cylinder_of_face(face);
-                if (cf.ok) {
-                    SketchPlane p;                       // plane on the axis (origin at the base)
-                    p.origin = cf.base;
-                    p.normal = cf.axis;
-                    const Vec3d ref = std::abs(cf.axis.z()) < 0.9 ? Vec3d(0, 0, 1) : Vec3d(1, 0, 0);
-                    p.x_axis = ref.cross(cf.axis).normalized();
-                    p.y_axis = cf.axis.cross(p.x_axis).normalized();
-                    m_thread_face_plane = p;
-                    m_thread_on_face    = true;
-                    m_thread_face_body  = m_sel_solid_body;
-                    if (m_thread_radius)   m_thread_radius->SetValue(cf.radius);
-                    if (m_thread_height)   m_thread_height->SetValue(cf.height);
-                    if (m_thread_internal) m_thread_internal->SetValue(cf.internal);
-                    if (m_thread_x) m_thread_x->SetValue(0.0);   // on the axis
-                    if (m_thread_y) m_thread_y->SetValue(0.0);
-                } else if (m_sel_solid_face >= 0) {
-                    m_status->SetForegroundColour(wxColour(235, 110, 110));
-                    m_status->SetLabel(_L("Pick a cylindrical face (hole bore or cylinder) for a thread"));
-                    m_status->Refresh();
+                open_tool(Tool::Hole);
+             }},
+            {"design_thread", _L("Thread"), _L("Thread a picked cylindrical face (hole bore or cylinder)"),
+             [this] {
+                // #3: invoke on a picked CYLINDRICAL face — a hole bore (internal thread) or a
+                // cylinder's lateral surface (external) — deriving axis, radius and internal/
+                // external from it. Otherwise fall back to the plane dropdown.
+                m_thread_on_face   = false;
+                m_thread_face_body = -1;
+                if (m_sel_solid_face >= 0 && m_sel_solid_body >= 0
+                    && m_sel_solid_body < int(m_doc.bodies.size())) {
+                    const TopoDS_Face face = GeometryEngine::face_by_index(
+                        m_doc.bodies[m_sel_solid_body].shape, m_sel_solid_face);
+                    const GeometryEngine::CylinderFace cf = GeometryEngine::cylinder_of_face(face);
+                    if (cf.ok) {
+                        SketchPlane p;                       // plane on the axis (origin at the base)
+                        p.origin = cf.base;
+                        p.normal = cf.axis;
+                        const Vec3d ref = std::abs(cf.axis.z()) < 0.9 ? Vec3d(0, 0, 1) : Vec3d(1, 0, 0);
+                        p.x_axis = ref.cross(cf.axis).normalized();
+                        p.y_axis = cf.axis.cross(p.x_axis).normalized();
+                        m_thread_face_plane = p;
+                        m_thread_on_face    = true;
+                        m_thread_face_body  = m_sel_solid_body;
+                        if (m_thread_radius)   m_thread_radius->SetValue(cf.radius);
+                        if (m_thread_height)   m_thread_height->SetValue(cf.height);
+                        if (m_thread_internal) m_thread_internal->SetValue(cf.internal);
+                        if (m_thread_x) m_thread_x->SetValue(0.0);   // on the axis
+                        if (m_thread_y) m_thread_y->SetValue(0.0);
+                    } else if (m_sel_solid_face >= 0) {
+                        m_status->SetForegroundColour(wxColour(235, 110, 110));
+                        m_status->SetLabel(_L("Pick a cylindrical face (hole bore or cylinder) for a thread"));
+                        m_status->Refresh();
+                    }
                 }
-            }
-            open_tool(Tool::Thread);
+                open_tool(Tool::Thread);
+             }},
         });
-        fadd(b_thread);
-        auto* b_shell = icon_btn("design_shell", _L("Shell (hollow to a wall thickness)"));
-        b_shell->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { open_tool(Tool::Shell); });
-        fadd(b_shell);
         add_sep(m_tb_feature);
-        auto* b_text = icon_btn("design_text", _L("Text"));
-        b_text->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_add_text(); });
-        fadd(b_text);
-        auto* b_svg = icon_btn("design_svg", _L("Import SVG"));
-        b_svg->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_import_svg(); });
-        fadd(b_svg);
+        // Insert: Text / SVG
+        feat_dropdown("design_text", _L("Insert (text / SVG)"), {
+            {"design_text", _L("Text"), _L("Emboss text as a profile"),
+             [this] { on_add_text(); }},
+            {"design_svg", _L("Import SVG"), _L("Import an SVG outline as a profile"),
+             [this] { on_import_svg(); }},
+        });
         add_sep(m_tb_feature);
         auto* b_constrain = icon_btn("design_constrain", _L("Constrain selected sketch"));
         b_constrain->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
@@ -417,24 +491,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
             ScalableButton* btn = nullptr;
             DropDown drop;                 // declared LAST: destroyed before the vectors it references
             ToolFlyout() : drop(texts, tips, icons) {}
-        };
-        // Re-tint each glyph to the DropDown's resolved TEXT colour so it reads on the
-        // popup in either theme: text_color is 0x363636, which darkModeColorFor() maps
-        // to a light tone in dark mode (the popup bg is darkModeColorFor(white) = dark)
-        // and leaves dark in light mode. Matching it keeps icons visible both ways.
-        // The alpha (the glyph shape) is preserved; only RGB is replaced.
-        // ponytail: wxBitmap(img) drops the HiDPI scale factor (no scale ctor before
-        // wx 3.1.6); the deploy target runs at scale 1.0, so this is exact there.
-        const wxColour drop_icon_col = StateColor::darkModeColorFor(wxColour(0x36, 0x36, 0x36));
-        auto tint = [](wxBitmap bmp, const wxColour& c) -> wxBitmap {
-            if (!bmp.IsOk()) return bmp;
-            wxImage img = bmp.ConvertToImage();
-            if (!img.HasAlpha()) img.InitAlpha();
-            const int w = img.GetWidth(), h = img.GetHeight();
-            for (int y = 0; y < h; ++y)
-                for (int x = 0; x < w; ++x)
-                    img.SetRGB(x, y, c.Red(), c.Green(), c.Blue());
-            return wxBitmap(img);
         };
         auto dropdown = [&](const char* def_icon, const wxString& grp, std::vector<SkVar> vars) {
             auto* b = icon_btn(def_icon, grp);
