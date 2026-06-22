@@ -395,6 +395,21 @@ DesignPanel::DesignPanel(wxWindow* parent)
         });
         fadd(b_boolean);
 
+        auto* b_cut = icon_btn("design_cut", _L("Cut (split a body with a plane)"));
+        b_cut->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            // A plane cut needs at least one solid to slice.
+            if (m_doc.bodies.empty()) {
+                m_status->SetForegroundColour(wxColour(235, 110, 110));
+                m_status->SetLabel(_L("Create a solid body to cut first"));
+                m_status->Refresh();
+                return;
+            }
+            populate_plane_choices(m_cut_plane);
+            populate_body_choices();
+            open_tool(Tool::Cut);
+        });
+        fadd(b_cut);
+
         // Dress-up: Fillet/Chamfer / Draft / Shell
         feat_dropdown("design_dressup", _L("Dress-up (fillet / chamfer / draft / shell)"), {
             {"design_dressup", _L("Fillet / Chamfer"), _L("Round or bevel a picked edge"),
@@ -1090,6 +1105,45 @@ DesignPanel::DesignPanel(wxWindow* parent)
     }
     root->Add(m_box_boolean, 0, wxEXPAND);
 
+    // --- Cut (split a body with a plane): parameters only; ✓/✗ live on the ribbon ---
+    m_box_cut = new wxBoxSizer(wxVERTICAL);
+    m_box_cut->Add(card_header("design_cut", _L("Cut"), m_hdr_cut), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_cut->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
+    {
+        auto* cform = new wxFlexGridSizer(2, 6, 8);
+
+        m_cut_target = new wxChoice(m_form, wxID_ANY);
+        m_cut_target->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { refresh_preview(); });
+        cform->Add(new wxStaticText(m_form, wxID_ANY, _L("Body")), 0, wxALIGN_CENTER_VERTICAL);
+        cform->Add(m_cut_target);
+
+        m_cut_plane = new wxChoice(m_form, wxID_ANY);
+        m_cut_plane->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { refresh_preview(); });
+        cform->Add(new wxStaticText(m_form, wxID_ANY, _L("Plane")), 0, wxALIGN_CENTER_VERTICAL);
+        cform->Add(m_cut_plane);
+
+        m_cut_offset = make_spin(m_form, 0.0, -10000.0, 10000.0);
+        m_cut_offset->Bind(wxEVT_SPINCTRLDOUBLE, [this](wxSpinDoubleEvent&) { refresh_preview(); });
+        cform->Add(new wxStaticText(m_form, wxID_ANY, _L("Offset")), 0, wxALIGN_CENTER_VERTICAL);
+        cform->Add(m_cut_offset);
+
+        m_box_cut->Add(cform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+
+        m_cut_flip = new wxCheckBox(m_form, wxID_ANY, _L("Flip plane"));
+        m_cut_flip->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { refresh_preview(); });
+        m_box_cut->Add(m_cut_flip, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+
+        m_cut_keep_upper = new wxCheckBox(m_form, wxID_ANY, _L("Keep upper part"));
+        m_cut_keep_upper->SetValue(true);
+        m_cut_keep_upper->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { refresh_preview(); });
+        m_box_cut->Add(m_cut_keep_upper, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+
+        m_cut_keep_lower = new wxCheckBox(m_form, wxID_ANY, _L("Keep lower part"));
+        m_cut_keep_lower->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { refresh_preview(); });
+        m_box_cut->Add(m_cut_keep_lower, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    }
+    root->Add(m_box_cut, 0, wxEXPAND);
+
     // --- Insert (Text / SVG placement): Confirm/Cancel for the in-canvas art transform ---
     m_box_insert = new wxBoxSizer(wxVERTICAL);
     m_box_insert->Add(card_header("design_text", _L("Insert"), m_hdr_insert), 0, wxLEFT | wxRIGHT | wxTOP, 12);
@@ -1382,6 +1436,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     root->Show(m_box_loft, false, true);
     root->Show(m_box_draft, false, true);
     root->Show(m_box_boolean, false, true);
+    root->Show(m_box_cut,     false, true);
     root->Show(m_box_insert,  false, true);
     root->Show(m_box_dressup, false, true);
     root->Show(m_box_hole,    false, true);
@@ -2382,6 +2437,7 @@ void DesignPanel::populate_body_choices()
     };
     fill(m_bool_target, 0);
     fill(m_bool_tool, 1);   // default: combine body 0 (target) with body 1 (tool)
+    fill(m_cut_target, 0);  // Cut tool: default to the first body
 }
 
 void DesignPanel::on_add_boolean()
@@ -2398,6 +2454,30 @@ void DesignPanel::on_add_boolean()
     m_doc.add_boolean(op, m_bool_target->GetSelection(), m_bool_tool->GetSelection(),
                       m_bool_keep->GetValue(), m_bool_tol->GetValue(), -1, -1,
                       "Boolean" + std::to_string(m_feature_counter));
+    if (!m_doc.recompute())
+        m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
+    else
+        set_status_ok();
+    refresh_tree();
+}
+
+void DesignPanel::on_add_cut()
+{
+    if (m_doc.bodies.empty()) {
+        m_status->SetLabel(_L("Cut needs a body"));
+        return;
+    }
+    if (!m_cut_keep_upper->GetValue() && !m_cut_keep_lower->GetValue()) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Cut: keep at least one side"));
+        m_status->Refresh();
+        return;
+    }
+    m_feature_counter++;
+    m_doc.add_cut(plane_from_choice(m_cut_plane->GetSelection()), m_cut_offset->GetValue(),
+                  m_cut_flip->GetValue(), m_cut_keep_upper->GetValue(),
+                  m_cut_keep_lower->GetValue(), m_cut_target->GetSelection(),
+                  "Cut" + std::to_string(m_feature_counter));
     if (!m_doc.recompute())
         m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
     else
@@ -2499,6 +2579,7 @@ int DesignPanel::tree_icon_for(CadFeatureType t)
     case CadFeatureType::Draft:   return 5;   // dressup-family icon
     case CadFeatureType::Import:  return 1;   // imported solid: solid-family icon
     case CadFeatureType::Boolean: return 1;   // body-body combine: solid-family icon
+    case CadFeatureType::Cut:     return 1;   // plane split: solid-family icon
     }
     return 0;
 }
@@ -4452,6 +4533,15 @@ CadFeature DesignPanel::build_candidate(Tool t) const
         f.bool_tolerance = m_bool_tol->GetValue();   // OCCT fuzzy: robust cut on near-coincident faces
         break;
     }
+    case Tool::Cut:
+        f.type           = CadFeatureType::Cut;
+        f.plane          = plane_from_choice(m_cut_plane->GetSelection());
+        f.cut_offset     = m_cut_offset->GetValue();
+        f.cut_flip       = m_cut_flip->GetValue();
+        f.cut_keep_upper = m_cut_keep_upper->GetValue();
+        f.cut_keep_lower = m_cut_keep_lower->GetValue();
+        f.target_body    = m_cut_target->GetSelection();
+        break;
     case Tool::Insert:   // imported art is committed by add_imported_sketch, not build_candidate
     case Tool::None:
         break;
@@ -4459,7 +4549,7 @@ CadFeature DesignPanel::build_candidate(Tool t) const
     // Boolean drives its own target/tool body from the card; every other tool targets the
     // picked body (face-extrude reads its source face there, dress-up / hole / boolean-mode
     // extrude mutate it). -1 when nothing is picked => auto (last body).
-    if (m_active != Tool::Boolean)
+    if (m_active != Tool::Boolean && m_active != Tool::Cut)
         f.target_body = m_sel_solid_body;
     return f;
 }
@@ -4779,6 +4869,7 @@ void DesignPanel::open_tool(Tool t)
     s->Show(m_box_plane,   t == Tool::Plane,   true);
     s->Show(m_box_loft,    t == Tool::Loft,    true);
     s->Show(m_box_boolean, t == Tool::Boolean, true);
+    s->Show(m_box_cut,     t == Tool::Cut,     true);
     s->Show(m_box_draft,   t == Tool::Draft,   true);
     s->Show(m_box_insert,  t == Tool::Insert,  true);
 
@@ -4868,6 +4959,7 @@ void DesignPanel::open_tool(Tool t)
     case Tool::Loft:    m_hdr_loft->SetLabel(title(_L("Loft")));       break;
     case Tool::Draft:   m_hdr_draft->SetLabel(title(_L("Draft")));     break;
     case Tool::Boolean: m_hdr_boolean->SetLabel(title(_L("Boolean"))); break;
+    case Tool::Cut:     m_hdr_cut->SetLabel(title(_L("Cut")));         break;
     case Tool::Insert:  break;   // header set by open_insert_card()
     case Tool::None:    break;
     }
@@ -4896,6 +4988,7 @@ void DesignPanel::close_tool()
     s->Show(m_box_plane,   false, true);
     s->Show(m_box_loft,    false, true);
     s->Show(m_box_boolean, false, true);
+    s->Show(m_box_cut,     false, true);
     s->Show(m_box_draft,   false, true);
     s->Show(m_box_insert,  false, true);
     m_viewport->clear_preview();
@@ -4942,6 +5035,7 @@ void DesignPanel::confirm_tool()
     case Tool::Loft:    on_add_loft();    break;
     case Tool::Draft:   on_add_draft();   break;
     case Tool::Boolean: on_add_boolean(); break;
+    case Tool::Cut:     on_add_cut();     break;
     case Tool::Insert:  return;   // committed via finalize_insert(), never here
     case Tool::None:    return;
     }
