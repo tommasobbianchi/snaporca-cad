@@ -13,7 +13,7 @@
 
 namespace Slic3r {
 
-enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft, Draft, Import };
+enum class CadFeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft, Draft, Import, Boolean };
 enum class SketchShape    { Rectangle, Circle };
 enum class BooleanMode    { New, Add, Cut, Intersect };
 
@@ -160,6 +160,19 @@ struct CadFeature {
     double      plane_offset{20};
     double      plane_angle_tilt{0};       // degrees (named *_tilt to avoid clash w/ revolve)
     int         plane_axis{0};             // tilt axis: 0 = base X, 1 = base Y
+
+    // Boolean: combine two EXISTING bodies. `mode` reuses BooleanMode (Add = union,
+    // Cut = subtract tool from target, Intersect = keep overlap; New unused). `target_body`
+    // is the body that survives (result written back to it); `bool_tool_body` is the other
+    // operand, consumed (erased) unless `bool_keep_tool`. `bool_tolerance` = OCCT fuzzy value
+    // (0 = exact). Per-face merge: when both bool_target_face/bool_tool_face are set, the tool
+    // is first snapped so those two faces are coincident (gap closed within bool_tolerance),
+    // then the boolean welds them and coplanar faces are unified into one clean face.
+    int    bool_tool_body{-1};
+    bool   bool_keep_tool{false};
+    double bool_tolerance{0.0};
+    int    bool_target_face{-1};   // global face id on the target body to mate (-1 = none)
+    int    bool_tool_face{-1};     // global face id on the tool body to mate (-1 = none)
 };
 
 // One independent solid in a multi-body document.
@@ -234,6 +247,11 @@ public:
                   const std::string& name);
     int  add_shell(double thickness, int face, int target_body, const std::string& name);
     int  add_draft(double angle, int face, int target_body, const std::string& name);
+    // Boolean between two existing bodies. op reuses BooleanMode (Add=union, Cut=subtract,
+    // Intersect=common; New invalid). target survives, tool is consumed unless keep_tool.
+    // tolerance = OCCT fuzzy value; target_face/tool_face (-1 = none) drive the per-face snap+merge.
+    int  add_boolean(BooleanMode op, int target_body, int tool_body, bool keep_tool,
+                     double tolerance, int target_face, int tool_face, const std::string& name);
     // Datum plane: derived from base (0=XY/1=XZ/2=YZ/3+N=Nth earlier datum), offset
     // along its normal, optional tilt about a base axis. Produces no solid.
     int  add_plane(int base, double offset, double angle_tilt, int axis,
@@ -300,6 +318,11 @@ private:
     // starts a new body (empty list, or an Extrude with mode New) vs mutates an existing
     // one, then apply_feature. Shared by recompute() (replay all) and preview() (candidate).
     void route_feature(std::vector<CadBody>& bodies, const CadFeature& f) const;
+    // Boolean between two existing bodies: resolve target + tool, optionally snap the tool so
+    // the picked faces mate, run the OCCT op (with fuzzy tolerance), write the result back to the
+    // target and erase the consumed tool. Mutates the bodies vector directly (unlike apply_feature,
+    // which works on a single result shape). Throws std::runtime_error on a failed op.
+    void apply_boolean(std::vector<CadBody>& bodies, const CadFeature& f) const;
 
     // Undo/redo stacks of feature-list snapshots. checkpoint() pushes onto m_undo and
     // clears m_redo; undo()/redo() shuffle the current state between them. Capped so a

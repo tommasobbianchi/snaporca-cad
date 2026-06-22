@@ -13,6 +13,7 @@
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Common.hxx>
+#include <BRepAlgoAPI_BooleanOperation.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepOffsetAPI_DraftAngle.hxx>
@@ -618,6 +619,24 @@ int CadDocument::add_draft(double angle, int face, int target_body, const std::s
     return int(features.size()) - 1;
 }
 
+int CadDocument::add_boolean(BooleanMode op, int target_body, int tool_body, bool keep_tool,
+                             double tolerance, int target_face, int tool_face,
+                             const std::string& name)
+{
+    CadFeature f;
+    f.type             = CadFeatureType::Boolean;
+    f.name             = name;
+    f.mode             = op;
+    f.target_body      = target_body;
+    f.bool_tool_body   = tool_body;
+    f.bool_keep_tool   = keep_tool;
+    f.bool_tolerance   = tolerance;
+    f.bool_target_face = target_face;
+    f.bool_tool_face   = tool_face;
+    features.push_back(f);
+    return int(features.size()) - 1;
+}
+
 int CadDocument::add_plane(int base, double offset, double angle_tilt, int axis,
                            const std::string& name)
 {
@@ -896,6 +915,8 @@ void CadDocument::apply_feature(TopoDS_Shape& result, bool& have_body,
     switch (f.type) {
     case CadFeatureType::Sketch:
         return; // sketches carry no solid; consumed by an extrude
+    case CadFeatureType::Boolean:
+        return; // body-body boolean is handled in route_feature/apply_boolean, never here
     case CadFeatureType::Import:
         // Imported B-rep (STEP): rigid data carried on the feature, not built from
         // parameters — adopt it as the new body (New-path: result starts empty).
@@ -1285,9 +1306,44 @@ static TriangleMesh tessellate_bodies(const std::vector<CadBody>& bodies,
     return TriangleMesh(merged);
 }
 
+void CadDocument::apply_boolean(std::vector<CadBody>& bodies, const CadFeature& f) const
+{
+    const int nb   = int(bodies.size());
+    const int tgt  = (f.target_body    >= 0 && f.target_body    < nb) ? f.target_body    : nb - 1;
+    const int tool = (f.bool_tool_body >= 0 && f.bool_tool_body < nb) ? f.bool_tool_body : -1;
+    if (tgt < 0 || tool < 0 || tgt == tool) return;   // need two distinct bodies; otherwise no-op
+    const TopoDS_Shape A = bodies[tgt].shape;          // target survives
+    const TopoDS_Shape B = bodies[tool].shape;         // tool, consumed unless kept
+    if (A.IsNull() || B.IsNull()) return;
+
+    TopTools_ListOfShape args, tools;
+    args.Append(A);
+    tools.Append(B);
+    auto run = [&](BRepAlgoAPI_BooleanOperation& bop) -> TopoDS_Shape {
+        bop.SetArguments(args);
+        bop.SetTools(tools);
+        if (f.bool_tolerance > 0.0) bop.SetFuzzyValue(f.bool_tolerance);   // OCCT fuzzy: merge near-coincident faces
+        bop.Build();
+        if (!bop.IsDone()) throw std::runtime_error("boolean operation failed");
+        return bop.Shape();
+    };
+    TopoDS_Shape result;
+    switch (f.mode) {
+    case BooleanMode::Add:       { BRepAlgoAPI_Fuse   op; result = run(op); break; }   // union
+    case BooleanMode::Cut:       { BRepAlgoAPI_Cut    op; result = run(op); break; }   // target - tool
+    case BooleanMode::Intersect: { BRepAlgoAPI_Common op; result = run(op); break; }   // overlap
+    default: return;   // BooleanMode::New is meaningless between two existing bodies
+    }
+    if (result.IsNull()) throw std::runtime_error("boolean produced an empty shape");
+
+    bodies[tgt].shape = result;
+    if (!f.bool_keep_tool) bodies.erase(bodies.begin() + tool);   // consume the tool body
+}
+
 void CadDocument::route_feature(std::vector<CadBody>& bodies, const CadFeature& f) const
 {
     if (f.type == CadFeatureType::Plane) return;   // datum plane: not part of the body pipeline
+    if (f.type == CadFeatureType::Boolean) { apply_boolean(bodies, f); return; }   // body-body op
     // Resolve the target body: explicit target_body when valid, else the last body.
     const int t = (f.target_body >= 0 && f.target_body < int(bodies.size()))
                   ? f.target_body : int(bodies.size()) - 1;

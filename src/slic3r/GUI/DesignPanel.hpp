@@ -37,7 +37,7 @@ public:
     explicit DesignPanel(wxWindow* parent);
 
 private:
-    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft, Draft };
+    enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft, Draft, Boolean };
 
     // Onshape-style contextual top toolbar: only the active mode's tool group is
     // shown (Feature = sketch/extrude/dress/hole/thread; Sketch = entity tools;
@@ -59,6 +59,8 @@ private:
     void on_add_plane();
     void on_add_shell();
     void on_add_draft();
+    void on_add_boolean();
+    void populate_body_choices();   // fill m_bool_target / m_bool_tool from m_doc.bodies
     // Import rigid 2D art (Text / SVG) as a new Sketch feature carrying
     // imported_regions (no solver entities). on_add_text/on_import_svg gather
     // input; add_imported_sketch builds the feature, refreshes tree + display.
@@ -162,6 +164,7 @@ private:
     wxSizer*  m_box_plane{nullptr};
     wxSizer*  m_box_loft{nullptr};
     wxSizer*  m_box_draft{nullptr};
+    wxSizer*  m_box_boolean{nullptr};
 
     // Onshape-style dialog-card title rows (icon + bold feature name), retitled
     // per tool in open_tool() (edit-mode shows the feature's actual name).
@@ -181,6 +184,7 @@ private:
     wxStaticText* m_hdr_plane{nullptr};
     wxStaticText* m_hdr_loft{nullptr};
     wxStaticText* m_hdr_draft{nullptr};
+    wxStaticText* m_hdr_boolean{nullptr};
 
     wxScrolledWindow* m_form{nullptr};
     DesignCanvas*     m_viewport{nullptr};
@@ -245,6 +249,12 @@ private:
     wxSpinCtrlDouble* m_pattern_spacing{nullptr};   // linear step (mm)
     wxChoice*         m_pattern_dir{nullptr};        // linear direction: 0 = plane X, 1 = plane Y
     wxSpinCtrlDouble* m_pattern_angle{nullptr};     // circular total angle (deg)
+    // Boolean controls (combine two existing bodies).
+    wxChoice*         m_bool_op{nullptr};            // 0 = Union, 1 = Subtract, 2 = Intersect
+    wxChoice*         m_bool_target{nullptr};        // body that survives (selection == body index)
+    wxChoice*         m_bool_tool{nullptr};          // body consumed (selection == body index)
+    wxCheckBox*       m_bool_keep{nullptr};          // keep the tool body after the op
+    wxSpinCtrlDouble* m_bool_tol{nullptr};           // OCCT fuzzy tolerance (mm); robust cut on near-coincident faces
     // Datum plane controls (derive a selectable sketch plane: offset + tilt from a base).
     wxChoice*         m_plane_base{nullptr};         // 0=XY,1=XZ,2=YZ, 3+N = Nth datum plane
     wxSpinCtrlDouble* m_plane_offset{nullptr};       // offset along base normal (mm)

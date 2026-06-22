@@ -372,6 +372,20 @@ DesignPanel::DesignPanel(wxWindow* parent)
         });
         fadd(b_plane);
 
+        auto* b_boolean = icon_btn("design_boolean", _L("Boolean (combine bodies)"));
+        b_boolean->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            // A body-body boolean needs at least two solids to combine.
+            if (m_doc.bodies.size() < 2) {
+                m_status->SetForegroundColour(wxColour(235, 110, 110));
+                m_status->SetLabel(_L("Boolean needs two bodies — create or import a second solid"));
+                m_status->Refresh();
+                return;
+            }
+            populate_body_choices();
+            open_tool(Tool::Boolean);
+        });
+        fadd(b_boolean);
+
         // Dress-up: Fillet/Chamfer / Draft / Shell
         feat_dropdown("design_dressup", _L("Dress-up (fillet / chamfer / draft / shell)"), {
             {"design_dressup", _L("Fillet / Chamfer"), _L("Round or bevel a picked edge"),
@@ -1102,6 +1116,59 @@ DesignPanel::DesignPanel(wxWindow* parent)
     }
     root->Add(m_box_pattern, 0, wxEXPAND);
 
+    // --- Boolean (combine two existing bodies: union / subtract / intersect) ---
+    m_box_boolean = new wxBoxSizer(wxVERTICAL);
+    m_box_boolean->Add(card_header("design_boolean", _L("Boolean"), m_hdr_boolean), 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    m_box_boolean->Add(new wxStaticLine(m_form), 0, wxEXPAND | wxALL, 8);
+    {
+        auto* bform = new wxFlexGridSizer(2, 6, 8);
+
+        m_bool_op = new wxChoice(m_form, wxID_ANY);
+        m_bool_op->Append("Union (join)");
+        m_bool_op->Append("Subtract (cut)");
+        m_bool_op->Append("Intersect");
+        m_bool_op->SetSelection(0);
+        m_bool_op->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { refresh_preview(); });
+        bform->Add(new wxStaticText(m_form, wxID_ANY, _L("Operation")), 0, wxALIGN_CENTER_VERTICAL);
+        bform->Add(m_bool_op);
+
+        m_bool_target = new wxChoice(m_form, wxID_ANY);
+        m_bool_target->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { refresh_preview(); });
+        bform->Add(new wxStaticText(m_form, wxID_ANY, _L("Target (kept)")), 0, wxALIGN_CENTER_VERTICAL);
+        bform->Add(m_bool_target);
+
+        m_bool_tool = new wxChoice(m_form, wxID_ANY);
+        m_bool_tool->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { refresh_preview(); });
+        bform->Add(new wxStaticText(m_form, wxID_ANY, _L("Tool")), 0, wxALIGN_CENTER_VERTICAL);
+        bform->Add(m_bool_tool);
+
+        // Fuzzy tolerance (mm): the main use is a tool body cutting a destination — a small
+        // tolerance lets near-coincident mating faces resolve into a clean cut instead of a
+        // failed boolean or sliver faces. 0 = exact.
+        m_bool_tol = make_spin(m_form, 0.0, 0.0, 100.0);
+        m_bool_tol->Bind(wxEVT_SPINCTRLDOUBLE, [this](wxSpinDoubleEvent&) { refresh_preview(); });
+        bform->Add(new wxStaticText(m_form, wxID_ANY, _L("Tolerance")), 0, wxALIGN_CENTER_VERTICAL);
+        bform->Add(m_bool_tol);
+
+        m_box_boolean->Add(bform, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+
+        m_bool_keep = new wxCheckBox(m_form, wxID_ANY, _L("Keep tool body"));
+        m_bool_keep->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { refresh_preview(); });
+        m_box_boolean->Add(m_bool_keep, 0, wxLEFT | wxRIGHT | wxTOP, 12);
+    }
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ok  = new wxButton(m_form, wxID_ANY, _L("✓ Confirm"));
+        ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { confirm_tool(); });
+        m_confirm_btns.push_back(ok);
+        auto* no  = new wxButton(m_form, wxID_ANY, _L("✗ Cancel"));
+        no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { cancel_tool(); });
+        row->Add(ok, 0, wxRIGHT, 8);
+        row->Add(no, 0);
+        m_box_boolean->Add(row, 0, wxALL, 12);
+    }
+    root->Add(m_box_boolean, 0, wxEXPAND);
+
     // --- Plane (datum/reference plane: offset + tilt from a base plane; no solid) ---
     m_box_plane = new wxBoxSizer(wxVERTICAL);
     m_box_plane->Add(card_header("design_sketch", _L("Plane"), m_hdr_plane), 0, wxLEFT | wxRIGHT | wxTOP, 12);
@@ -1428,6 +1495,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     root->Show(m_box_plane, false, true);
     root->Show(m_box_loft, false, true);
     root->Show(m_box_draft, false, true);
+    root->Show(m_box_boolean, false, true);
     root->Show(m_box_dressup, false, true);
     root->Show(m_box_hole,    false, true);
     root->Show(m_box_thread,  false, true);
@@ -2350,6 +2418,43 @@ void DesignPanel::on_add_pattern()
     refresh_tree();
 }
 
+void DesignPanel::populate_body_choices()
+{
+    auto fill = [&](wxChoice* c, int def) {
+        if (!c) return;
+        c->Clear();
+        for (size_t i = 0; i < m_doc.bodies.size(); ++i) {
+            const std::string& n = m_doc.bodies[i].name;
+            c->Append(n.empty() ? wxString::Format(_L("Body %zu"), i + 1) : wxString::FromUTF8(n));
+        }
+        if (c->GetCount() > 0)
+            c->SetSelection(std::min(def, int(c->GetCount()) - 1));   // selection index == body index
+    };
+    fill(m_bool_target, 0);
+    fill(m_bool_tool, 1);   // default: combine body 0 (target) with body 1 (tool)
+}
+
+void DesignPanel::on_add_boolean()
+{
+    if (m_doc.bodies.size() < 2) {
+        m_status->SetLabel(_L("Boolean needs two bodies"));
+        return;
+    }
+    const int sel = m_bool_op->GetSelection();
+    const BooleanMode op = (sel == 1) ? BooleanMode::Cut
+                         : (sel == 2) ? BooleanMode::Intersect
+                                      : BooleanMode::Add;   // 0 = Union
+    m_feature_counter++;
+    m_doc.add_boolean(op, m_bool_target->GetSelection(), m_bool_tool->GetSelection(),
+                      m_bool_keep->GetValue(), m_bool_tol->GetValue(), -1, -1,
+                      "Boolean" + std::to_string(m_feature_counter));
+    if (!m_doc.recompute())
+        m_status->SetLabel(_L("Recompute error: ") + wxString::FromUTF8(m_doc.error));
+    else
+        set_status_ok();
+    refresh_tree();
+}
+
 void DesignPanel::populate_plane_choices(wxChoice* c) const
 {
     if (!c) return;
@@ -2443,6 +2548,7 @@ int DesignPanel::tree_icon_for(CadFeatureType t)
     case CadFeatureType::Loft:    return 1;
     case CadFeatureType::Draft:   return 5;   // dressup-family icon
     case CadFeatureType::Import:  return 1;   // imported solid: solid-family icon
+    case CadFeatureType::Boolean: return 1;   // body-body combine: solid-family icon
     }
     return 0;
 }
@@ -4377,12 +4483,26 @@ CadFeature DesignPanel::build_candidate(Tool t) const
                 f.loft_profile_refs.push_back(m_loft_sketch_idx[i]);
         break;
     }
+    case Tool::Boolean: {
+        f.type           = CadFeatureType::Boolean;
+        const int sel    = m_bool_op->GetSelection();
+        f.mode           = (sel == 1) ? BooleanMode::Cut
+                         : (sel == 2) ? BooleanMode::Intersect
+                                      : BooleanMode::Add;   // 0 = Union
+        f.target_body    = m_bool_target->GetSelection();
+        f.bool_tool_body = m_bool_tool->GetSelection();
+        f.bool_keep_tool = m_bool_keep->GetValue();
+        f.bool_tolerance = m_bool_tol->GetValue();   // OCCT fuzzy: robust cut on near-coincident faces
+        break;
+    }
     case Tool::None:
         break;
     }
-    // Multi-body: target the picked body (face-extrude reads its source face there, dress-up /
-    // hole / Add-Cut-Intersect mutate it). -1 when nothing is picked => auto (last body).
-    f.target_body = m_sel_solid_body;
+    // Boolean drives its own target/tool body from the card; every other tool targets the
+    // picked body (face-extrude reads its source face there, dress-up / hole / boolean-mode
+    // extrude mutate it). -1 when nothing is picked => auto (last body).
+    if (m_active != Tool::Boolean)
+        f.target_body = m_sel_solid_body;
     return f;
 }
 
@@ -4686,6 +4806,7 @@ void DesignPanel::open_tool(Tool t)
     s->Show(m_box_pattern, t == Tool::Pattern, true);
     s->Show(m_box_plane,   t == Tool::Plane,   true);
     s->Show(m_box_loft,    t == Tool::Loft,    true);
+    s->Show(m_box_boolean, t == Tool::Boolean, true);
     s->Show(m_box_draft,   t == Tool::Draft,   true);
 
     if (t == Tool::Revolve && m_revolve_sketch_ref >= 0
@@ -4772,6 +4893,7 @@ void DesignPanel::open_tool(Tool t)
     case Tool::Plane:   m_hdr_plane->SetLabel(title(_L("Plane")));     break;
     case Tool::Loft:    m_hdr_loft->SetLabel(title(_L("Loft")));       break;
     case Tool::Draft:   m_hdr_draft->SetLabel(title(_L("Draft")));     break;
+    case Tool::Boolean: m_hdr_boolean->SetLabel(title(_L("Boolean"))); break;
     case Tool::None:    break;
     }
 
@@ -4797,6 +4919,7 @@ void DesignPanel::close_tool()
     s->Show(m_box_pattern, false, true);
     s->Show(m_box_plane,   false, true);
     s->Show(m_box_loft,    false, true);
+    s->Show(m_box_boolean, false, true);
     s->Show(m_box_draft,   false, true);
     m_viewport->clear_preview();
     m_viewport->clear_extrude_gizmo();
@@ -4840,6 +4963,7 @@ void DesignPanel::confirm_tool()
     case Tool::Plane:   on_add_plane();   break;
     case Tool::Loft:    on_add_loft();    break;
     case Tool::Draft:   on_add_draft();   break;
+    case Tool::Boolean: on_add_boolean(); break;
     case Tool::None:    return;
     }
     close_tool(); // also clears the preview ghost; the committed body is now shown
