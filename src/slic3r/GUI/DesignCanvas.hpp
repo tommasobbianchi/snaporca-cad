@@ -141,6 +141,7 @@ public:
     void set_on_undo_redo(std::function<void(bool /*redo*/)> cb); // Ctrl+Z / Ctrl+Shift+Z
     // Persistently draw committed sketches (un-consumed ones stay visible).
     void set_display_sketches(std::vector<DesignSketchTool::DisplaySketch> ds);
+    void set_datum_planes(std::vector<SketchPlane> planes);   // draw datum/reference planes
     void set_body_highlight(bool on);   // tint the solid when its feature is tree-selected
     void set_body_translucent(bool on); // render the solid see-through (fillet/chamfer preview)
     void set_body_hidden(bool on);      // preview-only: hide base bodies, show only the result ghost

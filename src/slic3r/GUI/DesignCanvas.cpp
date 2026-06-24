@@ -101,6 +101,15 @@ DesignCanvas::DesignCanvas(wxWindow* parent)
 
     m_canvas->bind_event_handlers();
 
+    // The Design GL canvas only receives key events (Esc to exit/enter Select, Ctrl+Z undo)
+    // while it holds keyboard focus. Clicking a side-panel button steals focus, after which
+    // Esc/Ctrl+Z silently do nothing until the viewport is clicked again. Restore focus
+    // whenever the pointer enters the viewport (focus-follows-mouse, standard CAD behaviour).
+    m_canvas_widget->Bind(wxEVT_ENTER_WINDOW, [this](wxMouseEvent& e) {
+        if (m_canvas_widget) m_canvas_widget->SetFocus();
+        e.Skip();
+    });
+
     auto* sizer = new wxBoxSizer(wxVERTICAL);
     sizer->Add(m_canvas_widget, 1, wxEXPAND);
     SetSizer(sizer);
@@ -596,6 +605,12 @@ void DesignCanvas::set_display_sketches(std::vector<DesignSketchTool::DisplaySke
     // unless some other event (e.g. a modal close) forces it, so programmatic
     // overlay changes (hide/show, re-solve) could leave a stale overlay.
     if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
+}
+
+void DesignCanvas::set_datum_planes(std::vector<SketchPlane> planes)
+{
+    m_sketch_tool.set_datum_planes(std::move(planes));
+    if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }   // llvmpipe: force repaint
 }
 
 void DesignCanvas::set_body_highlight(bool on)

@@ -72,6 +72,7 @@ public:
     void set_display_sketches(std::vector<DisplaySketch> ds) { m_display_sketches = std::move(ds); }
     bool has_display() const { return m_active || !m_display_sketches.empty()
                                       || (m_solid_bodies != nullptr && !m_solid_bodies->empty())
+                                      || !m_datum_planes.empty()
                                       || m_ex_active || m_mv_active || m_fl_active
                                       || m_hl_active || m_th_active || m_sh_active; }
 
@@ -175,6 +176,11 @@ public:
     void clear_shell_gizmo();
     bool shelling() const { return m_sh_active; }
     std::function<void(double thickness)> on_shell_thickness_changed;
+
+    // Datum/reference planes (Plane feature) carry no solid; the panel feeds their resolved
+    // SketchPlanes so they render as translucent rectangles in feature mode (otherwise a
+    // Plane feature is invisible in the canvas).
+    void set_datum_planes(std::vector<SketchPlane> planes) { m_datum_planes = std::move(planes); }
 
     // Visual Revolve gizmo. The panel feeds the sketch plane + profile centroid + axis (0=plane X,
     // 1=plane Y) + angle + flip while its Revolve card is open; an angle-arc is drawn in the
@@ -728,6 +734,8 @@ private:
     std::vector<Vec3d>      m_sel_edge_pts;
     bool handle_solid_click(GLCanvas3D& canvas, const wxMouseEvent& evt);  // cycle + notify
     void render_solid_highlight();
+    void render_datum_planes();           // translucent rectangles for datum/reference planes
+    std::vector<SketchPlane> m_datum_planes;
     GLModel m_solid_face_model;
     GLModel m_solid_edge_model;
     int m_display_pick_region{-1}; // selected closed-region index within that feature (-1 none)

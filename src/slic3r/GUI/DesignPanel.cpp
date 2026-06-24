@@ -2577,6 +2577,13 @@ void DesignPanel::refresh_tree()
     m_tree_items.clear();
     m_tree_body_items.clear();
     wxTreeItemId root = m_tree->AddRoot("root");
+    // Datum/reference planes carry no solid; feed them to the viewport so they render as
+    // translucent rectangles (otherwise a Plane feature is invisible in the canvas).
+    if (m_viewport) {
+        std::vector<SketchPlane> dplanes;
+        for (const auto& dp : m_doc.resolve_datum_planes()) dplanes.push_back(dp.second);
+        m_viewport->set_datum_planes(std::move(dplanes));
+    }
     for (const auto& f : m_doc.features) {
         const int img = tree_icon_for(f.type);
         wxTreeItemId id = m_tree->AppendItem(root, wxString::FromUTF8(f.name), img, img);

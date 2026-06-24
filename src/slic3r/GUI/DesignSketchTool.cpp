@@ -2385,6 +2385,61 @@ void DesignSketchTool::render_solid_highlight()
     }
 }
 
+// Datum/reference planes (Plane feature) have no solid; draw each as a translucent indigo
+// rectangle + border so it is visible in the viewport (Onshape-style finite plane). World
+// space, depth-test off so it reads over the bed; indigo to stay distinct from the cyan
+// solid-selection tint, orange sketches and amber feature ghosts.
+void DesignSketchTool::render_datum_planes()
+{
+    if (m_datum_planes.empty()) return;
+    using EPT = GLModel::Geometry::EPrimitiveType;
+    using EVL = GLModel::Geometry::EVertexLayout;
+    const double H = 40.0;   // half-extent of the drawn rectangle (mm)
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const Vec3d vd = cam.get_dir_forward();
+    const double hw = 1.5 / std::max(cam.get_zoom(), 1e-6);   // ~1.5 px border ribbon
+
+    GLModel::Geometry fill;   fill.format   = { EPT::Triangles, EVL::P3 };
+    GLModel::Geometry border; border.format = { EPT::Triangles, EVL::P3 };
+    unsigned int fb = 0, bb = 0;
+    for (const SketchPlane& p : m_datum_planes) {
+        const Vec3d c[4] = { p.to_world(Vec2d(-H, -H)), p.to_world(Vec2d(H, -H)),
+                             p.to_world(Vec2d(H, H)),   p.to_world(Vec2d(-H, H)) };
+        fill.add_vertex((Vec3f)c[0].cast<float>()); fill.add_vertex((Vec3f)c[1].cast<float>());
+        fill.add_vertex((Vec3f)c[2].cast<float>()); fill.add_triangle(fb, fb + 1, fb + 2); fb += 3;
+        fill.add_vertex((Vec3f)c[0].cast<float>()); fill.add_vertex((Vec3f)c[2].cast<float>());
+        fill.add_vertex((Vec3f)c[3].cast<float>()); fill.add_triangle(fb, fb + 1, fb + 2); fb += 3;
+        for (int s = 0; s < 4; ++s) {
+            const Vec3d a = c[s], b = c[(s + 1) & 3];
+            Vec3d dir = b - a; if (dir.norm() < 1e-9) continue; dir.normalize();
+            Vec3d off = dir.cross(vd);
+            if (off.norm() < 1e-9) off = dir.cross(cam.get_dir_up());
+            if (off.norm() < 1e-9) continue;
+            off.normalize(); off *= hw;
+            border.add_vertex((Vec3f)(a + off).cast<float>());
+            border.add_vertex((Vec3f)(b + off).cast<float>());
+            border.add_vertex((Vec3f)(b - off).cast<float>());
+            border.add_vertex((Vec3f)(a - off).cast<float>());
+            border.add_triangle(bb, bb + 1, bb + 2);
+            border.add_triangle(bb, bb + 2, bb + 3); bb += 4;
+        }
+    }
+    glsafe(::glDisable(GL_DEPTH_TEST));
+    glsafe(::glEnable(GL_BLEND));
+    glsafe(::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+    if (fb > 0) {
+        GLModel fm; fm.init_from(std::move(fill));
+        fm.set_color(ColorRGBA(0.62f, 0.52f, 0.95f, 0.10f));
+        fm.render();
+    }
+    if (bb > 0) {
+        GLModel bm; bm.init_from(std::move(border));
+        bm.set_color(ColorRGBA(0.70f, 0.60f, 1.0f, 0.85f));
+        bm.render();
+    }
+    glsafe(::glDisable(GL_BLEND));
+}
+
 // ---- Visual Extrude gizmo (C5b) -------------------------------------------------------
 void DesignSketchTool::set_extrude_gizmo(const SketchPlane& plane, const Vec2d& centroid,
                                          double depth, double depth2, bool two_sided, bool flip)
@@ -5488,6 +5543,7 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     // Nothing else to draw when no live sketch session is active — except the solid
     // face/edge highlight overlay (whole-solid tint is handled by set_body_highlight).
     if (!m_active) {
+        render_datum_planes();
         render_solid_highlight();
         if (m_ex_active) render_extrude_gizmo();
         if (m_mv_active) render_move_gizmo();
