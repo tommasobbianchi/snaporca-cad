@@ -444,6 +444,10 @@ DesignPanel::DesignPanel(wxWindow* parent)
                             m_hole_face_plane.y_axis, m_hole_umin, m_hole_umax, m_hole_vmin, m_hole_vmax);
                         if (m_hole_x) m_hole_x->SetValue(0.0);   // start at the face centre
                         if (m_hole_y) m_hole_y->SetValue(0.0);
+                        // Reflect the face's orientation in the dropdown so it doesn't keep
+                        // showing a stale "XY" while the hole actually drills on this face.
+                        if (m_hole_plane)
+                            m_hole_plane->SetSelection(index_from_plane(m_hole_face_plane));
                     }
                 }
                 open_tool(Tool::Hole);
@@ -870,6 +874,16 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_hole_plane->Append("XZ");
     m_hole_plane->Append("YZ");
     m_hole_plane->SetSelection(0);
+    // Picking a plane here is an explicit choice: drop any on-face hijack (a stale face pick
+    // could keep m_hole_on_face true, so the dropdown was ignored and the hole drilled on the
+    // face's plane instead of the chosen XY/XZ/YZ).
+    m_hole_plane->Bind(wxEVT_CHOICE, [this](wxCommandEvent& e) {
+        m_hole_on_face    = false;
+        m_hole_has_bounds = false;
+        update_hole_gizmo();
+        refresh_preview();
+        e.Skip();
+    });
     hform->Add(new wxStaticText(m_form, wxID_ANY, _L("Hole plane")), 0, wxALIGN_CENTER_VERTICAL);
     hform->Add(m_hole_plane);
 
