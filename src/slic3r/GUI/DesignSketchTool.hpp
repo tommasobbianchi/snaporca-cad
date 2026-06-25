@@ -51,6 +51,7 @@ public:
     // Polyline/BSpline/Point have no single primary value, so they opt out.
     bool is_creation_autoedit_mode() const {
         switch (m_mode) {
+        case Mode::Line:
         case Mode::CornerRect: case Mode::CenterRect: case Mode::ObliqueRect:
         case Mode::RoundedRect: case Mode::CenterCircle: case Mode::TwoPointCircle:
         case Mode::ThreePointCircle: case Mode::ThreePointArc: case Mode::TangentArc:
@@ -311,6 +312,9 @@ public:
     std::function<void(wxPoint screen_px, double current,
                        std::function<void(double)> commit,
                        std::function<void()> cancel)> on_inline_edit;
+    // Force-close any open inline field (runs its cancel = keep-as-drawn). Used by the polyline
+    // terminators (right-click / double-click) to end the chain even mid per-segment edit.
+    std::function<void()> on_inline_dismiss;
 
     // Bottom-right viewport readout: emitted each frame with the active tool's current
     // values (live segment length/angle while drawing a line, or the selected entity's
@@ -460,9 +464,6 @@ private:
     // geometrically about P0 (no single-line angle constraint in libslvs).
     void open_angle_editor(int ei);
     void set_line_angle(int ei, double deg);
-    // Set a committed line's length (draw-then-edit): rescale P1 about P0 and add a driving
-    // Distance constraint. Used by the immediate length field opened after the 2nd click.
-    void set_line_length(int ei, double len);
     // Draw-then-edit (all creation tools): open the inline editor on the freshly-drawn
     // selection's PRIMARY characteristic value. Called after render_live_quotes has computed
     // the selection's quotes, so it dispatches on the same live-quote state a Select-mode
@@ -474,6 +475,7 @@ private:
     // appended only if the user commits a value (Enter); cancel (Esc) adds nothing — so
     // drawing never silently over-constrains. (place_dimension is the eager Select-mode twin.)
     void open_next_autoedit_dim();   // opens m_autoedit_dims[idx]; commit -> next, Esc -> stop
+    void arm_polyline_segment_edit();// per-segment Length+Angle edit of the pending chain vertex
     // In-canvas editors for a regular polygon's side length and orientation. Both edit
     // the whole loop GEOMETRICALLY (polygon has no centre entity): side scales it
     // uniformly about its centre, angle rotates it. set_polygon_radius is the shared

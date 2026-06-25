@@ -1003,25 +1003,9 @@ void DesignSketchTool::set_line_angle(int ei, double deg)
     if (e.type != SketchEntity::Type::Line) return;
     const double L = (e.p1 - e.p0).norm();
     if (L < 1e-9) return;
+    drop_orientation_constraints(ei, ei + 1);   // a typed angle overrides an inferred H/V
     const double r = deg * M_PI / 180.0;
     e.p1 = e.p0 + Vec2d(std::cos(r), std::sin(r)) * L;   // rotate about P0, keep length
-    resolve_live();
-}
-
-void DesignSketchTool::set_line_length(int ei, double len)
-{
-    if (ei < 0 || ei >= int(m_entities.size()) || len < 1e-9) return;
-    SketchEntity& e = m_entities[ei];
-    if (e.type != SketchEntity::Type::Line) return;
-    const Vec2d d = e.p1 - e.p0;
-    const double r = d.norm();
-    if (r > 1e-9) e.p1 = e.p0 + (len / r) * d;   // rescale P1 about P0, keep direction
-    SketchEntityConstraintDef c;                 // driving length (mirrors apply_segment_length)
-    c.type = SketchConstraintType::Distance;
-    c.ea = ei; c.ra = SketchPointRole::P0;
-    c.eb = ei; c.rb = SketchPointRole::P1;
-    c.value = len;
-    m_constraints.push_back(c);
     resolve_live();
 }
 
@@ -1061,6 +1045,41 @@ void DesignSketchTool::open_next_autoedit_dim()
         [this]() { m_autoedit_dim_idx = -1; });   // cancel: keep as drawn, stop the chain
 }
 
+// Polyline draw-then-edit: after each click places a chain vertex, refine THAT segment's
+// Length then Angle through the same AutoEditStep queue. The polyline batch-creates its
+// entities only when the chain ends, so here we edit the pending m_points vertex directly
+// (geometric): Length rescales it along the segment, Angle rotates it about the previous
+// vertex. The next click continues from the adjusted vertex. Same field/anchor/focus path as
+// every other tool — Enter advances Length->Angle, Esc keeps the segment as clicked.
+void DesignSketchTool::arm_polyline_segment_edit()
+{
+    const int k = int(m_points.size()) - 1;          // index of the just-placed vertex
+    if (k < 1 || !on_inline_edit) return;
+    const Vec2d a   = m_points[k - 1];               // segment anchor (previous vertex)
+    const Vec2d mid = 0.5 * (a + m_points[k]);       // label anchor = segment midpoint
+    const Vec2d d   = m_points[k] - a;
+    const double L  = d.norm();
+    if (L < 1e-9) return;
+    double deg = std::atan2(d.y(), d.x()) * 180.0 / M_PI; if (deg < 0.0) deg += 360.0;
+
+    m_autoedit_dims.clear();
+    m_autoedit_dims.push_back({ mid, L, [this, k, a](double len) {     // Length
+        if (k < int(m_points.size())) {
+            Vec2d dd = m_points[k] - a; const double n = dd.norm();
+            if (n > 1e-9 && len > 1e-9) m_points[k] = a + (len / n) * dd;
+        }
+    } });
+    m_autoedit_dims.push_back({ mid, deg, [this, k, a](double dg) {     // Angle
+        if (k < int(m_points.size())) {
+            const double len = (m_points[k] - a).norm();
+            const double r   = dg * M_PI / 180.0;
+            m_points[k] = a + len * Vec2d(std::cos(r), std::sin(r));
+        }
+    } });
+    m_autoedit_dim_idx = 0;
+    wxGetApp().CallAfter([this] { open_next_autoedit_dim(); });
+}
+
 // Draw-then-edit dispatcher: mirror the Select-mode quote-click logic, but target the
 // freshly-drawn selection's PRIMARY value and use the tentative (clean-cancel) path for
 // scalar quotes. Runs after render_live_quotes, so the live-quote state is populated.
@@ -1076,10 +1095,17 @@ void DesignSketchTool::open_primary_autoedit()
     // dedicated length field; Polyline/BSpline/Point have no two-click dimension set.)
     m_autoedit_dims.clear();
 
-    // (1) Scalar quotes: rect Width+Height, slot Distance+Radius, circle/arc Radius. Angle
-    //     scalar protos are skipped (a creation tool's primary is its size, not orientation).
+    // (1) Scalar quotes: rect Width+Height, slot Distance+Radius, circle/arc Radius, line
+    //     Length. The lone Angle quote (only a single Line emits one) becomes a GEOMETRIC
+    //     orientation step (set_line_angle, like the polygon angle) — so the Line tool gets
+    //     Length THEN Angle, same as the rectangle gets W then H.
     for (const DimAnnot& q : m_live_quotes) {
-        if (q.kind == DimType::Angle) continue;
+        if (q.kind == DimType::Angle) {
+            const int ei = q.ea;
+            m_autoedit_dims.push_back({ q.label_pos, measure_dim(q),
+                [this, ei](double v) { set_line_angle(ei, v); } });
+            continue;
+        }
         DimAnnot a = q;
         a.value = measure_dim(a);
         m_autoedit_dims.push_back({ a.label_pos, a.value,
@@ -6182,7 +6208,12 @@ std::string DesignSketchTool::build_readout() const
         const Vec2d d = m_cursor - m_points.back();
         double ang = std::atan2(d.y(), d.x()) * 180.0 / M_PI; if (ang < 0.0) ang += 360.0;
         char b[80]; std::snprintf(b, sizeof(b), "L %.2f mm    %.1f\xC2\xB0", d.norm(), ang);
-        en(b); return b;
+        en(b);
+        std::string out = b;
+        // Tell the user how to end a polyline chain — there's no other affordance for it.
+        if (m_mode == Mode::Polyline && m_points.size() >= 2)
+            out += "      right-click or double-click to finish, click start to close";
+        return out;
     }
     if (!m_active) return std::string();
     std::string out;
@@ -6385,7 +6416,15 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     // freeze the canvas so a stray move/click can't push a third point or rubber-band a
     // segment under the floating field. The editor's Enter/Esc resolves it
     // (apply_segment_length / keep_segment_as_drawn, the latter clears this flag).
-    if (m_awaiting_length) return true;
+    if (m_awaiting_length) {
+        // Polyline terminators must work even with a per-segment field open: right-click or
+        // double-click accepts the current segment as drawn (close the field) and falls through
+        // so the Polyline handler ends the chain. Without this the freeze ate every terminator.
+        if (m_mode == Mode::Polyline && (evt.RightDown() || evt.LeftDClick()) && on_inline_dismiss)
+            on_inline_dismiss();              // -> set_inline_busy(false), m_awaiting_length=false
+        else
+            return true;
+    }
 
     // No live session, but committed sketches are shown as overlays on the plate: a left
     // click on a loop (its edge OR its closed interior) selects that Sketch feature. This
@@ -7149,6 +7188,7 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
                 p = snap_dir(m_points.back(), p, lk);  // lock new segment to inference angle
             }
             m_points.push_back(p);
+            arm_polyline_segment_edit();   // refine this segment's Length+Angle, then continue
             return true;
         }
         if (evt.LeftDClick()) {
@@ -7187,25 +7227,12 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             bool lk = false;
             if (!vsnap) p = snap_dir(m_points.back(), p, lk);  // vertex snap wins over angle
             m_points.push_back(p);      // second click completes the segment
-            // Draw-then-edit (Onshape): commit the segment, SELECT it so its Length + Angle
-            // quotes render immediately, and open the length field at the cursor — type a
-            // precise length right after the 2nd click, no draw -> Esc -> Select round-trip.
-            // Enter confirms (drives a Distance constraint); Esc keeps it as drawn.
+            // Draw-then-edit: just commit the segment. The generic detect/service path
+            // (is_creation_autoedit_mode now includes Line) auto-selects it and opens its
+            // Length THEN Angle fields in sequence, each over its label — same UX as every
+            // other 2D tool. Enter advances (Length drives a Distance constraint, Angle rotates
+            // about P0); Esc keeps it as drawn.
             keep_segment_as_drawn();
-            if (!m_entities.empty() &&
-                m_entities.back().type == SketchEntity::Type::Line) {
-                const int ei = int(m_entities.size()) - 1;
-                m_selection.clear();
-                m_selection.push_back(ei);   // m_selection.size()==1 -> Length + Angle quotes
-                const double L = (m_entities[ei].p1 - m_entities[ei].p0).norm();
-                if (on_inline_edit && L > 1e-9) {
-                    m_awaiting_length = true;   // freeze the canvas until Enter/Esc resolves
-                    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
-                    on_inline_edit(px, L,
-                        [this, ei](double v) { set_line_length(ei, v); m_awaiting_length = false; },
-                        [this]()             { m_awaiting_length = false; });
-                }
-            }
             return true;
         }
         if (evt.RightDown()) {          // abandon the in-progress anchor

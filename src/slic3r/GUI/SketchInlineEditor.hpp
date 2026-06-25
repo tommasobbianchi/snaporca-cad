@@ -28,6 +28,7 @@ public:
               std::function<void(double)> on_commit,
               std::function<void()> on_cancel);
     void close();
+    void cancel();                       // if open, run the registered cancel (keep-as-drawn)
     bool is_open() const { return m_open; }
 
 private:

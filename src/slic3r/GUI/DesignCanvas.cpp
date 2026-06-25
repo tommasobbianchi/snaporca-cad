@@ -95,6 +95,11 @@ DesignCanvas::DesignCanvas(wxWindow* parent)
                 if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
             });
     };
+    // Let the tool force-close the field (keep-as-drawn) — polyline right-click/double-click
+    // ends the chain even while a per-segment value field is open.
+    m_sketch_tool.on_inline_dismiss = [this]() {
+        if (m_inline_editor) m_inline_editor->cancel();
+    };
 
     // Bottom-right viewport HUD: a borderless, non-focusable float label showing the active
     // tool's current values. Top-level (a child widget is hidden by the GL surface, same as

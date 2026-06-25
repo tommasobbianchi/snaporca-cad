@@ -106,6 +106,11 @@ void SketchInlineEditor::do_commit()
     if (cb) cb(v);
 }
 
+void SketchInlineEditor::cancel()
+{
+    if (m_open) do_cancel();
+}
+
 void SketchInlineEditor::do_cancel()
 {
     if (!m_open) return;
