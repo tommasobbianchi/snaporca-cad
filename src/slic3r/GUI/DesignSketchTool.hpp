@@ -496,6 +496,8 @@ private:
     // Ellipse axis labels (geometric edit of the semi-axes a/b; phi via the major grip).
     void open_ellipse_axis_editor(int ei, bool major);
     void set_ellipse_axis(int ei, bool major, double v);
+    void set_ellipsearc_sweep(int ei, double deg);   // draw-then-edit: included sweep of an elliptical arc
+    void set_rect_angle(int fi, double deg);         // draw-then-edit: orientation of an oblique rect
     // EllipseArc endpoint drag: Center translates; P0/P1 move the sweep start/end to the
     // parametric angle of the cursor on the ellipse frame (radius/shape preserved).
     void drag_ellipsearc_handle(int ei, SketchPointRole role, const Vec2d& target);
@@ -669,7 +671,10 @@ private:
     int                   m_live_arc_ei{-1};            // the arc it belongs to (geometric edit)
     Vec2d                 m_live_ellipse_major_label{0,0}; // ellipse semi-major quote label
     Vec2d                 m_live_ellipse_minor_label{0,0}; // ellipse semi-minor quote label
+    Vec2d                 m_live_ellipsearc_sweep_label{0,0}; // elliptical-arc sweep quote label
     int                   m_live_ellipse_ei{-1};        // the ellipse the labels belong to
+    Vec2d                 m_live_obrect_angle_label{0,0}; // oblique-rect orientation quote label
+    int                   m_live_obrect_fi{-1};         // an OBLIQUE rect Feature (angle editable)
     Vec2d                 m_live_rrect_w_label{0,0};    // rounded-rect width quote label
     Vec2d                 m_live_rrect_h_label{0,0};    // rounded-rect height quote label
     Vec2d                 m_live_rrect_r_label{0,0};    // rounded-rect fillet-radius label

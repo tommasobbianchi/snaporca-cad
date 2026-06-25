@@ -1160,6 +1160,20 @@ void DesignSketchTool::open_primary_autoedit()
         const SketchEntity& e = m_entities[ei];
         m_autoedit_dims.push_back({ m_live_ellipse_major_label, e.radius, [this, ei](double v){ set_ellipse_axis(ei, true,  v); } });
         m_autoedit_dims.push_back({ m_live_ellipse_minor_label, e.rminor, [this, ei](double v){ set_ellipse_axis(ei, false, v); } });
+        if (e.type == SketchEntity::Type::EllipseArc) {   // + included sweep
+            const double swdeg = std::abs(e.end_angle - e.start_angle) * 180.0 / M_PI;
+            m_autoedit_dims.push_back({ m_live_ellipsearc_sweep_label, swdeg,
+                [this, ei](double v){ set_ellipsearc_sweep(ei, v); } });
+        }
+    }
+    if (m_live_obrect_fi >= 0) {   // oblique rect: W,H already added as scalars; + orientation
+        const int fi = m_live_obrect_fi;
+        const Feature& f = m_features[fi];
+        const SketchEntity& e0 = m_entities[f.begin];
+        double adeg = std::atan2(e0.p1.y() - e0.p0.y(), e0.p1.x() - e0.p0.x()) * 180.0 / M_PI;
+        if (adeg < 0.0) adeg += 360.0;
+        m_autoedit_dims.push_back({ m_live_obrect_angle_label, adeg,
+            [this, fi](double v){ set_rect_angle(fi, v); } });
     }
 
     if (!m_autoedit_dims.empty()) {
@@ -1428,6 +1442,47 @@ void DesignSketchTool::set_ellipse_axis(int ei, bool major, double v)
         e.p1 = ellipse_point(e.center, e.radius, e.rminor, e.rotation, e.end_angle);
     }
     resolve_live();
+}
+
+// Set an elliptical arc's included (parametric) sweep, keeping the start fixed and moving the
+// end. Geometric (mirrors set_arc_sweep), then resolve_live for any endpoint coincidences.
+void DesignSketchTool::set_ellipsearc_sweep(int ei, double deg)
+{
+    if (ei < 0 || ei >= int(m_entities.size())) return;
+    SketchEntity& e = m_entities[ei];
+    if (e.type != SketchEntity::Type::EllipseArc) return;
+    const double sweep = std::max(1e-3, std::min(deg, 359.999)) * M_PI / 180.0;
+    const double sign  = (e.end_angle >= e.start_angle) ? 1.0 : -1.0;
+    e.end_angle = e.start_angle + sign * sweep;
+    e.p1 = ellipse_point(e.center, e.radius, e.rminor, e.rotation, e.end_angle);
+    resolve_live();
+}
+
+// Rotate an oblique rectangle to an absolute orientation (angle of edge0 to +X), pivoting on
+// its anchor corner f.c0. Geometric, mirrors set_polygon_angle: drop the now-inconsistent edge
+// H/V first, rotate every member point + the opposite corner, and DON'T re-solve (the rotated
+// loop is already consistent; a length Distance the user may have set is rotation-invariant).
+void DesignSketchTool::set_rect_angle(int fi, double deg)
+{
+    if (fi < 0 || fi >= int(m_features.size())) return;
+    Feature& f = m_features[fi];
+    if (f.begin < 0 || f.end > int(m_entities.size()) || f.end <= f.begin) return;
+    const SketchEntity& e0 = m_entities[f.begin];
+    const Vec2d d0 = e0.p1 - e0.p0;
+    if (d0.squaredNorm() < 1e-12) return;
+    const double da = deg * M_PI / 180.0 - std::atan2(d0.y(), d0.x());
+    drop_orientation_constraints(f.begin, f.end);
+    const Vec2d pivot = f.c0;
+    const double ca = std::cos(da), sa = std::sin(da);
+    // -> Vec2d REQUIRED (see set_polygon_angle): an auto return deduces an Eigen expression
+    // template referencing the destroyed temporary -> dangling.
+    auto rot = [&](const Vec2d& pt) -> Vec2d { const Vec2d r = pt - pivot;
+        return pivot + Vec2d(r.x() * ca - r.y() * sa, r.x() * sa + r.y() * ca); };
+    for (int i = f.begin; i < f.end && i < int(m_entities.size()); ++i) {
+        SketchEntity& e = m_entities[i];
+        e.p0 = rot(e.p0); e.p1 = rot(e.p1);
+    }
+    f.c1 = rot(f.c1);   // keep the opposite corner consistent for later W/H quotes
 }
 
 void DesignSketchTool::open_rounded_rect_editor(int fi, int which)
@@ -4510,6 +4565,9 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
     m_live_arc_angle_label = Vec2d(1e18, 1e18);
     m_live_ellipse_ei = -1;
     m_live_ellipse_major_label = m_live_ellipse_minor_label = Vec2d(1e18, 1e18);
+    m_live_ellipsearc_sweep_label = Vec2d(1e18, 1e18);
+    m_live_obrect_fi = -1;
+    m_live_obrect_angle_label = Vec2d(1e18, 1e18);
     m_live_rrect_fi = -1;
     m_live_rrect_w_label = m_live_rrect_h_label = m_live_rrect_r_label = Vec2d(1e18, 1e18);
     m_live_aslot_fi = -1;
@@ -4542,10 +4600,33 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
         const Feature& f = m_features[fi];
         switch (f.kind) {
         case FeatureKind::CornerRect:
-        case FeatureKind::CenterRect:
+        case FeatureKind::CenterRect: {
             add_len(f.begin + 0,  1.0);   // Width
             add_len(f.begin + 1, -1.0);   // Height
+            // OBLIQUE rect (drawn off-axis, also a CornerRect feature): expose its orientation
+            // too. Gated to genuinely-tilted edges so an axis-aligned Corner/Center rect never
+            // gets an angle quote (and its verified W/H behaviour is untouched).
+            if (f.begin >= 0 && f.begin < int(m_entities.size())) {
+                const SketchEntity& e0 = m_entities[f.begin];
+                Vec2d d0 = e0.p1 - e0.p0;
+                if (d0.squaredNorm() > 1e-12) {
+                    double deg = std::atan2(d0.y(), d0.x()) * 180.0 / M_PI;
+                    const double off = std::fmod(std::fmod(deg, 90.0) + 90.0, 90.0); // dist to axis
+                    if (off > 2.0 && off < 88.0) {
+                        const ColorRGBA dc(0.30f, 0.88f, 0.66f, 1.0f);
+                        const double th = std::max(15.0 * unit_per_px, 1e-4);
+                        double adeg = deg; if (adeg < 0.0) adeg += 360.0;
+                        const Vec2d mid = 0.5 * (e0.p0 + e0.p1);
+                        Vec2d nrm(-d0.y(), d0.x()); if (nrm.squaredNorm() > 1e-12) nrm.normalize();
+                        m_live_obrect_angle_label = mid + nrm * (th * 1.4);
+                        DimAnnot at; at.kind = DimType::Angle; at.value = adeg;
+                        draw_text(m_line_model, dim_text(at), m_live_obrect_angle_label, th, dc);
+                        m_live_obrect_fi = fi;
+                    }
+                }
+            }
             break;
+        }
         case FeatureKind::Slot: {
             // make_slot order: [top line, cap@c1, bottom line, cap@c0]. Centre-distance =
             // Distance between the two cap-arc centres; Width = cap Radius (half-width).
@@ -4771,6 +4852,17 @@ void DesignSketchTool::render_live_quotes(double unit_per_px)
         m_live_ellipse_major_label = majLbl;
         m_live_ellipse_minor_label = minLbl;
         m_live_ellipse_ei = ei;
+        // Elliptical arc also has a SWEEP (included parametric angle), drawn outside the arc
+        // midpoint; the full ellipse skips this (closed).
+        if (e.type == SketchEntity::Type::EllipseArc) {
+            const double midp = 0.5 * (e.start_angle + e.end_angle);
+            const Vec2d  mp   = ellipse_point(c, e.radius, e.rminor, e.rotation, midp);
+            Vec2d outw = mp - c; if (outw.squaredNorm() > 1e-12) outw.normalize();
+            m_live_ellipsearc_sweep_label = mp + outw * (th * 1.5);
+            DimAnnot sw; sw.kind = DimType::Angle;
+            sw.value = std::abs(e.end_angle - e.start_angle) * 180.0 / M_PI;
+            draw_text(m_line_model, dim_text(sw), m_live_ellipsearc_sweep_label, th, dc);
+        }
     }
 
     if (protos.empty()) return;
