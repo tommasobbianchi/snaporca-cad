@@ -59,6 +59,8 @@ void DesignSketchTool::begin(const SketchPlane& plane, Mode mode)
     m_constraint_hl.clear();
     m_constrain_cons.clear();
     m_awaiting_length = false;
+    m_autoedit_seen = 0;          // baseline: no entities yet; first commit triggers edit
+    m_autoedit_pending = false;
     m_selection.clear();
     m_point_sel.clear();
     m_constraints.clear();
@@ -199,6 +201,8 @@ void DesignSketchTool::set_tool(Mode mode)
     m_points.clear();
     m_has_cursor = false;
     m_awaiting_length = false;
+    m_autoedit_seen = int(m_entities.size());   // resync baseline so a switch never fires
+    m_autoedit_pending = false;
     reset_op();                 // drop any in-progress edit-op gizmo
     reset_tf();                 // drop any in-progress transform gizmo
     m_selection.clear();
@@ -517,9 +521,27 @@ void DesignSketchTool::resolve_live_drag(int dragged_ei, SketchPointRole dragged
     const bool has = !m_constraints.empty();
     m_entity_conflict.assign(m_entities.size(), 0);
     if (has) {
+        // Dragging a line endpoint must move ONLY that endpoint (changing the line's angle +
+        // length), anchoring the other end — Onshape behaviour. Without this, a constraint on
+        // the line (e.g. a length dimension or an inferred H/V) lets the solver relocate the
+        // un-dragged endpoint too, so the whole line appears to shift. Temporarily Fix the
+        // opposite endpoint for this drag-solve only (set_point already moved just the grabbed
+        // point, so the other end's current coord is its anchor).
+        std::vector<SketchEntityConstraintDef> cons = m_constraints;
+        const bool line_end = dragged_ei >= 0 && dragged_ei < int(m_entities.size()) &&
+                              m_entities[dragged_ei].type == SketchEntity::Type::Line &&
+                              (dragged_role == SketchPointRole::P0 || dragged_role == SketchPointRole::P1);
+        if (line_end) {
+            SketchEntityConstraintDef fix;
+            fix.type = SketchConstraintType::Fix;
+            fix.ea   = dragged_ei;
+            fix.ra   = (dragged_role == SketchPointRole::P0) ? SketchPointRole::P1
+                                                             : SketchPointRole::P0;
+            cons.push_back(fix);
+        }
         const SketchSolveResult r = (dragged_ei >= 0)
-            ? sketch_solve_drag(m_entities, m_constraints, dragged_ei, dragged_role)
-            : sketch_solve(m_entities, m_constraints);
+            ? sketch_solve_drag(m_entities, cons, dragged_ei, dragged_role)
+            : sketch_solve(m_entities, cons);
         m_dof      = r.dof;
         m_solve_ok = r.ok;
         // Flag every entity referenced by a conflicting constraint so render() can
@@ -984,6 +1006,140 @@ void DesignSketchTool::set_line_angle(int ei, double deg)
     const double r = deg * M_PI / 180.0;
     e.p1 = e.p0 + Vec2d(std::cos(r), std::sin(r)) * L;   // rotate about P0, keep length
     resolve_live();
+}
+
+void DesignSketchTool::set_line_length(int ei, double len)
+{
+    if (ei < 0 || ei >= int(m_entities.size()) || len < 1e-9) return;
+    SketchEntity& e = m_entities[ei];
+    if (e.type != SketchEntity::Type::Line) return;
+    const Vec2d d = e.p1 - e.p0;
+    const double r = d.norm();
+    if (r > 1e-9) e.p1 = e.p0 + (len / r) * d;   // rescale P1 about P0, keep direction
+    SketchEntityConstraintDef c;                 // driving length (mirrors apply_segment_length)
+    c.type = SketchConstraintType::Distance;
+    c.ea = ei; c.ra = SketchPointRole::P0;
+    c.eb = ei; c.rb = SketchPointRole::P1;
+    c.value = len;
+    m_constraints.push_back(c);
+    resolve_live();
+}
+
+// Open the queued scalar quote at m_autoedit_dim_idx. Commit appends the driving dimension
+// AND advances to the next queued quote (deferred via CallAfter so the single SketchInlineEditor
+// fully unwinds its Enter handler before being reopened). Cancel (Esc) aborts the whole chain —
+// the shape is kept as drawn. This is what lets a rectangle edit Width THEN Height, a slot its
+// centre-distance THEN width, etc., instead of only the first dimension.
+void DesignSketchTool::open_next_autoedit_dim()
+{
+    if (!on_inline_edit || !m_active) { m_autoedit_dim_idx = -1; return; }
+    if (m_autoedit_dim_idx < 0 || m_autoedit_dim_idx >= int(m_autoedit_dims.size())) {
+        m_autoedit_dim_idx = -1;
+        return;
+    }
+    const AutoEditStep step = m_autoedit_dims[m_autoedit_dim_idx];
+    // Anchor the field OVER this dimension's label (project its plane-coords centre to the
+    // viewport), not at the last cursor spot — otherwise each field pops up in an unrelated
+    // screen position. Fall back to the cursor if the label projects off-screen.
+    // Anchor the field OVER this dimension's label (project its plane-coords centre to the
+    // viewport). A label can project OFF-screen (near-degenerate perspective divide when the
+    // sketch plane is viewed at a grazing angle), in which case we fall back to the cursor —
+    // but staggered by step index, so a shape's successive fields (rrect W/H/R) don't all
+    // stack on the exact same pixel and hide each other.
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const wxPoint lp = world_to_screen_px(cam, m_plane.to_world(step.label));
+    const std::array<int, 4>& vp = cam.get_viewport();
+    wxPoint px(m_last_mouse_x, m_last_mouse_y + m_autoedit_dim_idx * 34);
+    if (lp.x >= vp[0] && lp.y >= vp[1] && lp.x <= vp[0] + vp[2] && lp.y <= vp[1] + vp[3])
+        px = lp;
+    on_inline_edit(px, step.value,
+        [this, step](double v) {                 // commit: apply this dimension, then next
+            if (step.apply) step.apply(v);
+            ++m_autoedit_dim_idx;
+            wxGetApp().CallAfter([this] { open_next_autoedit_dim(); });
+        },
+        [this]() { m_autoedit_dim_idx = -1; });   // cancel: keep as drawn, stop the chain
+}
+
+// Draw-then-edit dispatcher: mirror the Select-mode quote-click logic, but target the
+// freshly-drawn selection's PRIMARY value and use the tentative (clean-cancel) path for
+// scalar quotes. Runs after render_live_quotes, so the live-quote state is populated.
+void DesignSketchTool::open_primary_autoedit()
+{
+    if (!on_inline_edit || m_awaiting_length) return;   // no host, or a field is already open
+    if (!m_active) return;                              // session ended before the deferred tick
+
+    // Build ONE ordered list of edit steps covering EVERY characteristic dimension of the
+    // freshly-drawn shape — scalar quotes (constraint-based) AND geometric editors — so every
+    // 2D tool behaves like the rectangle: a linear sequence of value fields, each over its own
+    // label, Enter advances to the next, Esc keeps the shape as drawn. (Line keeps its own
+    // dedicated length field; Polyline/BSpline/Point have no two-click dimension set.)
+    m_autoedit_dims.clear();
+
+    // (1) Scalar quotes: rect Width+Height, slot Distance+Radius, circle/arc Radius. Angle
+    //     scalar protos are skipped (a creation tool's primary is its size, not orientation).
+    for (const DimAnnot& q : m_live_quotes) {
+        if (q.kind == DimType::Angle) continue;
+        DimAnnot a = q;
+        a.value = measure_dim(a);
+        m_autoedit_dims.push_back({ a.label_pos, a.value,
+            [this, a](double v) mutable {
+                a.value = v;
+                a.con   = int(m_constraints.size());
+                m_constraints.push_back(constraint_for(a));
+                m_dimensions.push_back(a);
+                resolve_live();
+            } });
+    }
+
+    // (2) Geometric editors (mutate geometry directly, no constraint). Each reads the CURRENT
+    //     feature/entity state inside apply(), so sequential edits compose correctly.
+    if (m_live_poly_fi >= 0) {
+        const Feature& f = m_features[m_live_poly_fi];
+        const int fi = m_live_poly_fi;
+        if (f.begin >= 0 && f.begin < int(m_entities.size())) {
+            const double side = (m_entities[f.begin].p1 - m_entities[f.begin].p0).norm();
+            const Vec2d  sp   = m_entities[f.begin].p0 - f.c0;
+            double deg = std::atan2(sp.y(), sp.x()) * 180.0 / M_PI; if (deg < 0.0) deg += 360.0;
+            m_autoedit_dims.push_back({ m_live_poly_side_label,  side, [this, fi](double v){ set_polygon_side(fi, v); } });
+            m_autoedit_dims.push_back({ m_live_poly_angle_label, deg,  [this, fi](double v){ set_polygon_angle(fi, v); } });
+        }
+    }
+    if (m_live_rrect_fi >= 0) {
+        const Feature& f = m_features[m_live_rrect_fi];
+        const int fi = m_live_rrect_fi;
+        const double w = std::abs(f.c1.x() - f.c0.x()), h = std::abs(f.c1.y() - f.c0.y()), r = f.param;
+        auto rr_w = [this, fi](double v){ const Feature& g = m_features[fi]; set_rounded_rect(fi, v, std::abs(g.c1.y()-g.c0.y()), g.param); };
+        auto rr_h = [this, fi](double v){ const Feature& g = m_features[fi]; set_rounded_rect(fi, std::abs(g.c1.x()-g.c0.x()), v, g.param); };
+        auto rr_r = [this, fi](double v){ const Feature& g = m_features[fi]; set_rounded_rect(fi, std::abs(g.c1.x()-g.c0.x()), std::abs(g.c1.y()-g.c0.y()), v); };
+        m_autoedit_dims.push_back({ m_live_rrect_w_label, w, rr_w });
+        m_autoedit_dims.push_back({ m_live_rrect_h_label, h, rr_h });
+        m_autoedit_dims.push_back({ m_live_rrect_r_label, r, rr_r });
+    }
+    if (m_live_aslot_fi >= 0) {
+        const Feature& f = m_features[m_live_aslot_fi];
+        const int fi = m_live_aslot_fi;
+        const double Rc = (f.c1 - f.c0).norm(), fw = 2.0 * f.param;
+        m_autoedit_dims.push_back({ m_live_aslot_r_label, Rc, [this, fi](double v){ const Feature& g = m_features[fi]; set_arc_slot(fi, v, g.param); } });
+        m_autoedit_dims.push_back({ m_live_aslot_w_label, fw, [this, fi](double v){ const Feature& g = m_features[fi]; set_arc_slot(fi, (g.c1-g.c0).norm(), std::max(1e-3, v*0.5)); } });
+    }
+    if (m_live_arc_ei >= 0) {   // arc Radius is already a scalar step above; add its sweep angle
+        const int ei = m_live_arc_ei;
+        const SketchEntity& e = m_entities[ei];
+        const double swdeg = std::abs(e.end_angle - e.start_angle) * 180.0 / M_PI;
+        m_autoedit_dims.push_back({ m_live_arc_angle_label, swdeg, [this, ei](double v){ set_arc_sweep(ei, v); } });
+    }
+    if (m_live_ellipse_ei >= 0) {
+        const int ei = m_live_ellipse_ei;
+        const SketchEntity& e = m_entities[ei];
+        m_autoedit_dims.push_back({ m_live_ellipse_major_label, e.radius, [this, ei](double v){ set_ellipse_axis(ei, true,  v); } });
+        m_autoedit_dims.push_back({ m_live_ellipse_minor_label, e.rminor, [this, ei](double v){ set_ellipse_axis(ei, false, v); } });
+    }
+
+    if (!m_autoedit_dims.empty()) {
+        m_autoedit_dim_idx = 0;
+        open_next_autoedit_dim();
+    }
 }
 
 // A regular polygon is N raw lines with no centre entity, so (like the line angle) its
@@ -5483,11 +5639,29 @@ void DesignSketchTool::confirm_transform()
 void DesignSketchTool::render(GLCanvas3D& canvas)
 {
     (void)canvas;
-    if (!has_display())
+    if (!has_display()) {
+        if (on_readout) on_readout(std::string());   // nothing to show -> hide HUD
         return;
+    }
     if (m_active && m_mode != Mode::Constrain && m_entities.empty() && m_points.empty()
-        && m_display_sketches.empty())
+        && m_display_sketches.empty()) {
+        if (on_readout) on_readout(std::string());
         return;
+    }
+
+    // Draw-then-edit: a creation tool that just committed a new entity/feature (gesture now
+    // idle) gets its result auto-selected — so render_live_quotes below computes its quotes —
+    // and the primary value editor armed (opened after those quotes exist, see service block).
+    if (m_active && is_creation_autoedit_mode() && m_points.empty() &&
+        m_open_feature < 0 && !m_awaiting_length) {
+        const int n = int(m_entities.size());
+        if (m_autoedit_seen >= 0 && n > m_autoedit_seen && n > 0) {
+            m_selection.clear();
+            m_selection.push_back(n - 1);   // feature_of(last) groups rect/slot/poly/ellipse
+            m_autoedit_pending = true;
+        }
+        m_autoedit_seen = n;
+    }
 
     GLShaderProgram* shader = wxGetApp().get_shader("flat");
     if (shader == nullptr)
@@ -5727,6 +5901,14 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     // Pass plane-units-per-pixel so labels keep a constant on-screen size.
     render_dimensions(1.0 / std::max(camera.get_zoom(), 1e-6));
     render_live_quotes(1.0 / std::max(camera.get_zoom(), 1e-6));
+    // Draw-then-edit: the selection's live quotes now exist. Open the primary value editor on
+    // the next event-loop tick (NOT here inside the paint) so the floating field grabs focus
+    // cleanly — the same context the Line path opens from. m_live_quotes persists until the
+    // next render_live_quotes(), so the deferred open still sees this frame's values.
+    if (m_autoedit_pending) {
+        m_autoedit_pending = false;
+        wxGetApp().CallAfter([this] { open_primary_autoedit(); });
+    }
     if (is_edit_op_mode())
         render_op_gizmo(1.0 / std::max(camera.get_zoom(), 1e-6));
     if (is_transform_mode())
@@ -5985,6 +6167,30 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     shader->stop_using();
     glsafe(::glEnable(GL_CULL_FACE));
     glsafe(::glEnable(GL_DEPTH_TEST));
+
+    if (on_readout) on_readout(build_readout());   // bottom-right viewport HUD
+}
+
+// Compact "current values" for the bottom-right HUD: the live segment being drawn (length
+// + bearing) takes priority; otherwise the selected entity's characteristic quotes (the
+// same values render_live_quotes just drew on the geometry).
+std::string DesignSketchTool::build_readout() const
+{
+    auto en = [](char* b) { for (char* c = b; *c; ++c) if (*c == ',') *c = '.'; };
+    if (m_active && (m_mode == Mode::Line || m_mode == Mode::Polyline) &&
+        !m_points.empty() && m_has_cursor) {
+        const Vec2d d = m_cursor - m_points.back();
+        double ang = std::atan2(d.y(), d.x()) * 180.0 / M_PI; if (ang < 0.0) ang += 360.0;
+        char b[80]; std::snprintf(b, sizeof(b), "L %.2f mm    %.1f\xC2\xB0", d.norm(), ang);
+        en(b); return b;
+    }
+    if (!m_active) return std::string();
+    std::string out;
+    for (const DimAnnot& q : m_live_quotes) {       // selection's Length/Radius/Width/… quotes
+        if (!out.empty()) out += "    ";
+        out += dim_text(q);
+    }
+    return out;
 }
 
 // Distance from point p to the segment [a,b] in plane (2D) coordinates.
@@ -6174,6 +6380,12 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     // projection — the design canvas's viewport isn't valid outside its own paint).
     m_last_mouse_x = evt.GetX();
     m_last_mouse_y = evt.GetY();
+
+    // Line draw-then-edit: while the length editor is open right after the second click,
+    // freeze the canvas so a stray move/click can't push a third point or rubber-band a
+    // segment under the floating field. The editor's Enter/Esc resolves it
+    // (apply_segment_length / keep_segment_as_drawn, the latter clears this flag).
+    if (m_awaiting_length) return true;
 
     // No live session, but committed sketches are shown as overlays on the plate: a left
     // click on a loop (its edge OR its closed interior) selects that Sketch feature. This
@@ -6975,10 +7187,25 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
             bool lk = false;
             if (!vsnap) p = snap_dir(m_points.back(), p, lk);  // vertex snap wins over angle
             m_points.push_back(p);      // second click completes the segment
-            // Onshape paradigm: commit the segment as drawn — no docked length modal.
-            // The length is edited in-canvas via the live Length quote (click it in
-            // Select mode to set a precise driving dimension), like the circle radius.
+            // Draw-then-edit (Onshape): commit the segment, SELECT it so its Length + Angle
+            // quotes render immediately, and open the length field at the cursor — type a
+            // precise length right after the 2nd click, no draw -> Esc -> Select round-trip.
+            // Enter confirms (drives a Distance constraint); Esc keeps it as drawn.
             keep_segment_as_drawn();
+            if (!m_entities.empty() &&
+                m_entities.back().type == SketchEntity::Type::Line) {
+                const int ei = int(m_entities.size()) - 1;
+                m_selection.clear();
+                m_selection.push_back(ei);   // m_selection.size()==1 -> Length + Angle quotes
+                const double L = (m_entities[ei].p1 - m_entities[ei].p0).norm();
+                if (on_inline_edit && L > 1e-9) {
+                    m_awaiting_length = true;   // freeze the canvas until Enter/Esc resolves
+                    const wxPoint px(m_last_mouse_x, m_last_mouse_y);
+                    on_inline_edit(px, L,
+                        [this, ei](double v) { set_line_length(ei, v); m_awaiting_length = false; },
+                        [this]()             { m_awaiting_length = false; });
+                }
+            }
             return true;
         }
         if (evt.RightDown()) {          // abandon the in-progress anchor

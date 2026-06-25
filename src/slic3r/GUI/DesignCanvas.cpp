@@ -13,6 +13,9 @@
 
 #include <wx/glcanvas.h>
 #include <wx/sizer.h>
+#include <wx/frame.h>
+#include <wx/stattext.h>
+#include <wx/toplevel.h>
 
 namespace Slic3r {
 namespace GUI {
@@ -77,16 +80,40 @@ DesignCanvas::DesignCanvas(wxWindow* parent)
         const double s = m_canvas_widget ? m_canvas_widget->GetContentScaleFactor() : 1.0;
         const wxPoint client_pt(int(screen_px.x / s), int(screen_px.y / s));
         const wxPoint scr = m_canvas_widget ? m_canvas_widget->ClientToScreen(client_pt) : client_pt;
+        // Freeze the sketch tool while the field is open so a stray click/move on the GL
+        // canvas can't draw under the floating editor; released on commit or cancel.
+        m_sketch_tool.set_inline_busy(true);
         m_inline_editor->open(scr, current,
             [this, commit](double v) {
+                m_sketch_tool.set_inline_busy(false);
                 if (commit) commit(v);
                 if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
             },
             [this, cancel]() {
+                m_sketch_tool.set_inline_busy(false);
                 if (cancel) cancel();
                 if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
             });
     };
+
+    // Bottom-right viewport HUD: a borderless, non-focusable float label showing the active
+    // tool's current values. Top-level (a child widget is hidden by the GL surface, same as
+    // the inline editor). Fed every frame by the tool's on_readout; empty text hides it.
+    {
+        wxWindow* top = wxGetTopLevelParent(m_canvas_widget);
+        m_hud = new wxFrame(top, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
+                            wxFRAME_NO_TASKBAR | wxBORDER_NONE | wxFRAME_FLOAT_ON_PARENT |
+                            wxSTAY_ON_TOP | wxTRANSPARENT_WINDOW);
+        m_hud->SetBackgroundColour(wxColour(28, 30, 34));
+        m_hud_label = new wxStaticText(m_hud, wxID_ANY, wxEmptyString);
+        m_hud_label->SetForegroundColour(wxColour(0x46, 0xE0, 0xC8));   // teal, reads on dark bed
+        wxFont f = m_hud_label->GetFont(); f.MakeBold(); m_hud_label->SetFont(f);
+        auto* hs = new wxBoxSizer(wxHORIZONTAL);
+        hs->Add(m_hud_label, 0, wxALL, 6);
+        m_hud->SetSizerAndFit(hs);
+        m_hud->Hide();
+    }
+    m_sketch_tool.on_readout = [this](const std::string& s) { set_readout(s); };
 
     const DynamicPrintConfig* config = wxGetApp().plater()->config();
     if (config) {
@@ -106,7 +133,10 @@ DesignCanvas::DesignCanvas(wxWindow* parent)
     // Esc/Ctrl+Z silently do nothing until the viewport is clicked again. Restore focus
     // whenever the pointer enters the viewport (focus-follows-mouse, standard CAD behaviour).
     m_canvas_widget->Bind(wxEVT_ENTER_WINDOW, [this](wxMouseEvent& e) {
-        if (m_canvas_widget) m_canvas_widget->SetFocus();
+        // …but NOT while an inline value field is open: the field floats over the canvas, so
+        // the smallest pointer jiggle re-enters the viewport and would yank focus off the
+        // field (the "no cursor focus on the number, click to focus" bug).
+        if (m_canvas_widget && !m_sketch_tool.inline_busy()) m_canvas_widget->SetFocus();
         e.Skip();
     });
 
@@ -118,6 +148,7 @@ DesignCanvas::DesignCanvas(wxWindow* parent)
 
 DesignCanvas::~DesignCanvas()
 {
+    if (m_hud) m_hud->Destroy();
     delete m_canvas;
     delete m_canvas_widget;
 }
@@ -611,6 +642,24 @@ void DesignCanvas::set_datum_planes(std::vector<SketchPlane> planes)
 {
     m_sketch_tool.set_datum_planes(std::move(planes));
     if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }   // llvmpipe: force repaint
+}
+
+void DesignCanvas::set_readout(const std::string& text)
+{
+    if (!m_hud || !m_hud_label || !m_canvas_widget) return;
+    if (text == m_hud_last) return;                 // only touch the WM on a real change
+    m_hud_last = text;
+    if (text.empty()) { m_hud->Hide(); return; }
+    m_hud_label->SetLabel(wxString::FromUTF8(text));
+    m_hud->Fit();
+    // Anchor to the canvas's bottom-right corner with a small margin (screen coords).
+    const wxSize  cs = m_canvas_widget->GetClientSize();
+    const wxSize  hs = m_hud->GetSize();
+    const wxPoint br = m_canvas_widget->ClientToScreen(
+        wxPoint(cs.GetWidth() - hs.GetWidth() - 12, cs.GetHeight() - hs.GetHeight() - 12));
+    if (!m_hud->IsShown()) m_hud->Show();           // Show before Move (GTK ignores pre-map Move)
+    m_hud->Move(br);
+    m_hud->Raise();
 }
 
 void DesignCanvas::set_body_highlight(bool on)

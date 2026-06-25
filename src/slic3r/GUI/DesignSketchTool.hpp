@@ -46,6 +46,25 @@ public:
     bool is_transform_mode() const { return m_mode == Mode::Move || m_mode == Mode::Rotate ||
                                             m_mode == Mode::Scale || m_mode == Mode::Array ||
                                             m_mode == Mode::PolarArray; }
+    // Creation tools that get draw-then-edit: on commit the new entity/feature is selected
+    // and its primary value editor opens. Line is handled inline (its own length field);
+    // Polyline/BSpline/Point have no single primary value, so they opt out.
+    bool is_creation_autoedit_mode() const {
+        switch (m_mode) {
+        case Mode::CornerRect: case Mode::CenterRect: case Mode::ObliqueRect:
+        case Mode::RoundedRect: case Mode::CenterCircle: case Mode::TwoPointCircle:
+        case Mode::ThreePointCircle: case Mode::ThreePointArc: case Mode::TangentArc:
+        case Mode::CenterArc: case Mode::Slot: case Mode::ArcSlot: case Mode::Polygon:
+        case Mode::Ellipse: case Mode::EllipseArc:
+            return true;
+        default: return false;
+        }
+    }
+    // The host (DesignCanvas) flags the canvas frozen while an inline value editor is open,
+    // so a stray click/move can't draw under the floating field. Reuses m_awaiting_length
+    // (Line's existing freeze flag) as the single "inline editor open" gate.
+    void set_inline_busy(bool b) { m_awaiting_length = b; }
+    bool inline_busy() const { return m_awaiting_length; }   // true while a value field is open
 
     void begin(const SketchPlane& plane, Mode mode = Mode::Polyline);
     // Re-open a committed entity sketch for full in-canvas editing: load its entities +
@@ -293,6 +312,12 @@ public:
                        std::function<void(double)> commit,
                        std::function<void()> cancel)> on_inline_edit;
 
+    // Bottom-right viewport readout: emitted each frame with the active tool's current
+    // values (live segment length/angle while drawing a line, or the selected entity's
+    // characteristic dimensions). Empty string -> hide the HUD. The owner (DesignCanvas)
+    // shows it as a floating corner label over the GL canvas.
+    std::function<void(const std::string&)> on_readout;
+
     // Driving dimension constraints accumulated during the session (the Dimension
     // tool records a SketchEntityConstraintDef per applied dimension); committed
     // alongside the entities on finish() so the kernel keeps enforcing them.
@@ -435,6 +460,20 @@ private:
     // geometrically about P0 (no single-line angle constraint in libslvs).
     void open_angle_editor(int ei);
     void set_line_angle(int ei, double deg);
+    // Set a committed line's length (draw-then-edit): rescale P1 about P0 and add a driving
+    // Distance constraint. Used by the immediate length field opened after the 2nd click.
+    void set_line_length(int ei, double len);
+    // Draw-then-edit (all creation tools): open the inline editor on the freshly-drawn
+    // selection's PRIMARY characteristic value. Called after render_live_quotes has computed
+    // the selection's quotes, so it dispatches on the same live-quote state a Select-mode
+    // click would use.
+    void open_primary_autoedit();
+    // Compact "current values" string for the bottom-right HUD (see on_readout).
+    std::string build_readout() const;
+    // Open a characteristic live quote as a TENTATIVE driving dimension: the constraint is
+    // appended only if the user commits a value (Enter); cancel (Esc) adds nothing — so
+    // drawing never silently over-constrains. (place_dimension is the eager Select-mode twin.)
+    void open_next_autoedit_dim();   // opens m_autoedit_dims[idx]; commit -> next, Esc -> stop
     // In-canvas editors for a regular polygon's side length and orientation. Both edit
     // the whole loop GEOMETRICALLY (polygon has no centre entity): side scales it
     // uniformly about its centre, angle rotates it. set_polygon_radius is the shared
@@ -586,7 +625,18 @@ private:
     bool                m_snap_off{false};      // Shift held -> suppress angle snapping
     InferenceSnap       m_cursor_snap;          // last cursor inference target (for hint render)
     bool                m_cursor_locked{false}; // rubber-band segment is angle-locked
-    bool                m_awaiting_length{false}; // Line tool: length dialog is open
+    bool                m_awaiting_length{false}; // inline value editor open -> freeze canvas
+    int                 m_autoedit_seen{-1};      // entity count baseline for draw-then-edit
+    bool                m_autoedit_pending{false};// a new entity just committed -> open editor
+    // Draw-then-edit step queue: every characteristic dimension of the freshly-drawn shape
+    // (scalar quote OR geometric editor) becomes one step, opened in sequence over its label.
+    struct AutoEditStep {
+        Vec2d                       label;   // anchor (plane coords) — field opens over this
+        double                      value;   // initial value shown
+        std::function<void(double)> apply;   // commit: set the dimension
+    };
+    std::vector<AutoEditStep> m_autoedit_dims;    // queued steps to edit in sequence
+    int                 m_autoedit_dim_idx{-1};   // index into m_autoedit_dims (-1 = idle)
     std::vector<int>    m_selection;              // selected entity indices (Mode::Select)
     std::vector<std::pair<int, SketchPointRole>> m_point_sel;  // selected individual points
     int                 m_last_mouse_x{0};        // last cursor pos (canvas client px), for

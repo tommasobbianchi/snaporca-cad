@@ -13,6 +13,8 @@
 #include "DesignSketchTool.hpp"
 
 class wxGLCanvas;
+class wxFrame;
+class wxStaticText;
 
 namespace Slic3r {
 
@@ -210,6 +212,12 @@ private:
 
     DesignSketchTool m_sketch_tool;
     std::unique_ptr<SketchInlineEditor> m_inline_editor;  // floating in-canvas value editor
+    // Bottom-right viewport HUD: a borderless float label over the GL canvas showing the
+    // active tool's current values (fed by the tool's on_readout). Empty text hides it.
+    wxFrame*      m_hud{nullptr};
+    wxStaticText* m_hud_label{nullptr};
+    std::string   m_hud_last;
+    void set_readout(const std::string& text);
     std::function<void(const SketchProfile&, const SketchPlane&)> m_on_sketch_commit;
     std::function<void(const std::vector<SketchEntity>&,
                        const std::vector<SketchEntityConstraintDef>&,

@@ -39,8 +39,12 @@ SketchInlineEditor::SketchInlineEditor(wxWindow* parent_canvas)
     // Borderless floating frame: a top-level window so the WM composites it above the
     // GL canvas (a child widget would be hidden by the GL surface). Floats on its
     // parent and stays on top so it tracks the main window.
+    // NB: no wxFRAME_FLOAT_ON_PARENT — that maps to a GTK _UTILITY_ window-type hint, which
+    // many WMs (incl. the xrdp/x11vnc session on :10) refuse to give keyboard focus, so the
+    // field opened un-focusable and needed a click before typing. Plain stay-on-top frame is
+    // WM-focusable; we present + SetFocus it explicitly in open().
     m_frame = new wxFrame(top, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
-                          wxFRAME_NO_TASKBAR | wxBORDER_NONE | wxFRAME_FLOAT_ON_PARENT | wxSTAY_ON_TOP);
+                          wxFRAME_NO_TASKBAR | wxBORDER_NONE | wxSTAY_ON_TOP);
     m_ctrl = new wxTextCtrl(m_frame, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(82, -1),
                             wxTE_PROCESS_ENTER | wxTE_RIGHT | wxBORDER_SIMPLE);
     auto* sizer = new wxBoxSizer(wxVERTICAL);
@@ -76,12 +80,15 @@ void SketchInlineEditor::open(const wxPoint& screen_px, double value,
     // WM places it at its default, i.e. the top-left corner). Move after Show sticks.
     m_frame->Show();
     m_frame->Move(pos);
-    m_frame->Raise();
+    m_frame->Raise();             // gtk_window_present -> activate the top-level so SetFocus routes
+    m_frame->SetFocus();
+    m_ctrl->SetFocus();
+    m_ctrl->SelectAll();
     m_open = true;
-    // Grab focus on the next event-loop tick: the GL canvas reclaims focus while it
-    // finishes handling the click that opened us, so an immediate SetFocus is stolen.
+    // Re-assert on the next tick too: the GL canvas can reclaim focus while it finishes
+    // handling the click/render that opened us, so a single immediate SetFocus may be stolen.
     m_ctrl->CallAfter([this] {
-        if (m_open && m_ctrl) { m_ctrl->SetFocus(); m_ctrl->SelectAll(); }
+        if (m_open && m_ctrl) { m_frame->Raise(); m_ctrl->SetFocus(); m_ctrl->SelectAll(); }
     });
 }
 

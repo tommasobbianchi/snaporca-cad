@@ -148,6 +148,31 @@ static SketchSolveResult solve_impl(std::vector<SketchEntity>& entities,
 
     // ---- Constraints ----------------------------------------------------------------
     for (const auto& c : constraints) {
+        // Robustness: never feed libslvs a null handle. A constraint that references an
+        // entity which produced no solver primitive (Point/Ellipse/EllipseArc/BSpline get
+        // no `prim`) or no point for the requested role would make Slvs FindById abort the
+        // whole process. Skip such a constraint instead of crashing.
+        bool ref_ok = true;
+        switch (c.type) {
+        case CT::Coincident: case CT::Horizontal: case CT::Vertical: case CT::Distance:
+            ref_ok = ptOf(c.ea, c.ra) && ptOf(c.eb, c.rb); break;
+        case CT::Concentric:
+            ref_ok = ptOf(c.ea, Role::Center) && ptOf(c.eb, Role::Center); break;
+        case CT::Fix: case CT::LockX: case CT::LockY:
+            ref_ok = ptOf(c.ea, c.ra) != 0; break;
+        case CT::EqualLength: case CT::Parallel: case CT::Perpendicular:
+        case CT::Angle: case CT::Tangent:
+            ref_ok = primOf(c.ea) && primOf(c.eb); break;
+        case CT::Radius: case CT::Diameter:
+            ref_ok = primOf(c.ea) != 0; break;
+        case CT::Midpoint:
+            ref_ok = ptOf(c.ea, c.ra) && primOf(c.eb); break;
+        case CT::Symmetric:
+            ref_ok = ptOf(c.ea, c.ra) && ptOf(c.eb, c.rb) && primOf(c.ec); break;
+        case CT::PointOnLine: case CT::PointOnObject:
+            ref_ok = ptOf(c.ea, c.ra) && primOf(c.eb); break;
+        }
+        if (!ref_ok) continue;
         switch (c.type) {
         case CT::Coincident:
             b.C(SLVS_C_POINTS_COINCIDENT, 0, ptOf(c.ea, c.ra), ptOf(c.eb, c.rb), 0, 0);
