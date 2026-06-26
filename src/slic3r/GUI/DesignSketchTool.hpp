@@ -66,6 +66,7 @@ public:
     // (Line's existing freeze flag) as the single "inline editor open" gate.
     void set_inline_busy(bool b) { m_awaiting_length = b; }
     bool inline_busy() const { return m_awaiting_length; }   // true while a value field is open
+    bool constrain_value_anchor(wxPoint& out) const; // screen anchor over the picked constrain geometry
 
     void begin(const SketchPlane& plane, Mode mode = Mode::Polyline);
     // Re-open a committed entity sketch for full in-canvas editing: load its entities +

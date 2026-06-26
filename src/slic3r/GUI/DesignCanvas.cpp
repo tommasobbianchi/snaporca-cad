@@ -720,26 +720,34 @@ void DesignCanvas::open_inline_value(double current, std::function<void(double)>
                                      std::function<void()> cancel)
 {
     if (!m_inline_editor || !m_canvas_widget) { if (cancel) cancel(); return; }
-    // Host-driven value entry (committed-feature Constrain path): the trigger is a
-    // toolbar button, not a canvas click, so there is no cursor anchor — open at the
-    // centre of the viewport, where the sketch under edit is in view. Mirrors the
-    // on_inline_edit wrapper so commit/cancel re-solve and repaint the viewport.
-    // GetScreenRect collapses GetClientSize()+ClientToScreen() into one call; if the GL
-    // canvas reports degenerate geometry (it can, transiently, right after a re-layout),
-    // fall back to the always-realised top-level window so the editor never lands in the
-    // top-left corner over the menu bar.
+    // Host-driven value entry (committed-feature Constrain path): the trigger is a toolbar
+    // button. Anchor the field OVER the picked geometry (same as the draw-then-edit tools) when
+    // the tool can project it; else fall back to the viewport centre, where the sketch is in
+    // view. GetScreenRect collapses GetClientSize()+ClientToScreen() into one call; if the GL
+    // canvas reports degenerate geometry (transiently, right after a re-layout), fall back to the
+    // always-realised top-level window so the editor never lands in the top-left corner.
     wxRect r = m_canvas_widget->GetScreenRect();
     if (r.GetWidth() <= 1 || r.GetHeight() <= 1) {
         if (wxWindow* top = wxGetTopLevelParent(m_canvas_widget))
             r = top->GetScreenRect();
     }
-    const wxPoint scr(r.GetLeft() + r.GetWidth() / 2, r.GetTop() + r.GetHeight() / 2);
+    wxPoint scr(r.GetLeft() + r.GetWidth() / 2, r.GetTop() + r.GetHeight() / 2);
+    wxPoint anchor;
+    if (m_sketch_tool.constrain_value_anchor(anchor)) {     // device px in the canvas viewport
+        const double s = m_canvas_widget->GetContentScaleFactor();
+        scr = m_canvas_widget->ClientToScreen(wxPoint(int(anchor.x / s), int(anchor.y / s)));
+    }
+    // Freeze the canvas so focus-follows-mouse can't steal keyboard focus off the field — the
+    // same fix the draw-then-edit path uses (cursor focus stays on the field, no pre-click).
+    m_sketch_tool.set_inline_busy(true);
     m_inline_editor->open(scr, current,
         [this, commit](double v) {
+            m_sketch_tool.set_inline_busy(false);
             if (commit) commit(v);
             if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
         },
         [this, cancel]() {
+            m_sketch_tool.set_inline_busy(false);
             if (cancel) cancel();
             if (m_canvas) { m_canvas->set_as_dirty(); m_canvas->render(); }
         });

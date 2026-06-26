@@ -1485,6 +1485,31 @@ void DesignSketchTool::set_rect_angle(int fi, double deg)
     f.c1 = rot(f.c1);   // keep the opposite corner consistent for later W/H quotes
 }
 
+// Screen anchor for a Constrain-mode value field: over the picked geometry (its representative
+// point — circle/arc centre, else segment midpoint; averaged when two entities are picked),
+// projected to the viewport. Lets a dimensional constraint's field open ON the geometry like
+// the draw-then-edit tools, instead of floating at viewport centre. False if no valid pick or
+// it projects off-screen (caller falls back to centre).
+bool DesignSketchTool::constrain_value_anchor(wxPoint& out) const
+{
+    if (m_pick0 < 0 || m_pick0 >= int(m_entities.size())) return false;
+    auto rep = [](const SketchEntity& e) -> Vec2d {
+        using T = SketchEntity::Type;
+        if (e.type == T::Circle || e.type == T::Arc ||
+            e.type == T::Ellipse || e.type == T::EllipseArc) return e.center;
+        return 0.5 * (e.p0 + e.p1);
+    };
+    Vec2d p = rep(m_entities[m_pick0]);
+    if (m_pick1 >= 0 && m_pick1 < int(m_entities.size()))
+        p = 0.5 * (p + rep(m_entities[m_pick1]));
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const wxPoint sp = world_to_screen_px(cam, m_plane.to_world(p));
+    const std::array<int, 4>& vp = cam.get_viewport();
+    if (sp.x < vp[0] || sp.y < vp[1] || sp.x > vp[0] + vp[2] || sp.y > vp[1] + vp[3]) return false;
+    out = sp;
+    return true;
+}
+
 void DesignSketchTool::open_rounded_rect_editor(int fi, int which)
 {
     if (fi < 0 || fi >= int(m_features.size()) || !on_inline_edit) return;
