@@ -973,7 +973,15 @@ void DesignSketchTool::open_value_editor(int di)
         return;
     }
     const DimAnnot& a = m_dimensions[di];
-    const wxPoint px(m_last_mouse_x, m_last_mouse_y);   // open at the click point
+    // Anchor the field OVER the dimension (project its label/anchor to the viewport), same as
+    // the draw-then-edit tools and Constrain mode; fall back to the click point if it projects
+    // off-screen.
+    wxPoint px(m_last_mouse_x, m_last_mouse_y);
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    const wxPoint lp = world_to_screen_px(cam, m_plane.to_world(dim_anchor(a)));
+    const std::array<int, 4>& vp = cam.get_viewport();
+    if (lp.x >= vp[0] && lp.y >= vp[1] && lp.x <= vp[0] + vp[2] && lp.y <= vp[1] + vp[3])
+        px = lp;
     on_inline_edit(px, a.value,
                    [this](double v) { set_dimension_value(v); },
                    [this]()         { cancel_dimension_value(); });
