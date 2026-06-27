@@ -120,16 +120,7 @@ DesignCanvas::DesignCanvas(wxWindow* parent)
     }
     m_sketch_tool.on_readout = [this](const std::string& s) { set_readout(s); };
 
-    const DynamicPrintConfig* config = wxGetApp().plater()->config();
-    if (config) {
-        const auto* bed_shape_opt = config->opt<ConfigOptionPoints>("printable_area");
-        if (bed_shape_opt) {
-            double printable_height = 100.0;
-            const auto* ph_opt = config->opt<ConfigOptionFloat>("printable_height");
-            if (ph_opt) printable_height = ph_opt->value;
-            m_bed.set_shape(bed_shape_opt->values, printable_height, "", false);
-        }
-    }
+    refresh_bed();
 
     m_canvas->bind_event_handlers();
 
@@ -352,6 +343,22 @@ void DesignCanvas::finish_sketch()
     m_sketch_tool.finish();
     if (m_canvas) m_canvas->set_as_dirty();
     if (m_canvas_widget) m_canvas_widget->Refresh();
+}
+
+// Sync the Design bed to the CURRENT printer bed. Done on every tab activation, not just at
+// construction: the panel is built early (before the active printer profile is fully applied),
+// so a one-shot read picked up the 200x200 default while the real bed (e.g. 270x270) only
+// loaded later — leaving the PartPlate grid spilling past the smaller bed quad.
+void DesignCanvas::refresh_bed()
+{
+    const DynamicPrintConfig* config = wxGetApp().plater()->config();
+    if (!config) return;
+    const auto* bed_shape_opt = config->opt<ConfigOptionPoints>("printable_area");
+    if (!bed_shape_opt) return;
+    double printable_height = 100.0;
+    const auto* ph_opt = config->opt<ConfigOptionFloat>("printable_height");
+    if (ph_opt) printable_height = ph_opt->value;
+    m_bed.set_shape(bed_shape_opt->values, printable_height, "", false);
 }
 
 bool DesignCanvas::is_sketching() const { return m_sketch_tool.is_active(); }

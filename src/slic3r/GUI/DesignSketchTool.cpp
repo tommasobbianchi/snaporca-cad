@@ -1111,7 +1111,7 @@ void DesignSketchTool::open_primary_autoedit()
         if (q.kind == DimType::Angle) {
             const int ei = q.ea;
             m_autoedit_dims.push_back({ q.label_pos, measure_dim(q),
-                [this, ei](double v) { set_line_angle(ei, v); } });
+                [this, ei](double v) { set_line_angle(ei, v); }, { ei } });
             continue;
         }
         DimAnnot a = q;
@@ -1123,11 +1123,19 @@ void DesignSketchTool::open_primary_autoedit()
                 m_constraints.push_back(constraint_for(a));
                 m_dimensions.push_back(a);
                 resolve_live();
-            } });
+            }, { a.ea, a.eb } });
     }
 
     // (2) Geometric editors (mutate geometry directly, no constraint). Each reads the CURRENT
     //     feature/entity state inside apply(), so sequential edits compose correctly.
+    // Entities to highlight = the feature's whole [begin,end) span, so editing any of its
+    // characteristic dims lights up the shape it drives.
+    auto span = [this](int fi) {
+        std::vector<int> v;
+        if (fi >= 0 && fi < int(m_features.size()))
+            for (int k = m_features[fi].begin; k < m_features[fi].end; ++k) v.push_back(k);
+        return v;
+    };
     if (m_live_poly_fi >= 0) {
         const Feature& f = m_features[m_live_poly_fi];
         const int fi = m_live_poly_fi;
@@ -1135,8 +1143,8 @@ void DesignSketchTool::open_primary_autoedit()
             const double side = (m_entities[f.begin].p1 - m_entities[f.begin].p0).norm();
             const Vec2d  sp   = m_entities[f.begin].p0 - f.c0;
             double deg = std::atan2(sp.y(), sp.x()) * 180.0 / M_PI; if (deg < 0.0) deg += 360.0;
-            m_autoedit_dims.push_back({ m_live_poly_side_label,  side, [this, fi](double v){ set_polygon_side(fi, v); } });
-            m_autoedit_dims.push_back({ m_live_poly_angle_label, deg,  [this, fi](double v){ set_polygon_angle(fi, v); } });
+            m_autoedit_dims.push_back({ m_live_poly_side_label,  side, [this, fi](double v){ set_polygon_side(fi, v); }, span(fi) });
+            m_autoedit_dims.push_back({ m_live_poly_angle_label, deg,  [this, fi](double v){ set_polygon_angle(fi, v); }, span(fi) });
         }
     }
     if (m_live_rrect_fi >= 0) {
@@ -1146,32 +1154,32 @@ void DesignSketchTool::open_primary_autoedit()
         auto rr_w = [this, fi](double v){ const Feature& g = m_features[fi]; set_rounded_rect(fi, v, std::abs(g.c1.y()-g.c0.y()), g.param); };
         auto rr_h = [this, fi](double v){ const Feature& g = m_features[fi]; set_rounded_rect(fi, std::abs(g.c1.x()-g.c0.x()), v, g.param); };
         auto rr_r = [this, fi](double v){ const Feature& g = m_features[fi]; set_rounded_rect(fi, std::abs(g.c1.x()-g.c0.x()), std::abs(g.c1.y()-g.c0.y()), v); };
-        m_autoedit_dims.push_back({ m_live_rrect_w_label, w, rr_w });
-        m_autoedit_dims.push_back({ m_live_rrect_h_label, h, rr_h });
-        m_autoedit_dims.push_back({ m_live_rrect_r_label, r, rr_r });
+        m_autoedit_dims.push_back({ m_live_rrect_w_label, w, rr_w, span(fi) });
+        m_autoedit_dims.push_back({ m_live_rrect_h_label, h, rr_h, span(fi) });
+        m_autoedit_dims.push_back({ m_live_rrect_r_label, r, rr_r, span(fi) });
     }
     if (m_live_aslot_fi >= 0) {
         const Feature& f = m_features[m_live_aslot_fi];
         const int fi = m_live_aslot_fi;
         const double Rc = (f.c1 - f.c0).norm(), fw = 2.0 * f.param;
-        m_autoedit_dims.push_back({ m_live_aslot_r_label, Rc, [this, fi](double v){ const Feature& g = m_features[fi]; set_arc_slot(fi, v, g.param); } });
-        m_autoedit_dims.push_back({ m_live_aslot_w_label, fw, [this, fi](double v){ const Feature& g = m_features[fi]; set_arc_slot(fi, (g.c1-g.c0).norm(), std::max(1e-3, v*0.5)); } });
+        m_autoedit_dims.push_back({ m_live_aslot_r_label, Rc, [this, fi](double v){ const Feature& g = m_features[fi]; set_arc_slot(fi, v, g.param); }, span(fi) });
+        m_autoedit_dims.push_back({ m_live_aslot_w_label, fw, [this, fi](double v){ const Feature& g = m_features[fi]; set_arc_slot(fi, (g.c1-g.c0).norm(), std::max(1e-3, v*0.5)); }, span(fi) });
     }
     if (m_live_arc_ei >= 0) {   // arc Radius is already a scalar step above; add its sweep angle
         const int ei = m_live_arc_ei;
         const SketchEntity& e = m_entities[ei];
         const double swdeg = std::abs(e.end_angle - e.start_angle) * 180.0 / M_PI;
-        m_autoedit_dims.push_back({ m_live_arc_angle_label, swdeg, [this, ei](double v){ set_arc_sweep(ei, v); } });
+        m_autoedit_dims.push_back({ m_live_arc_angle_label, swdeg, [this, ei](double v){ set_arc_sweep(ei, v); }, { ei } });
     }
     if (m_live_ellipse_ei >= 0) {
         const int ei = m_live_ellipse_ei;
         const SketchEntity& e = m_entities[ei];
-        m_autoedit_dims.push_back({ m_live_ellipse_major_label, e.radius, [this, ei](double v){ set_ellipse_axis(ei, true,  v); } });
-        m_autoedit_dims.push_back({ m_live_ellipse_minor_label, e.rminor, [this, ei](double v){ set_ellipse_axis(ei, false, v); } });
+        m_autoedit_dims.push_back({ m_live_ellipse_major_label, e.radius, [this, ei](double v){ set_ellipse_axis(ei, true,  v); }, { ei } });
+        m_autoedit_dims.push_back({ m_live_ellipse_minor_label, e.rminor, [this, ei](double v){ set_ellipse_axis(ei, false, v); }, { ei } });
         if (e.type == SketchEntity::Type::EllipseArc) {   // + included sweep
             const double swdeg = std::abs(e.end_angle - e.start_angle) * 180.0 / M_PI;
             m_autoedit_dims.push_back({ m_live_ellipsearc_sweep_label, swdeg,
-                [this, ei](double v){ set_ellipsearc_sweep(ei, v); } });
+                [this, ei](double v){ set_ellipsearc_sweep(ei, v); }, { ei } });
         }
     }
     if (m_live_obrect_fi >= 0) {   // oblique rect: W,H already added as scalars; + orientation
@@ -1181,7 +1189,7 @@ void DesignSketchTool::open_primary_autoedit()
         double adeg = std::atan2(e0.p1.y() - e0.p0.y(), e0.p1.x() - e0.p0.x()) * 180.0 / M_PI;
         if (adeg < 0.0) adeg += 360.0;
         m_autoedit_dims.push_back({ m_live_obrect_angle_label, adeg,
-            [this, fi](double v){ set_rect_angle(fi, v); } });
+            [this, fi](double v){ set_rect_angle(fi, v); }, span(fi) });
     }
 
     if (!m_autoedit_dims.empty()) {
@@ -6011,15 +6019,25 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     const ColorRGBA white(1.0f, 1.0f, 1.0f, 1.0f);
     const ColorRGBA green(0.30f, 0.85f, 0.42f, 1.0f);
     const ColorRGBA conflict(1.0f, 0.22f, 0.22f, 1.0f);
+    const ColorRGBA editing(1.0f, 0.78f, 0.10f, 1.0f);   // amber: entity whose dim is being typed
     const bool fully = (m_dof == 0 && m_solve_ok);
+    // While an auto-edit value field is open, the active step names the entities its dimension
+    // drives — light them up so it's obvious WHICH feature the number (e.g. a circle's radius)
+    // changes.
+    const std::vector<int>* edit_hi =
+        (m_autoedit_dim_idx >= 0 && m_autoedit_dim_idx < int(m_autoedit_dims.size()))
+            ? &m_autoedit_dims[m_autoedit_dim_idx].hi : nullptr;
     std::vector<Vec2d> point_markers, sel_point_markers;
     for (size_t i = 0; i < m_entities.size(); ++i) {
         const SketchEntity& e = m_entities[i];
         const bool selected =
             std::find(m_selection.begin(), m_selection.end(), int(i)) != m_selection.end();
+        const bool editing_this =
+            edit_hi && std::find(edit_hi->begin(), edit_hi->end(), int(i)) != edit_hi->end();
         const bool bad = i < m_entity_conflict.size() && m_entity_conflict[i];
         ColorRGBA col;
-        if (selected)            col = white;
+        if (editing_this)        col = editing;
+        else if (selected)       col = white;
         else if (bad)            col = conflict;
         else if (e.construction) col = grey;
         else                     col = fully ? green : orange;
@@ -6029,7 +6047,7 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         }
         bool closed = false;
         std::vector<Vec2d> poly = entity_polyline(e, closed);
-        draw_quad_strip(selected ? m_highlight_model : m_line_model, poly, closed, col);
+        draw_quad_strip((selected || editing_this) ? m_highlight_model : m_line_model, poly, closed, col);
     }
     if (!point_markers.empty())
         draw_vertices(m_vertex_model, point_markers, yellow);

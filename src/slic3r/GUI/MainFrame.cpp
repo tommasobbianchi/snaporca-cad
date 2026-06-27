@@ -1059,6 +1059,12 @@ void MainFrame::init_tabpanel() {
         }
         //else if (panel == m_param_panel)
         //    m_param_panel->OnActivate();
+        else if (panel == m_design_panel) {
+            // Re-sync the Design bed to the active printer: the panel is built before the
+            // printer profile is fully applied, so its bed must refresh on activation or the
+            // grid (true bed) spills past the stale default bed quad.
+            m_design_panel->on_tab_shown();
+        }
         else if (panel == m_monitor) {
             //monitor
         }

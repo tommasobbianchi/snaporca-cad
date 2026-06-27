@@ -648,6 +648,7 @@ private:
         Vec2d                       label;   // anchor (plane coords) — field opens over this
         double                      value;   // initial value shown
         std::function<void(double)> apply;   // commit: set the dimension
+        std::vector<int>            hi;      // entities to highlight while THIS field is open
     };
     std::vector<AutoEditStep> m_autoedit_dims;    // queued steps to edit in sequence
     int                 m_autoedit_dim_idx{-1};   // index into m_autoedit_dims (-1 = idle)

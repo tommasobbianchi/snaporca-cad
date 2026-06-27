@@ -56,6 +56,7 @@ public:
     void set_sketch_polygon_circumscribed(bool c);
     void finish_sketch();
     bool is_sketching() const;
+    void refresh_bed();   // re-sync the bed to the current printer (call on tab activation)
     void cancel_sketch();
     void set_on_sketch_commit(std::function<void(const SketchProfile&, const SketchPlane&)> cb);
     void set_on_sketch_entities_commit(

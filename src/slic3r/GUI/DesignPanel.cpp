@@ -70,6 +70,18 @@ static bool en_parse(const wxString& text, double& out)
     return t.ToCDouble(&out);
 }
 
+// Design-tab chrome tokens. The dark branch returns the EXACT legacy values so the
+// (correct) dark theme stays byte-identical; the light branch maps each onto Orca's
+// light surface so the ribbon/sidebar follow the app theme instead of staying black.
+static bool     dp_dark()         { return wxGetApp().dark_mode(); }
+static wxColour dp_ribbon_bg()    { return dp_dark() ? wxColour(0x36,0x36,0x3C) : wxColour(0xEC,0xEC,0xEE); }
+static wxColour dp_ribbon_hover() { return dp_dark() ? wxColour(0x4D,0x4D,0x54) : wxColour(0xD7,0xD7,0xDB); }
+static wxColour dp_panel_bg()     { return dp_dark() ? wxColour(0x2D,0x2D,0x30) : wxColour(0xFB,0xFB,0xFD); }
+static wxColour dp_sec_text()     { return dp_dark() ? wxColour(0x81,0x81,0x83) : wxColour(0x66,0x66,0x68); }
+static wxColour dp_ctl_text()     { return dp_dark() ? wxColour(0xC8,0xC8,0xC8) : wxColour(0x35,0x35,0x37); }
+static wxColour dp_item_text()    { return dp_dark() ? wxColour(0xE0,0xE0,0xE0) : wxColour(0x2C,0x2C,0x2E); }
+static wxColour dp_item_dim()     { return dp_dark() ? wxColour(0x80,0x80,0x80) : wxColour(0xA0,0xA0,0xA2); }
+
 static wxSpinCtrlDouble* make_spin(wxWindow* parent, double val,
                                    double mn = 0.1, double mx = 1000.0)
 {
@@ -133,6 +145,13 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // controls are parented to m_form so it can scroll independently of the
     // live GL viewport. The tool buttons live in the top toolbar (built below).
     m_form = new wxScrolledWindow(this, wxID_ANY);
+    // The sidebar/panel never carried an explicit background, so in light theme it
+    // inherited the dark window colour and stayed black. Paint it on the light surface;
+    // dark is left untouched (it already reads correctly via inheritance).
+    if (!dp_dark()) {
+        SetBackgroundColour(dp_panel_bg());
+        m_form->SetBackgroundColour(dp_panel_bg());
+    }
 
     auto* root = new wxBoxSizer(wxVERTICAL);
     {
@@ -145,13 +164,18 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // === Top contextual toolbar (Onshape-style icon strip) ===
     // Parented to the panel (sits above the form/viewport row). Only the active
     // mode's group is shown; the others are hidden by set_ui_mode().
-    m_toolbar = new wxPanel(this, wxID_ANY);
-    // Fixed-dark tool ribbon using Orca's dark-surface tokens (elevated surface
-    // #36363C / hover #4D4D54), coherent with Orca's viewport toolbars.
-    m_toolbar->SetBackgroundColour(wxColour(0x36, 0x36, 0x3C));
+    // Scrollable ribbon: on a narrow/windowed screen the far-right action bar (Confirm/Cancel)
+    // used to be clipped off the edge with no way to reach it. Horizontal-only scroll (vertical
+    // rate 0) keeps it reachable; on a wide screen the stretch spacer still pins it far-right.
+    m_toolbar = new wxScrolledWindow(this, wxID_ANY);
+    m_toolbar->SetScrollRate(15, 0);
+    m_toolbar->ShowScrollbars(wxSHOW_SB_DEFAULT, wxSHOW_SB_NEVER);
+    // Theme-aware tool ribbon: dark uses Orca's elevated surface (#36363C / hover
+    // #4D4D54); light maps onto the app's light chrome so the strip follows the theme.
+    m_toolbar->SetBackgroundColour(dp_ribbon_bg());
 
-    const wxColour tb_bg(0x36, 0x36, 0x3C);
-    const wxColour tb_hover(0x4D, 0x4D, 0x54);
+    const wxColour tb_bg    = dp_ribbon_bg();
+    const wxColour tb_hover = dp_ribbon_hover();
     auto icon_btn = [this, tb_bg, tb_hover](const char* icon, const wxString& tip) {
         // Prepare-toolbar-sized buttons (40px cell / 28px glyph) so the Design
         // ribbon matches the rest of the app instead of feeling tiny.
@@ -178,7 +202,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         auto* s = new wxStaticText(m_toolbar, wxID_ANY, t);
         wxFont f = Label::Body_12; f.SetWeight(wxFONTWEIGHT_BOLD);
         s->SetFont(f);
-        s->SetForegroundColour(wxColour(0x81, 0x81, 0x83));   // Orca dark secondary text
+        s->SetForegroundColour(dp_sec_text());   // Orca dark secondary text
         return s;
     };
     auto add_sep = [this](wxSizer* row) {
@@ -192,7 +216,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // the active entity tool. The Construction toggle marks following entities as
     // construction geometry (excluded from the wire).
     m_construction = new wxCheckBox(m_toolbar, wxID_ANY, _L("Construction"));
-    m_construction->SetForegroundColour(wxColour(0xC8, 0xC8, 0xC8));
+    m_construction->SetForegroundColour(dp_ctl_text());
     auto select_tool = [this](DesignSketchTool::Mode mode, const wxString& hint) {
         if (!m_viewport) return;
         if (!m_viewport->is_sketching()) {
@@ -282,7 +306,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
             m_flyout_keepalive.push_back(fo);
             fadd(b);
             auto* chev = new wxStaticText(m_toolbar, wxID_ANY, wxString::FromUTF8("\xE2\x96\xBE"));
-            chev->SetForegroundColour(wxColour(0x81, 0x81, 0x83));
+            chev->SetForegroundColour(dp_sec_text());
             chev->SetFont(Label::Body_9);
             m_tb_feature->Add(chev, 0, wxALIGN_BOTTOM | wxBOTTOM | wxRIGHT, 5);
             return b;
@@ -578,7 +602,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
             m_flyout_keepalive.push_back(fo);
             sadd(b);
             auto* chev = new wxStaticText(m_toolbar, wxID_ANY, wxString::FromUTF8("\xE2\x96\xBE"));
-            chev->SetForegroundColour(wxColour(0x81, 0x81, 0x83));
+            chev->SetForegroundColour(dp_sec_text());
             chev->SetFont(Label::Body_9);
             m_tb_sketch->Add(chev, 0, wxALIGN_BOTTOM | wxBOTTOM | wxRIGHT, 5);
             return b;
@@ -664,7 +688,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         sadd(b_poly);
         sadd(m_sides);
         m_poly_circ = new wxCheckBox(m_toolbar, wxID_ANY, _L("Circumscribed"));
-        m_poly_circ->SetForegroundColour(wxColour(0xC8, 0xC8, 0xC8));
+        m_poly_circ->SetForegroundColour(dp_ctl_text());
         m_poly_circ->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
             if (m_viewport) m_viewport->set_sketch_polygon_circumscribed(m_poly_circ->GetValue()); });
         sadd(m_poly_circ);
@@ -1301,7 +1325,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_box_sketch_session->Add(prow, 0, wxLEFT | wxRIGHT | wxTOP, 12);
         auto* hint = new wxStaticText(m_form, wxID_ANY,
             _L("Pick a plane, then draw. Finish (✓) when done."));
-        hint->SetForegroundColour(wxColour(0x90, 0x90, 0x90));
+        hint->SetForegroundColour(dp_sec_text());
         m_box_sketch_session->Add(hint, 0, wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, 12);
     }
     root->Add(m_box_sketch_session, 0, wxEXPAND);
@@ -1321,6 +1345,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_tree = new wxTreeCtrl(m_form, wxID_ANY, wxDefaultPosition, wxSize(-1, 140),
                             wxTR_HIDE_ROOT | wxTR_SINGLE | wxTR_NO_LINES |
                             wxTR_FULL_ROW_HIGHLIGHT | wxBORDER_SIMPLE);
+    if (!dp_dark()) m_tree->SetBackgroundColour(dp_panel_bg());
     // Per-feature-type icons (indices match tree_icon_for): sketch/extrude/dressup/hole/thread.
     m_tree_images = new wxImageList(16, 16);
     m_tree_images->Add(create_scaled_bitmap("design_sketch",  nullptr, 16)); // 0 Sketch
@@ -1538,7 +1563,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
             m_dof_status->SetForegroundColour(wxColour(80, 200, 110));
             m_dof_status->SetLabel(_L("✓ Fully constrained"));
         } else if (dof > 0) {
-            m_dof_status->SetForegroundColour(wxColour(0xC8, 0xC8, 0xC8));
+            m_dof_status->SetForegroundColour(dp_ctl_text());
             m_dof_status->SetLabel(wxString::Format(_L("%d degrees of freedom"), dof));
         } else {
             m_dof_status->SetLabel(wxString());
@@ -1790,7 +1815,7 @@ void DesignPanel::set_active_tool_btn(ScalableButton* b)
     // Onshape-style: the active tool's button gets the Orca accent (teal); the
     // rest revert to the ribbon surface. nullptr clears the whole strip.
     m_active_tool_btn = b;
-    const wxColour bg(0x36, 0x36, 0x3C), teal(0x00, 0x96, 0x88);
+    const wxColour bg = dp_ribbon_bg(), teal(0x00, 0x96, 0x88);
     for (auto* btn : m_tool_btns) {
         if (btn == nullptr) continue;
         btn->SetBackgroundColour(btn == b ? teal : bg);
@@ -1806,6 +1831,7 @@ void DesignPanel::set_ui_mode(UiMode m)
     s->Show(m_tb_sketch,    m == UiMode::Sketch,    true);
     s->Show(m_tb_constrain, m == UiMode::Constrain, true);
     m_toolbar->Layout();
+    m_toolbar->FitInside();   // refresh the horizontal scroll range for the new group widths
     set_active_tool_btn(nullptr);   // no tool selected right after a mode switch
     // Phase 3: the docked Sketch card (plane/orientation) shows for the whole Sketch
     // session and hides on Finish/Constrain.
@@ -2585,6 +2611,11 @@ int DesignPanel::tree_icon_for(CadFeatureType t)
     return 0;
 }
 
+void DesignPanel::on_tab_shown()
+{
+    if (m_viewport) m_viewport->refresh_bed();
+}
+
 void DesignPanel::refresh_tree()
 {
     // Preserve the selected row across the rebuild — wxTreeCtrl::DeleteAllItems
@@ -2607,8 +2638,8 @@ void DesignPanel::refresh_tree()
         const int img = tree_icon_for(f.type);
         wxTreeItemId id = m_tree->AppendItem(root, wxString::FromUTF8(f.name), img, img);
         // Hidden (disabled) features are greyed so the show/hide state reads at a glance.
-        m_tree->SetItemTextColour(id, f.enabled ? wxColour(0xE0, 0xE0, 0xE0)
-                                                : wxColour(0x70, 0x70, 0x70));
+        m_tree->SetItemTextColour(id, f.enabled ? dp_item_text()
+                                                : dp_item_dim());
         m_tree_items.push_back(id);
     }
     // Parts list: a Bodies group listing each independent solid. Shown only with >1 body
@@ -2616,14 +2647,14 @@ void DesignPanel::refresh_tree()
     if (m_doc.bodies.size() > 1) {
         sync_body_visible();   // keep flags parallel before reading them for the row colour
         wxTreeItemId grp = m_tree->AppendItem(root, _L("Bodies"));
-        m_tree->SetItemTextColour(grp, wxColour(0x9a, 0x9a, 0x9a));
+        m_tree->SetItemTextColour(grp, dp_sec_text());
         for (size_t b = 0; b < m_doc.bodies.size(); ++b) {
             // Label "Body N" (matches the viewport/status); the originating feature name is
             // kept on the CadBody for tooltips/debug but isn't shown as the row label.
             const bool vis = b >= m_body_visible.size() || m_body_visible[b];
             wxTreeItemId id = m_tree->AppendItem(grp, wxString::Format(_L("Body %zu"), b + 1));
             // Hidden bodies are greyed so the show/hide state reads at a glance (eye toggle).
-            m_tree->SetItemTextColour(id, vis ? wxColour(0xE0, 0xE0, 0xE0) : wxColour(0x80, 0x80, 0x80));
+            m_tree->SetItemTextColour(id, vis ? dp_item_text() : dp_item_dim());
             m_tree_body_items.push_back(id);
         }
         m_tree->Expand(grp);
@@ -3166,7 +3197,7 @@ void DesignPanel::refresh_constrain_dof()
         m_dof_status->SetForegroundColour(wxColour(80, 200, 110));
         m_dof_status->SetLabel(_L("✓ Fully constrained"));
     } else if (r.dof > 0) {
-        m_dof_status->SetForegroundColour(wxColour(0xC8, 0xC8, 0xC8));
+        m_dof_status->SetForegroundColour(dp_ctl_text());
         m_dof_status->SetLabel(wxString::Format(_L("%d degrees of freedom"), r.dof));
     } else {
         m_dof_status->SetLabel(wxString());
@@ -3249,7 +3280,7 @@ void DesignPanel::rebuild_constraint_list()
 
     if (cons.empty()) {
         auto* none = new wxStaticText(m_form, wxID_ANY, _L("No constraints yet"));
-        none->SetForegroundColour(wxColour(0x90, 0x90, 0x90));
+        none->SetForegroundColour(dp_sec_text());
         m_constraint_rows->Add(none, 0, wxTOP, 4);
     }
     for (int i = 0; i < int(cons.size()); ++i) {
@@ -5164,6 +5195,7 @@ void DesignPanel::update_action_bar()
                      || (m_viewport && m_viewport->moving_body());
     s->Show(m_tb_action, active, true);
     m_toolbar->Layout();
+    m_toolbar->FitInside();   // refresh scroll range when the action bar shows/hides
 }
 
 void DesignPanel::do_undo_redo(bool redo)
