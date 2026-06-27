@@ -95,7 +95,11 @@ private:
 
     // Constrain mode: enter on the tree-selected sketch, then apply a geometric
     // constraint to the in-canvas picked segment and re-solve in the kernel.
-    void on_begin_constrain();
+    void on_begin_constrain(int sel_override = -1);
+    // Sketch-toolbar Constrain entry: commit the live sketch in place, then enter Constrain
+    // mode on it (so the constraint palette + Trim/Extend are reachable without leaving the
+    // sketch flow). Returns true if constrain mode was entered.
+    bool enter_constrain_inline();
     void apply_constraint(SketchConstraintType type);
     void apply_entity_constraint(SketchConstraintType type);  // Fase 4.2 entity path
     enum class EditOp { Mirror, Offset, Fillet, Trim, Extend, Array, Move, Chamfer, Rotate, Scale, PolarArray }; // Fase 4.4/4.5/4.6 sketch edit ops

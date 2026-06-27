@@ -1254,6 +1254,50 @@ void DesignSketchTool::drop_orientation_constraints(int begin, int end)
         if (a.con >= 0) a.con = (a.con < int(remap.size())) ? remap[a.con] : -1;
 }
 
+void DesignSketchTool::drop_constraints_referencing(int ei)
+{
+    std::vector<int> remap(m_constraints.size(), -1);
+    std::vector<SketchEntityConstraintDef> kept;
+    kept.reserve(m_constraints.size());
+    for (int i = 0; i < int(m_constraints.size()); ++i) {
+        const SketchEntityConstraintDef& c = m_constraints[i];
+        if (c.ea == ei || c.eb == ei || c.ec == ei) continue;    // drop refs to the cut entity
+        remap[i] = int(kept.size());
+        kept.push_back(c);
+    }
+    if (kept.size() == m_constraints.size()) return;
+    m_constraints.swap(kept);
+    for (DimAnnot& a : m_dimensions)
+        if (a.con >= 0) a.con = (a.con < int(remap.size())) ? remap[a.con] : -1;
+}
+
+// Onshape scissors on the live sketch: cut the picked entity at its nearest intersection.
+// trim_entity/extend_entity mutate the subject in place (slide one endpoint) given the other
+// entities + the pick point — no entity is added/removed, so indices stay stable.
+bool DesignSketchTool::apply_live_trim(const Vec2d& p, double tol, bool extend)
+{
+    double best = 1e30; int bi = -1;
+    for (size_t i = 0; i < m_entities.size(); ++i) {
+        const double d = entity_pick_dist(p, m_entities[i]);
+        if (d < best) { best = d; bi = int(i); }
+    }
+    if (bi < 0 || best > tol) return false;
+    using Ty = SketchEntity::Type;
+    const Ty st = m_entities[bi].type;
+    const bool subject_ok = extend ? (st == Ty::Line || st == Ty::Arc)
+                                   : (st == Ty::Line || st == Ty::Arc || st == Ty::Circle);
+    if (!subject_ok) return false;
+    std::vector<SketchEntity> others;
+    others.reserve(m_entities.size());
+    for (size_t i = 0; i < m_entities.size(); ++i)
+        if (int(i) != bi) others.push_back(m_entities[i]);
+    const bool ok = extend ? SketchEngine::extend_entity(m_entities[bi], others, p)
+                           : SketchEngine::trim_entity(m_entities[bi], others, p);
+    if (!ok) return false;
+    drop_constraints_referencing(bi);   // the slid endpoint invalidates this entity's constraints
+    return true;
+}
+
 // Rotate the whole loop about its centre so the centre->vertex0 spoke points at `deg`
 // (degrees from +X).
 void DesignSketchTool::set_polygon_angle(int fi, double deg)
@@ -6773,6 +6817,23 @@ bool DesignSketchTool::on_mouse(wxMouseEvent& evt, GLCanvas3D& canvas)
     // In-canvas edit-op tools (Fillet/Chamfer/Offset/Mirror): pick entities, then a
     // draggable arrow + editable value label (Mirror: a two-phase pick) drives a live
     // ghost. A click on empty space confirms; right-click/Esc cancels the gesture.
+    // Standalone Trim / Extend scissors: click a segment to cut it back to (Trim) or out to
+    // (Extend) its nearest intersection with the other live entities. One cut per click; the
+    // tool stays active for more cuts; right-click exits. Drag falls through so the camera can
+    // still orbit. Operates directly on the live sketch — no Constrain mode.
+    if (m_mode == Mode::Trim || m_mode == Mode::Extend) {
+        if (evt.Moving()) { screen_to_plane(canvas, evt, m_cursor); m_has_cursor = true; return true; }
+        if (evt.LeftDown()) {
+            Vec2d p; screen_to_plane(canvas, evt, p);
+            const Linef3 r2 = canvas.mouse_ray(Point(evt.GetX() + 8, evt.GetY()));
+            const double tol = std::max(1e-3, (m_plane.project(r2.a, r2.vector()) - p).norm());
+            if (apply_live_trim(p, tol * 3.0, m_mode == Mode::Extend)) resolve_live();
+            return true;
+        }
+        if (evt.RightDown()) { request_exit(); return true; }
+        return false;   // let move/drag orbit the camera
+    }
+
     if (is_edit_op_mode()) {
         if (evt.Moving()) {
             screen_to_plane(canvas, evt, m_cursor);

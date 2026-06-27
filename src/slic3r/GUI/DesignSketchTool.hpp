@@ -36,6 +36,8 @@ public:
                       Ellipse, EllipseArc, BSpline,
                       // In-canvas edit-op TOOLBAR tools (drag-arrow + label, no numeric card):
                       Fillet, Chamfer, Offset, Mirror,
+                      // Standalone scissors: click a segment to trim/extend it (immediate, no card):
+                      Trim, Extend,
                       // In-canvas transform TOOLBAR tools (pick targets + drag handle/label, no card):
                       Move, Rotate, Scale, Array, PolarArray,
                       // In-canvas bounding-box transform for imported Text/SVG art:
@@ -506,6 +508,13 @@ private:
     // [begin,end). A ROTATION makes inferred per-edge H/V inconsistent, so re-solving
     // against them collapses the shape — drop them first (fixes up DimAnnot.con indices).
     void drop_orientation_constraints(int begin, int end);
+    // Drop every live constraint that references entity `ei` (Trim/Extend slide an endpoint,
+    // invalidating its constraints) and fix the dimensions' cached constraint indices.
+    void drop_constraints_referencing(int ei);
+    // Standalone Trim/Extend scissors on the LIVE sketch: pick the entity nearest `p` (within
+    // `tol` plane units) and cut it back to / out to its nearest intersection with the others.
+    // Returns true if an entity was modified.
+    bool apply_live_trim(const Vec2d& p, double tol, bool extend);
     // Drag a polygon vertex while keeping the loop REGULAR: scale + rotate the whole
     // polygon about its centroid so the grabbed vertex follows `target` (adjusts
     // circumradius + orientation together).

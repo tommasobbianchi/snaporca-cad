@@ -635,6 +635,12 @@ DesignPanel::DesignPanel(wxWindow* parent)
               _L("Pick an entity, then drag the arrow or click the distance; click empty to apply"));
         skbtn("design_mirror", DesignSketchTool::Mode::Mirror, _L("Mirror"),
               _L("Pick a mirror-axis line, then the entities to mirror; click empty to apply"));
+        // Trim / Extend scissors — standalone sketch tools (NOT inside Constrain): click a
+        // segment to cut it back to / out to its nearest intersection. One cut per click.
+        skbtn("design_trim",   DesignSketchTool::Mode::Trim,   _L("Trim"),
+              _L("Click a segment to trim it back to its nearest intersection; right-click exits"));
+        skbtn("design_extend", DesignSketchTool::Mode::Extend, _L("Extend"),
+              _L("Click a line or arc to extend it to the nearest entity; right-click exits"));
         dropdown("design_move", _L("Move / rotate / scale"), {
             {"design_move",   DesignSketchTool::Mode::Move,   _L("Move (translate)"),        _L("Pick entities, then drag the handle or click the distance; click empty to apply")},
             {"design_rotate", DesignSketchTool::Mode::Rotate, _L("Rotate (about centroid)"), _L("Pick entities, then drag around the pivot or click the angle; click empty to apply")},
@@ -662,6 +668,15 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_poly_circ->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
             if (m_viewport) m_viewport->set_sketch_polygon_circumscribed(m_poly_circ->GetValue()); });
         sadd(m_poly_circ);
+        add_sep(m_tb_sketch);
+        // Constrain — reachable mid-sketch: commits the live sketch in place and drops into
+        // Constrain mode, where the geometric/dimensional palette + Trim + Extend (scissors)
+        // are picked and applied. (Trim/Extend are pick-then-apply, so they live there, not as
+        // bare toolbar buttons.)
+        auto* b_constrain_sk = icon_btn("design_constrain",
+            _L("Constrain — add geometric/dimensional relations; Trim/Extend live here"));
+        b_constrain_sk->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { enter_constrain_inline(); });
+        sadd(b_constrain_sk);
         add_sep(m_tb_sketch);
         m_construction->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
             if (m_viewport && m_viewport->is_sketching())
@@ -699,19 +714,9 @@ DesignPanel::DesignPanel(wxWindow* parent)
         cbtn("design_c_radius",        _L("Radius"),        SketchConstraintType::Radius);
         cbtn("design_c_diameter",      _L("Diameter"),      SketchConstraintType::Diameter);
         cbtn("design_c_fix",           _L("Fix point (anchor in place)"), SketchConstraintType::Fix);
-        add_sep(m_tb_constrain);
-        auto ebtn = [&](const char* icon, const wxString& tip, EditOp op) {
-            auto* b = icon_btn(icon, tip);
-            b->Bind(wxEVT_BUTTON, [this, op](wxCommandEvent&) { apply_edit_op(op); });
-            cadd(b);
-        };
-        // Mirror/Offset/Fillet/Chamfer AND Move/Rotate/Scale/Array/PolarArray are now
-        // first-class in-canvas SKETCH toolbar tools (drag handle + editable label, live
-        // ghost, no docked card) — the old Constrain-mode buttons that popped a numeric
-        // card are retired. Only the pick-only Trim/Extend remain here.
-        ebtn("design_trim",       _L("Trim"),         EditOp::Trim);
-        ebtn("design_extend",     _L("Extend"),       EditOp::Extend);
-        // Done constraining = the unified ✓ Confirm in the action bar (tool_confirm).
+        // Trim/Extend are now standalone SKETCH scissors (Mode::Trim/Extend) in the sketch
+        // toolbar, NOT Constrain buttons. The other edit ops (Mirror/Offset/Fillet/Chamfer/
+        // Move/…) are first-class sketch tools too. Done constraining = the action-bar ✓.
     }
 
     // Unified action bar: the ONE Confirm/Cancel surface for every tool and mode. Lives at
@@ -2875,9 +2880,31 @@ void DesignPanel::on_move_feature(int delta)
     }
 }
 
-void DesignPanel::on_begin_constrain()
+// Commit the live sketch in place, then enter Constrain mode on the just-committed sketch.
+// One-click bridge from the SKETCH toolbar: removes the "Finish -> find in tree -> select ->
+// Constrain" friction, so the constraint palette + Trim/Extend are reachable mid-sketch.
+bool DesignPanel::enter_constrain_inline()
 {
-    int sel = tree_selection();
+    if (m_viewport && m_viewport->is_sketching())
+        m_viewport->finish_sketch();   // synchronous: packages live entities+constraints -> Sketch
+    const int sk = resolve_extrude_sketch();   // last/selected Sketch feature
+    if (sk < 0) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Draw a sketch first, then Constrain"));
+        m_status->Refresh();
+        return false;
+    }
+    set_tree_selection(sk);            // tree drives on_begin_constrain / the constraint manager
+    on_begin_constrain(sk);
+    const bool entered = m_viewport &&
+        (m_viewport->is_constraining() || m_viewport->is_constraining_entities());
+    if (entered) set_ui_mode(UiMode::Constrain);
+    return entered;
+}
+
+void DesignPanel::on_begin_constrain(int sel_override)
+{
+    int sel = (sel_override >= 0) ? sel_override : tree_selection();
     if (sel == wxNOT_FOUND || sel >= int(m_doc.features.size())) {
         m_status->SetForegroundColour(wxColour(235, 110, 110));
         m_status->SetLabel(_L("Select a sketch in the tree first"));
