@@ -10,7 +10,7 @@
 > datum planes** — each with an in-canvas gizmo. Plus **STEP import** as editable B-rep, **Text/SVG** as
 > extrudable geometry, and multi-body modeling, all on the native Orca viewport.
 
-![SnapOrca Design demo](snaporca-demo.gif)
+![SnapOrca Design demo](https://raw.githubusercontent.com/tommasobbianchi/snaporca-cad/feature/cad-primitives/snaporca-demo.gif)
 
 *Blank bed → hexagon sketch → extrude → fillet → hole → finished solid, without ever leaving Orca.*
 
