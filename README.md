@@ -1,4 +1,25 @@
 
+<h1>🐳 SnapOrca Design — parametric CAD, built inside the slicer</h1>
+
+> **Design it. Slice it. Print it. All in one window — no export, no re-import, no round-trips.**
+>
+> SnapOrca Design adds a full **parametric, sketch-first CAD environment directly inside Snapmaker Orca**.
+> A real geometric **constraint solver** (SolveSpace) on an industrial **OpenCASCADE** B-rep kernel: 2D
+> sketching with live constraints + draw-then-edit value entry, and the complete solid-feature timeline —
+> **extrude, revolve, sweep, loft, pattern, hole, thread, shell, draft, fillet, chamfer, boolean, plane-cut,
+> datum planes** — each with an in-canvas gizmo. Plus **STEP import** as editable B-rep, **Text/SVG** as
+> extrudable geometry, and multi-body modeling, all on the native Orca viewport.
+
+![SnapOrca Design demo](snaporca-demo.gif)
+
+*Blank bed → hexagon sketch → extrude → fillet → hole → finished solid, without ever leaving Orca.*
+
+🏆 *Submitted to the [Snapmaker U1 Innovation Fund](https://www.snapmaker.com/innovation-fund) (Phase 1).*
+Open-source (AGPL-3.0), built as a Snapmaker Orca integration. The Design tab lives on the
+**`feature/cad-primitives`** branch.
+
+---
+
 <h1> <p "font-size:200px;"> Snapmaker Orca</p> </h1>
 
 [![Build all](https://github.com/Snapmaker/OrcaSlicer/actions/workflows/build_all.yml/badge.svg?branch=main)](https://github.com/Snapmaker/OrcaSlicer/actions/workflows/build_all.yml)
