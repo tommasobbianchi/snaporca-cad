@@ -389,6 +389,7 @@ private:
     void rebuild_disp_meshes();           // recompute m_disp_* from m_doc + m_body_xform
     void feed_bodies();                   // push m_disp_* + visibility/xform to the viewport
     void on_move_body();                  // start the move gizmo on the selected body
+    void on_set_body_color();             // Color tool: pick a per-body display colour override
     int  tree_selection() const;          // selected feature row, or wxNOT_FOUND
     int  tree_body_selection() const;     // selected Parts-list body index, or -1
     void set_tree_selection(int row);

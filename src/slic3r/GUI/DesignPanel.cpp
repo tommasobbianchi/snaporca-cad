@@ -19,6 +19,7 @@
 #include <wx/textdlg.h>
 #include <wx/filedlg.h>
 #include <wx/dialog.h>
+#include <wx/colordlg.h>
 #include <wx/menu.h>
 
 #include <string>
@@ -433,6 +434,11 @@ DesignPanel::DesignPanel(wxWindow* parent)
             open_tool(Tool::Cut);
         });
         fadd(b_cut);
+
+        // Color — override the selected body's display colour (per-body, survives recompute).
+        auto* b_color = icon_btn("color_palette", _L("Color — set the selected body's display colour"));
+        b_color->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { on_set_body_color(); });
+        fadd(b_color);
 
         // Dress-up: Fillet/Chamfer / Draft / Shell
         feat_dropdown("design_dressup", _L("Dress-up (fillet / chamfer / draft / shell)"), {
@@ -2772,6 +2778,41 @@ void DesignPanel::on_move_body()
     update_action_bar();      // surface the unified ✓/✗ while moving
     m_status->SetForegroundColour(wxNullColour);
     m_status->SetLabel(_L("Drag the arrows to move, the rings to rotate — then Confirm (Esc cancels)"));
+    m_status->Refresh();
+}
+
+// Color tool: open a colour picker on the selected body and store a per-body display-colour
+// override on its CadBody. The override is carried across recompute() by body index and is
+// read back by DesignCanvas::body_color()/reload(), so the body keeps its colour through edits.
+void DesignPanel::on_set_body_color()
+{
+    // Same body-selection source Move / visibility use: the Parts-list row first, falling
+    // back to the in-canvas picked solid so either selection path works.
+    int b = tree_body_selection();
+    if (b < 0) b = m_sel_solid_body;
+    if (b < 0 || b >= int(m_doc.bodies.size())) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Select a body first"));
+        m_status->Refresh();
+        return;
+    }
+
+    // Seed the picker with the body's current effective colour (override or auto palette).
+    const ColorRGBA cur = (m_viewport != nullptr) ? m_viewport->body_color(b)
+                                                  : m_doc.bodies[b].color;
+    wxColourData data;
+    data.SetColour(wxColour(cur.r_uchar(), cur.g_uchar(), cur.b_uchar()));
+    wxColourDialog dlg(this, &data);
+    if (dlg.ShowModal() != wxID_OK) return;
+
+    const wxColour picked = dlg.GetColourData().GetColour();
+    m_doc.bodies[b].has_color = true;
+    m_doc.bodies[b].color = ColorRGBA((unsigned char)picked.Red(), (unsigned char)picked.Green(),
+                                      (unsigned char)picked.Blue(), (unsigned char)255);
+    feed_bodies();   // same refresh path the visibility toggle uses → viewport updates immediately
+
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(wxString::Format(_L("Body %d colour set"), b + 1));
     m_status->Refresh();
 }
 

@@ -4,6 +4,7 @@
 #include "TriangleMesh.hpp"
 #include "SketchEngine.hpp"
 #include "GeometryEngine.hpp"   // FaceGroup
+#include "Color.hpp"            // ColorRGBA (per-body display colour override)
 
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Wire.hxx>
@@ -186,6 +187,10 @@ struct CadFeature {
 struct CadBody {
     TopoDS_Shape shape;
     std::string  name;
+    // Per-body display colour override (Color tool). When has_color is false the GUI
+    // falls back to the auto body-index palette. Carried across recompute() by body index.
+    bool         has_color{false};
+    ColorRGBA    color;
 };
 
 // OCCT-only feature tree backing the Design tab. No GUI dependencies (lives in libslic3r).

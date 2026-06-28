@@ -1476,6 +1476,16 @@ bool CadDocument::recompute()
     }
     if (built.empty()) { error = "no solid-producing features"; return false; }
 
+    // recompute() replaces the bodies vector wholesale, which would drop any per-body
+    // colour override (Color tool). Body indices are stable across a rebuild (bodies are
+    // appended in feature order), so carry the override forward by index — same indexing
+    // contract the GUI relies on for per-body visibility/Move.
+    for (size_t i = 0; i < built.size() && i < bodies.size(); ++i) {
+        if (bodies[i].has_color) {
+            built[i].has_color = true;
+            built[i].color     = bodies[i].color;
+        }
+    }
     bodies = std::move(built);
     body = compound_of(bodies);
     display_mesh = tessellate_bodies(bodies, display_tri_face, display_tri_body,

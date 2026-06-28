@@ -88,6 +88,9 @@ public:
     void set_on_solid_selection_changed(std::function<void(int, int, int, int)> cb);
     void set_on_place_on_face(std::function<bool()> cb);   // F key: Place on Face
     void select_body(int body);   // Parts-list -> highlight a whole body by index
+    // Effective display colour of a body: the per-body override (Color tool) when set,
+    // otherwise the auto body-index palette. Single source of truth shared with reload().
+    ColorRGBA body_color(int body) const;
     // Move-body gizmo (M5): three world-axis drag arrows on a body; drag fires the move
     // callback with the body index + accumulated translation (display-only, host applies it).
     void begin_move_body(int body, const Vec3d& pivot, const Transform3d& base_xform);
@@ -210,6 +213,9 @@ private:
     bool        m_body_translucent{false};// fillet/chamfer preview → render the body see-through
     bool        m_body_hidden{false};     // preview-only mode → hide base bodies, ghost = the result
     std::vector<bool> m_body_visible;     // per-body visibility (empty => all visible)
+    // Live pointer to the document's bodies (stable address: m_doc.bodies), stashed by
+    // set_solid_pick so reload()/body_color() can read each body's colour override.
+    const std::vector<CadBody>* m_color_bodies{nullptr};
 
     DesignSketchTool m_sketch_tool;
     std::unique_ptr<SketchInlineEditor> m_inline_editor;  // floating in-canvas value editor

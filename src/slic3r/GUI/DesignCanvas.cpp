@@ -188,7 +188,9 @@ void DesignCanvas::reload(bool keep_view)
             if (m_body_hidden) hidden = true;
             v->is_active = !hidden;   // per-body visibility toggle
             if (!hidden) {
-                ColorRGBA c = m_body_selected ? sel_gold : body_palette(b);
+                // Selection tint wins; otherwise the per-body override (Color tool) or the
+                // auto palette via body_color().
+                ColorRGBA c = m_body_selected ? sel_gold : body_color(b);
                 if (m_body_translucent) c.a(0.30f);
                 v->set_color(c);
             }
@@ -445,7 +447,18 @@ void DesignCanvas::set_solid_pick(const std::vector<CadBody>* bodies, const Tria
                                   const std::vector<bool>* visible,
                                   const std::vector<Transform3d>* xform)
 {
+    m_color_bodies = bodies;   // stable address (m_doc.bodies); reload() reads colour overrides
     m_sketch_tool.set_solid_pick(bodies, mesh, tri_face, tri_body, visible, xform);
+}
+
+// Effective display colour for a body: per-body override (Color tool) when set, else the
+// auto body-index palette. body_palette() is the file-static helper defined above reload().
+ColorRGBA DesignCanvas::body_color(int body) const
+{
+    if (m_color_bodies != nullptr && body >= 0 && body < int(m_color_bodies->size())
+        && (*m_color_bodies)[body].has_color)
+        return (*m_color_bodies)[body].color;
+    return body_palette(body);
 }
 
 void DesignCanvas::begin_move_body(int body, const Vec3d& pivot, const Transform3d& base_xform)
