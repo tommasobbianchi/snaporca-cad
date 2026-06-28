@@ -759,8 +759,38 @@ DesignPanel::DesignPanel(wxWindow* parent)
         m_tb_action->Add(no, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 10);
     }
 
+    // Persistent Undo/Redo group: always visible (not mode-gated like the tool groups), so
+    // history is reachable from Feature, Sketch and Constrain alike. These are momentary
+    // actions, so — unlike icon_btn — they are NOT registered in m_tool_btns and never take
+    // the teal active-tool highlight. They route to the SAME do_undo_redo as the keyboard
+    // Ctrl+Z / Ctrl+Shift+Z path, and are greyed by update_undo_redo_buttons().
+    m_tb_history = new wxBoxSizer(wxHORIZONTAL);
+    {
+        auto hist_btn = [this, tb_bg, tb_hover](const char* icon, const wxString& tip) {
+            auto* b = new ScalableButton(m_toolbar, wxID_ANY, icon, "", wxSize(52, 52),
+                                         wxDefaultPosition, wxBU_EXACTFIT | wxBORDER_NONE, false, 42);
+            b->SetToolTip(tip);
+            b->SetBackgroundColour(tb_bg);
+            b->Bind(wxEVT_ENTER_WINDOW, [b, tb_hover](wxMouseEvent& e) {
+                if (b->IsEnabled()) { b->SetBackgroundColour(tb_hover); b->Refresh(); } e.Skip(); });
+            b->Bind(wxEVT_LEAVE_WINDOW, [b, tb_bg](wxMouseEvent& e) {
+                b->SetBackgroundColour(tb_bg); b->Refresh(); e.Skip(); });
+            return b;
+        };
+        m_btn_undo = hist_btn("menu_undo", _L("Undo (Ctrl+Z)"));
+        m_btn_undo->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { do_undo_redo(false); });
+        m_btn_redo = hist_btn("menu_redo", _L("Redo (Ctrl+Shift+Z)"));
+        m_btn_redo->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { do_undo_redo(true); });
+        m_btn_undo->Enable(false);   // nothing to undo/redo on a fresh document
+        m_btn_redo->Enable(false);
+        m_tb_history->Add(m_btn_undo, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 2);
+        m_tb_history->Add(m_btn_redo, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 2);
+    }
+
     auto* tbrow = new wxBoxSizer(wxHORIZONTAL);
     tbrow->AddSpacer(8);
+    tbrow->Add(m_tb_history,   0, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, 5);
+    add_sep(tbrow);
     tbrow->Add(m_tb_feature,   0, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, 5);
     tbrow->Add(m_tb_sketch,    0, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, 5);
     tbrow->Add(m_tb_constrain, 0, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, 5);
@@ -2801,6 +2831,7 @@ void DesignPanel::set_tree_selection(int row)
 
 void DesignPanel::after_tree_edit(bool ok)
 {
+    update_undo_redo_buttons();   // every commit/undo/redo funnels through here -> refresh greying
     refresh_tree();
     if (!ok) {
         // The edit was rolled back (recompute failed); the body is unchanged.
@@ -5184,8 +5215,20 @@ void DesignPanel::tool_cancel()
     }
 }
 
+void DesignPanel::update_undo_redo_buttons()
+{
+    // Grey Undo/Redo to mirror exactly what do_undo_redo will do: it acts only in Feature
+    // mode with no tool/dialog open (otherwise Esc is the way out), so reflect that gate here
+    // as well as the document's available history.
+    if (m_btn_undo == nullptr || m_btn_redo == nullptr) return;
+    const bool gated = (m_ui_mode != UiMode::Feature) || (m_active != Tool::None);
+    m_btn_undo->Enable(!gated && m_doc.can_undo());
+    m_btn_redo->Enable(!gated && m_doc.can_redo());
+}
+
 void DesignPanel::update_action_bar()
 {
+    update_undo_redo_buttons();   // mode/tool changes flip the do_undo_redo gate -> refresh greying
     if (m_tb_action == nullptr || m_toolbar == nullptr) return;
     wxSizer* s = m_toolbar->GetSizer();
     if (s == nullptr) return;

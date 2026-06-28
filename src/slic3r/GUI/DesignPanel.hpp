@@ -223,6 +223,13 @@ private:
     // Unified Confirm/Cancel action bar (right end of the ribbon). Shown whenever any
     // tool or mode is active; the single confirm/cancel surface for the whole tab.
     wxSizer*  m_tb_action{nullptr};
+    // Persistent Undo/Redo group at the left of the ribbon — always visible, independent
+    // of the mode-gated tool groups. The buttons are greyed per the document history and
+    // the do_undo_redo gate (see update_undo_redo_buttons).
+    wxSizer*        m_tb_history{nullptr};
+    ScalableButton* m_btn_undo{nullptr};
+    ScalableButton* m_btn_redo{nullptr};
+    void update_undo_redo_buttons();   // enable/disable Undo/Redo from can_undo/can_redo + gate
     // All tool buttons, for the active-tool teal highlight (Onshape-style).
     std::vector<ScalableButton*> m_tool_btns;
     ScalableButton*              m_active_tool_btn{nullptr};
