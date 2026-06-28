@@ -515,6 +515,12 @@ private:
     // `tol` plane units) and cut it back to / out to its nearest intersection with the others.
     // Returns true if an entity was modified.
     bool apply_live_trim(const Vec2d& p, double tol, bool extend);
+    // Pure-computation hover preview for Trim/Extend: mirror apply_live_trim's pick + the
+    // engine's cut on a COPY (mutating nothing) and return, via `removed_poly`, the polyline
+    // of the sub-portion a click would REMOVE (Trim) or ADD (Extend). `subject_ei` is the
+    // picked entity. Returns false if nothing is in range or nothing would change.
+    bool compute_trim_preview(const Vec2d& p, double tol, bool extend,
+                              int& subject_ei, std::vector<Vec2d>& removed_poly) const;
     // Drag a polygon vertex while keeping the loop REGULAR: scale + rotate the whole
     // polygon about its centroid so the grabbed vertex follows `target` (adjusts
     // circumradius + orientation together).

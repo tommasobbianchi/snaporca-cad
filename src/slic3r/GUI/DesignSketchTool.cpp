@@ -1306,6 +1306,83 @@ bool DesignSketchTool::apply_live_trim(const Vec2d& p, double tol, bool extend)
     return true;
 }
 
+// Hover preview for the Trim/Extend scissors: replay apply_live_trim's pick and the engine
+// cut on a COPY of the subject, then diff the copy against the original to recover the exact
+// sub-portion a click would remove (Trim) / add (Extend). Pure computation, mutates nothing.
+bool DesignSketchTool::compute_trim_preview(const Vec2d& p, double tol, bool extend,
+                                            int& subject_ei, std::vector<Vec2d>& removed_poly) const
+{
+    subject_ei = -1;
+    removed_poly.clear();
+
+    double best = 1e30; int bi = -1;
+    for (size_t i = 0; i < m_entities.size(); ++i) {
+        const double d = entity_pick_dist(p, m_entities[i]);
+        if (d < best) { best = d; bi = int(i); }
+    }
+    if (bi < 0 || best > tol) return false;
+
+    using Ty = SketchEntity::Type;
+    const Ty st = m_entities[bi].type;
+    const bool subject_ok = extend ? (st == Ty::Line || st == Ty::Arc)
+                                   : (st == Ty::Line || st == Ty::Arc || st == Ty::Circle);
+    if (!subject_ok) return false;
+
+    std::vector<SketchEntity> others;
+    others.reserve(m_entities.size());
+    for (size_t i = 0; i < m_entities.size(); ++i)
+        if (int(i) != bi) others.push_back(m_entities[i]);
+
+    const SketchEntity& orig = m_entities[bi];
+    SketchEntity trimmed = orig;                          // cut on the copy, never the live entity
+    const bool ok = extend ? SketchEngine::extend_entity(trimmed, others, p)
+                           : SketchEngine::trim_entity(trimmed, others, p);
+    if (!ok) return false;
+
+    // The highlighted portion is where `trimmed` differs from `orig`: the dropped sub-segment
+    // (Trim) or the grown one (Extend). Rebuild it as a temp entity and sample its polyline.
+    const double EPS2 = 1e-14;     // squared plane-unit endpoint tolerance
+    const double AEPS = 1e-7;      // radian tolerance
+    bool closed = false;
+
+    if (orig.type == Ty::Line) {
+        SketchEntity seg = orig;
+        if ((trimmed.p0 - orig.p0).squaredNorm() > EPS2) {
+            seg.p0 = orig.p0; seg.p1 = trimmed.p0;        // start endpoint moved
+        } else if ((trimmed.p1 - orig.p1).squaredNorm() > EPS2) {
+            seg.p0 = trimmed.p1; seg.p1 = orig.p1;        // end endpoint moved
+        } else {
+            return false;                                  // nothing changed
+        }
+        removed_poly = entity_polyline(seg, closed);
+    } else if (orig.type == Ty::Arc) {
+        SketchEntity arc = orig;                           // same centre/radius
+        if (std::abs(trimmed.start_angle - orig.start_angle) > AEPS) {
+            arc.start_angle = orig.start_angle; arc.end_angle = trimmed.start_angle;
+        } else if (std::abs(trimmed.end_angle - orig.end_angle) > AEPS) {
+            arc.start_angle = trimmed.end_angle; arc.end_angle = orig.end_angle;
+        } else {
+            return false;
+        }
+        removed_poly = entity_polyline(arc, closed);
+    } else if (orig.type == Ty::Circle) {
+        // Trim opens the Circle into the kept Arc [start,end]; the removed gap is its
+        // complement, swept from the kept arc's end round to its start.
+        if (trimmed.type != Ty::Arc) return false;
+        SketchEntity gap = orig;
+        gap.type        = Ty::Arc;
+        gap.start_angle = trimmed.end_angle;
+        gap.end_angle   = trimmed.start_angle + 2.0 * M_PI;
+        removed_poly = entity_polyline(gap, closed);
+    } else {
+        return false;
+    }
+
+    if (removed_poly.size() < 2) return false;
+    subject_ei = bi;
+    return true;
+}
+
 // Rotate the whole loop about its centre so the centre->vertex0 spoke points at `deg`
 // (degrees from +X).
 void DesignSketchTool::set_polygon_angle(int fi, double deg)
@@ -6356,6 +6433,22 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         if (poles.size() >= 2)
             draw_quad_strip(m_highlight_model, bspline_polyline(poles), false, preview);
         draw_vertices(m_vertex_model, m_points, yellow);
+        break;
+    }
+
+    case Mode::Trim:
+    case Mode::Extend: {
+        // Hover preview: paint the exact sub-portion a click would cut (Trim) / add (Extend)
+        // in red, recomputed from the cursor every frame (never persisted). The pick tolerance
+        // matches on_mouse: ~8 px projected to plane units, x3 (here via zoom -> units/px).
+        if (m_has_cursor) {
+            const double upp = 1.0 / std::max(camera.get_zoom(), 1e-6);
+            int subj = -1;
+            std::vector<Vec2d> removed;
+            const ColorRGBA cut(1.0f, 0.2f, 0.2f, 1.0f);
+            if (compute_trim_preview(m_cursor, 24.0 * upp, m_mode == Mode::Extend, subj, removed))
+                draw_quad_strip(m_highlight_model, removed, false, cut);
+        }
         break;
     }
 
