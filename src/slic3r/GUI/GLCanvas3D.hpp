@@ -538,6 +538,9 @@ private:
     // SnapOrca Design: per-canvas suppression of PartPlate overlay chrome (corner
     // icons, logo watermark, plate numbers). Default true preserves the editor.
     bool m_plate_chrome_enabled{true};
+    // SnapOrca Design: render the world-axis triad at the bed centre (= modeling origin) instead of
+    // the bed corner. Default false preserves the main editor's corner triad.
+    bool m_axes_at_bed_center{false};
     // SnapOrca Design: optional interactive 2D sketch tool. When non-null and
     // active it intercepts mouse events and renders an overlay on the sketch
     // plane. Null in the main editor (no behaviour change). Not owned.
@@ -853,6 +856,7 @@ public:
     void enable_separator_toolbar(bool enable);
     void enable_collapse_toolbar(bool enable);
     void enable_plate_chrome(bool enable);
+    void set_axes_at_bed_center(bool b) { m_axes_at_bed_center = b; }
     // SnapOrca Design: register/clear the interactive sketch tool (not owned).
     void set_design_sketch_tool(DesignSketchTool* tool) { m_design_sketch_tool = tool; }
     DesignSketchTool* get_design_sketch_tool() const { return m_design_sketch_tool; }
