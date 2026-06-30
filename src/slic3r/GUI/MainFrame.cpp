@@ -40,6 +40,7 @@
 #include "GLCanvas3D.hpp"
 #include "Plater.hpp"
 #include "DesignPanel.hpp"
+#include "McpControl.hpp"
 #include "WebViewDialog.hpp"
 #include "../Utils/Process.hpp"
 #include "format.hpp"
@@ -1156,6 +1157,7 @@ void MainFrame::init_tabpanel() {
     // (to share the editor config + bed shape with the native GLCanvas3D).
     wxGetApp().plater_ = m_plater;
     m_design_panel = new DesignPanel(this);
+    start_mcp_control_if_enabled();   // opens the MCP socket iff SNAPORCA_MCP is set
     m_plater->SetBackgroundColour(*wxWHITE);
     m_plater->Hide();
 
