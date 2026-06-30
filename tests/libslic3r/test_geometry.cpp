@@ -1,6 +1,9 @@
 #include <catch2/catch.hpp>
 
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <gp_Trsf.hxx>
+#include <gp_Vec.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
@@ -945,4 +948,17 @@ TEST_CASE("multi-body: display_tri_body tags every triangle with its source body
         REQUIRE(doc.display_tri_face[i] >= 0);
         REQUIRE(doc.display_tri_face[i] < GeometryEngine::face_count(doc.bodies[b].shape));
     }
+}
+
+TEST_CASE("surface_deviation: identical solids ~0, shifted solid ~shift", "[Deviation]") {
+    TopoDS_Shape ref = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape();
+    auto d0 = GeometryEngine::surface_deviation(ref, ref, 0.5);
+    REQUIRE(d0.sample_count > 0);
+    REQUIRE_THAT(d0.max_mm, Catch::Matchers::WithinAbs(0.0, 1e-6));
+
+    gp_Trsf t; t.SetTranslation(gp_Vec(2.0, 0.0, 0.0));
+    TopoDS_Shape shifted = BRepBuilderAPI_Transform(ref, t, true).Shape();
+    auto d1 = GeometryEngine::surface_deviation(shifted, ref, 0.5);
+    REQUIRE_THAT(d1.max_mm, Catch::Matchers::WithinAbs(2.0, 0.05));
+    REQUIRE(d1.mean_mm > 0.0);
 }
