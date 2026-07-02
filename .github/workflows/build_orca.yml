@@ -43,9 +43,16 @@ jobs:
           fail-on-cache-miss: true
 
       - uses: lukka/get-cmake@latest
+        if: inputs.os != 'windows-latest'
         with:
-          cmakeVersion: "~3.28.0"  # use most recent 3.28.x version
-          
+          cmakeVersion: "~3.31.0"
+
+      - uses: lukka/get-cmake@latest
+        # windows-latest migrated to VS 18 (2026); only CMake 4.x has its generator.
+        if: inputs.os == 'windows-latest'
+        with:
+          cmakeVersion: "~4.3.0"
+
       - name: Get the version and date on Ubuntu and macOS
         if: inputs.os != 'windows-latest'
         run: |
@@ -255,7 +262,7 @@ jobs:
 # Windows
       - name: setup MSVC
         if: inputs.os == 'windows-latest'
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@v3
 
       - name: Install nsis
         if: inputs.os == 'windows-latest'
