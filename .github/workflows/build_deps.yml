@@ -46,11 +46,11 @@ jobs:
 
       - uses: lukka/get-cmake@latest
         with:
-          cmakeVersion: "~3.28.0"  # use most recent 3.28.x version
+          cmakeVersion: "~3.31.0"  # 3.31 detects VS on windows-2025 runner; 3.28 could not (keeps pre-3.5 policy compat, unlike 4.x)
 
       - name: setup dev on Windows
         if: inputs.os == 'windows-latest'
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@v3
 
       - name: Get the date on Ubuntu and macOS
         if: inputs.os != 'windows-latest'

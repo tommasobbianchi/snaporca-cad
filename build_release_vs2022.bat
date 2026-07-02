@@ -47,8 +47,8 @@ if "%1"=="slicer" (
 echo "building deps.."
 
 echo on
-cmake ../ -G "Visual Studio 17 2022" -A x64 -DDESTDIR="%DEPS%" -DCMAKE_BUILD_TYPE=%build_type% -DDEP_DEBUG=%debug% -DORCA_INCLUDE_DEBUG_INFO=%debuginfo%
-cmake --build . --config %build_type% --target deps -- -m
+cmake ../ -G "Visual Studio 17 2022" -A x64 -DDESTDIR="%DEPS%" -DCMAKE_BUILD_TYPE=%build_type% -DDEP_DEBUG=%debug% -DORCA_INCLUDE_DEBUG_INFO=%debuginfo% || exit /b 1
+cmake --build . --config %build_type% --target deps -- -m || exit /b 1
 @echo off
 
 if "%1"=="deps" exit /b 0
