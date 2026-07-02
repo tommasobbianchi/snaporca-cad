@@ -1,9 +1,11 @@
-cmake_minimum_required(VERSION 3.13)
-
-# Verify that your CMake version is exactly 3.31.x series or lower on windows
-if ( ((MSVC) OR (WIN32)) AND (${CMAKE_VERSION} VERSION_GREATER_EQUAL "4.0") )
-    message(FATAL_ERROR "Only cmake versions between 3.13.x and 3.31.x is supported on windows. Detected version: ${CMAKE_VERSION}")
+# CMake 4.x removed pre-3.5 policy compat; the VS 18 (2026) generator on the
+# current windows runner needs CMake 4.x, so allow it and pin the policy min
+# instead of rejecting it (matches orca_cad).
+if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "4.0")
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.13 CACHE STRING "" FORCE)
 endif()
+
+cmake_minimum_required(VERSION 3.13)
 
 if (WIN32)
     # Detect known CI environments
