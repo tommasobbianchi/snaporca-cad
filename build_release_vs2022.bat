@@ -38,7 +38,7 @@ echo build type set to %build_type%
 @REM broke once the GitHub windows-latest runner migrated to VS 18.
 echo Detecting Visual Studio version using msbuild...
 set VS_MAJOR=
-for /f "tokens=*" %%i in ('msbuild -version 2^>^&1 ^| findstr /r "[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*"') do (
+for /f "tokens=*" %%i in ('msbuild -version 2^>^&1 ^| findstr /r "^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*"') do (
     for /f "tokens=1 delims=." %%a in ("%%i") do set VS_MAJOR=%%a
     goto :vs_found
 )
