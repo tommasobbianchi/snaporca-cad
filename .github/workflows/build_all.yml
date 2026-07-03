@@ -1,6 +1,18 @@
 name: Build all
 
 on:
+  push:
+    branches:
+     - feature/cad-primitives
+    paths:
+     - 'deps/**'
+     - 'src/**'
+     - '**/CMakeLists.txt'
+     - 'version.inc'
+     - 'localization/**'
+     - 'resources/**'
+     - ".github/workflows/build_*.yml"
+
   schedule:
     - cron: '0 18 * * *' # everyday 2:00(beijing time UTC+8)
 
