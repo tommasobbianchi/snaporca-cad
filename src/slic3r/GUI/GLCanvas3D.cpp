@@ -1,6 +1,8 @@
 #include "libslic3r/libslic3r.h"
 #include "GLCanvas3D.hpp"
+#ifdef SLIC3R_CAD
 #include "DesignSketchTool.hpp"   // SnapOrca Design: interactive 2D sketch tool
+#endif
 
 #include <igl/unproject.h>
 
@@ -2046,8 +2048,10 @@ void GLCanvas3D::render(bool only_init)
 
     // SnapOrca Design: interactive 2D sketch overlay, drawn over the scene but
     // beneath the UI overlays (toolbars, labels).
+#ifdef SLIC3R_CAD
     if (m_design_sketch_tool != nullptr && m_design_sketch_tool->has_display())
         m_design_sketch_tool->render(*this);
+#endif
 
     // draw overlays
     _render_overlays();
@@ -3152,6 +3156,7 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
     // SnapOrca Design: Delete/Backspace removes the selected sketch entities while a
     // sketch tool is active and the canvas has focus (dialog text fields are separate
     // wx controls, so this never eats their editing keys).
+#ifdef SLIC3R_CAD
     if (m_design_sketch_tool != nullptr && m_design_sketch_tool->is_active()
         && (keyCode == WXK_DELETE || keyCode == WXK_BACK)
         && !m_design_sketch_tool->selection().empty()) {
@@ -3160,9 +3165,11 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
         render();
         return;
     }
+#endif
 
     // Esc exits the active sketch tool (Onshape-like, layered: abort in-progress entity ->
     // drop to Select -> exit the session back to Feature mode).
+#ifdef SLIC3R_CAD
     if (m_design_sketch_tool != nullptr && m_design_sketch_tool->is_active()
         && keyCode == WXK_ESCAPE) {
         m_design_sketch_tool->request_exit();
@@ -3170,11 +3177,13 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
         render();
         return;
     }
+#endif
 
     // SnapOrca Design: Ctrl+Z / Ctrl+Shift+Z (and Ctrl+Y) undo/redo the Design feature
     // history. Scoped by m_design_sketch_tool — only the Design canvas owns one — so the
     // main 3D editor's undo/redo (the CanvasView3D-gated cases further below) is untouched.
     // Handled here, before the generic Ctrl block, so it takes precedence and early-returns.
+#ifdef SLIC3R_CAD
     if (m_design_sketch_tool != nullptr && (evt.GetModifiers() & ctrlMask) != 0) {
         const bool is_z = (keyCode == 'z' || keyCode == 'Z' || keyCode == WXK_CONTROL_Z);
         const bool is_y = (keyCode == 'y' || keyCode == 'Y' || keyCode == WXK_CONTROL_Y);
@@ -3186,10 +3195,12 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
             return;
         }
     }
+#endif
 
     // SnapOrca Design: F = Place on Face (Prepare's lay-flat), when the Design viewport is up
     // and a body face is selected. The tool forwards to DesignPanel::place_on_face; it returns
     // false (no face picked) so F falls through to the default handler below.
+#ifdef SLIC3R_CAD
     if (m_design_sketch_tool != nullptr && m_design_sketch_tool->has_display()
         && (keyCode == 'f' || keyCode == 'F') && (evt.GetModifiers() & ctrlMask) == 0) {
         if (m_design_sketch_tool->request_place_on_face()) {
@@ -3198,6 +3209,7 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
             return;
         }
     }
+#endif
 
     bool is_in_painting_mode = false;
     GLGizmoPainterBase *current_gizmo_painter = dynamic_cast<GLGizmoPainterBase *>(get_gizmos_manager().get_current());
@@ -3575,6 +3587,7 @@ void GLCanvas3D::on_key(wxKeyEvent& evt)
 {
     // SnapOrca Design: Delete/Backspace removes selected sketch entities. GTK delivers
     // these as KEY_DOWN rather than CHAR, so handle it here too.
+#ifdef SLIC3R_CAD
     if (evt.GetEventType() == wxEVT_KEY_DOWN
         && m_design_sketch_tool != nullptr && m_design_sketch_tool->is_active()
         && (evt.GetKeyCode() == WXK_DELETE || evt.GetKeyCode() == WXK_BACK)
@@ -3584,6 +3597,7 @@ void GLCanvas3D::on_key(wxKeyEvent& evt)
         render();
         return;
     }
+#endif
 
     static GLCanvas3D const * thiz = nullptr;
     static TranslationProcessor translationProcessor(nullptr, nullptr);
@@ -4124,6 +4138,7 @@ void GLCanvas3D::on_mouse(wxMouseEvent& evt)
     // can click to select. It runs after ImGui (so dialogs still work) but before
     // camera/toolbar/gizmo handling; on_mouse returns false for events it doesn't consume
     // (drag/orbit/wheel) so the camera keeps working over the display-only plate.
+#ifdef SLIC3R_CAD
     if (m_design_sketch_tool != nullptr && m_design_sketch_tool->has_display()) {
         if (evt.LeftDown() && m_canvas != nullptr)
             m_canvas->SetFocus();   // grab keyboard focus so Delete/keys reach this canvas
@@ -4133,6 +4148,7 @@ void GLCanvas3D::on_mouse(wxMouseEvent& evt)
             return;
         }
     }
+#endif
 
 #ifdef __WXMSW__
 	bool on_enter_workaround = false;

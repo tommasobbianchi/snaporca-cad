@@ -4,12 +4,6 @@ add_executable(${_TEST_NAME}_tests
 	${_TEST_NAME}_tests.cpp
 	test_3mf.cpp
 	test_aabbindirect.cpp
-	test_caddocument.cpp
-	test_sketchimport.cpp
-	test_slvs_constraints.cpp
-	test_sketchinference.cpp
-	test_sketchconstraints.cpp
-	test_sketchedit.cpp
 	test_clipper_offset.cpp
 	test_clipper_utils.cpp
 	test_config.cpp
@@ -33,6 +27,17 @@ add_executable(${_TEST_NAME}_tests
     test_indexed_triangle_set.cpp
     ../libnest2d/printer_parts.cpp
 	)
+
+if (SLIC3R_CAD)
+    target_sources(${_TEST_NAME}_tests PRIVATE
+        test_caddocument.cpp
+        test_sketchimport.cpp
+        test_slvs_constraints.cpp
+        test_sketchinference.cpp
+        test_sketchconstraints.cpp
+        test_sketchedit.cpp
+    )
+endif ()
 
 if (TARGET OpenVDB::openvdb)
     target_sources(${_TEST_NAME}_tests PRIVATE test_hollowing.cpp)

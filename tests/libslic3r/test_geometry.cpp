@@ -1,5 +1,6 @@
 #include <catch2/catch.hpp>
 
+#ifdef SLIC3R_CAD
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <gp_Trsf.hxx>
@@ -8,11 +9,14 @@
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
 #include <TopAbs_Orientation.hxx>
+#endif
 
 #include "libslic3r/Point.hpp"
+#ifdef SLIC3R_CAD
 #include "libslic3r/GeometryEngine.hpp"
 #include "libslic3r/SketchEngine.hpp"
 #include "libslic3r/CadDocument.hpp"
+#endif
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/Polygon.hpp"
 #include "libslic3r/Polyline.hpp"
@@ -721,6 +725,9 @@ TEST_CASE("Convex polygon intersection test prusa polygons", "[Geometry][Rotcali
     }
 }
 
+#ifdef SLIC3R_CAD
+// Everything below exercises the parametric Design/CAD kernel. It lives here for
+// historical reasons; it should move to its own test file before the upstream PR.
 TEST_CASE("GeometryEngine topology accessors", "[Geometry]")
 {
     TopoDS_Shape box = BRepPrimAPI_MakeBox(10., 10., 10.).Shape();
@@ -962,3 +969,4 @@ TEST_CASE("surface_deviation: identical solids ~0, shifted solid ~shift", "[Devi
     REQUIRE_THAT(d1.max_mm, Catch::Matchers::WithinAbs(2.0, 0.05));
     REQUIRE(d1.mean_mm > 0.0);
 }
+#endif // SLIC3R_CAD

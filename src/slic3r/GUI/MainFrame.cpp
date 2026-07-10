@@ -39,8 +39,10 @@
 #include "I18N.hpp"
 #include "GLCanvas3D.hpp"
 #include "Plater.hpp"
+#ifdef SLIC3R_CAD
 #include "DesignPanel.hpp"
 #include "McpControl.hpp"
+#endif
 #include "WebViewDialog.hpp"
 #include "../Utils/Process.hpp"
 #include "format.hpp"
@@ -841,8 +843,10 @@ void MainFrame::update_layout()
     {
     case ESettingsLayout::Old:
     {
+#ifdef SLIC3R_CAD
         m_design_panel->Reparent(m_tabpanel);
         m_tabpanel->InsertPage(tpDesign, m_design_panel, _L("Design"), std::string("tab_design_active"), std::string("tab_design_active"), false);
+#endif
         m_plater->Reparent(m_tabpanel);
         m_tabpanel->InsertPage(tp3DEditor, m_plater, _L("Prepare"), std::string("tab_3d_active"), std::string("tab_3d_active"), false);
         m_tabpanel->InsertPage(tpPreview, m_plater, _L("Preview"), std::string("tab_preview_active"), std::string("tab_preview_active"), false);
@@ -1060,12 +1064,14 @@ void MainFrame::init_tabpanel() {
         }
         //else if (panel == m_param_panel)
         //    m_param_panel->OnActivate();
+#ifdef SLIC3R_CAD
         else if (panel == m_design_panel) {
             // Re-sync the Design bed to the active printer: the panel is built before the
             // printer profile is fully applied, so its bed must refresh on activation or the
             // grid (true bed) spills past the stale default bed quad.
             m_design_panel->on_tab_shown();
         }
+#endif
         else if (panel == m_monitor) {
             //monitor
         }
@@ -1156,8 +1162,10 @@ void MainFrame::init_tabpanel() {
     // DesignCanvas reads wxGetApp().plater()->config() at construction time
     // (to share the editor config + bed shape with the native GLCanvas3D).
     wxGetApp().plater_ = m_plater;
+#ifdef SLIC3R_CAD
     m_design_panel = new DesignPanel(this);
     start_mcp_control_if_enabled();   // opens the MCP socket iff SNAPORCA_MCP is set
+#endif
     m_plater->SetBackgroundColour(*wxWHITE);
     m_plater->Hide();
 

@@ -8,6 +8,12 @@ if (IN_GIT_REPO)
     set(OCCT_DIRECTORY_FLAG --directory ${BINARY_DIR_REL}/dep_OCCT-prefix/src/dep_OCCT)
 endif ()
 
+# The parametric Design/CAD tab is the only consumer of OCCT's ModelingAlgorithms
+# module (fillet/offset/loft). With it OFF the deps prefix matches upstream exactly;
+# with it ON the delta is TKFillet + TKOffset (3.77 MiB, Windows only -- OCCT links
+# statically on macOS/Linux). Must match the SLIC3R_CAD passed to the main project.
+option(SLIC3R_CAD "Build OCCT's ModelingAlgorithms module (required by the Design/CAD tab)" ON)
+
 Snapmaker_Orca_add_cmake_project(OCCT
     URL https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_6_0.zip
     URL_HASH SHA256=28334f0e98f1b1629799783e9b4d21e05349d89e695809d7e6dfa45ea43e1dbc
@@ -27,7 +33,7 @@ Snapmaker_Orca_add_cmake_project(OCCT
         #-DBUILD_MODULE_DataExchange=OFF
         -DBUILD_MODULE_Draw=OFF
         -DBUILD_MODULE_FoundationClasses=OFF
-        -DBUILD_MODULE_ModelingAlgorithms=ON
+        -DBUILD_MODULE_ModelingAlgorithms=${SLIC3R_CAD}
         -DBUILD_MODULE_ModelingData=OFF
         -DBUILD_MODULE_Visualization=OFF
 )
