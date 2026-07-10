@@ -1175,6 +1175,7 @@ wxWindow* PreferencesDialog::create_general_page()
         wxLANGUAGE_CATALAN,
         wxLANGUAGE_PORTUGUESE_BRAZILIAN,
         wxLANGUAGE_LITHUANIAN,
+        wxLANGUAGE_ROMANIAN,
     };
 
     auto translations = wxTranslations::Get()->GetAvailableTranslations(SLIC3R_APP_KEY);
