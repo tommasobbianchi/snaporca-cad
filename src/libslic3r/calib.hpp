@@ -36,6 +36,7 @@ struct Calib_Params
     Calib_Params() : mode(CalibMode::Calib_None){};
     int extruder_id = 0;
     double    start, end, step;
+    double    base_speed = 0.0;   // belt vol-speed: flat floor speed for the lead-in base (0 = no clamp / cartesian)
     bool      print_numbers;
     double freqStartX, freqEndX, freqStartY, freqEndY;
     int test_model;

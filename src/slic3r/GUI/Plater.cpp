@@ -49,6 +49,7 @@
 
 #include "libslic3r/libslic3r.h"
 #include "libslic3r/Format/STL.hpp"
+#include "libslic3r/MeshBoolean.hpp"
 #include "libslic3r/Format/DRC.hpp"
 #include "libslic3r/Format/STEP.hpp"
 #include "libslic3r/Format/AMF.hpp"
@@ -7161,6 +7162,28 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
 
 #endif /* AUTOPLACEMENT_ON_LOAD */
 
+    // Belt printers: a freshly loaded model belongs at the belt's Y origin (where printing
+    // starts) by its LEADING EDGE, centred only in X — not centred on the bed like a cartesian
+    // printer (the conveyor Y is "infinite" = Z in belt space). Override, for every just-loaded
+    // object, the bed-centre placement done above. We move the edge, never the centre, in Y.
+    {
+        const auto& pcfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+        if (pcfg.has("belt_printer") && pcfg.opt_bool("belt_printer")) {
+            const double cx = this->bed.build_volume().bed_center().x();
+            for (size_t idx : obj_idxs) {
+                if (idx >= model.objects.size()) continue;
+                ModelObject* o = model.objects[idx];
+                for (size_t i = 0; i < o->instances.size(); ++i) {
+                    const BoundingBoxf3 bb = o->instance_bounding_box(i);
+                    Vec3d off = o->instances[i]->get_offset();
+                    off.x() += cx - bb.center().x();   // centre in X
+                    off.y() += 0.0 - bb.min.y();        // leading edge at the belt Y origin
+                    o->instances[i]->set_offset(off);
+                }
+            }
+        }
+    }
+
     //BBS: remove the auto scaled_down logic when load models
     //if (scaled_down) {
     //    GUI::show_info(q,
@@ -12825,6 +12848,127 @@ void Plater::calib_pa(const Calib_Params& params)
     print_config->set_key_value("overhang_reverse", new ConfigOptionBool(false));
     print_config->set_key_value("precise_z_height", new ConfigOptionBool(false));
     printer_config->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+
+    // Belt printers build along the conveyor: a vertical PA tower can't be sliced and a flat
+    // cartesian line pattern with in-plane corners would oscillate the belt (model-Y drives
+    // machine Z = belt). Instead lay a row of DISCRETE straight-wall provini
+    // (resources/calib/pressure_advance/belt_pa_tower.stl, from gen_belt_pa_tower.py), one
+    // Pressure-Advance value each, and switch PA in discrete steps via custom per-layer G-code
+    // (SET_PRESSURE_ADVANCE, Klipper). PA reads at each wall's machine-X end reversals. We
+    // deliberately do NOT call set_calib_params (return early): its per-layer PA interpolation
+    // would overwrite these discrete SET_PRESSURE_ADVANCE events.  (mirrors calib_temp belt)
+    if (printer_config->has("belt_printer") && printer_config->opt_bool("belt_printer")) {
+        // Shared geometry contract with gen_belt_pa_tower.py: 13 provini engraved 0.00..0.12 at
+        // designed-Y pitch PITCH_Y. The slicing plane is oblique (belt_slice_rotation_angle),
+        // so the per-provino advance in layer print_z is PITCH_Y*cos(theta).
+        constexpr double PITCH_Y = 8.0;                  // designed-Y pitch == gen PITCH
+        const double angle = printer_config->has("belt_slice_rotation_angle")
+            ? printer_config->opt_float("belt_slice_rotation_angle") : 45.0;
+        const double zone_topz = PITCH_Y * std::cos(angle * M_PI / 180.0);
+        // PA value per provino from the dialog: Start + i*Step over the 13 fixed bars. The value
+        // is also engraved into each bar's base below (cut from per-character glyph meshes), so
+        // the printed number always matches whatever Start/Step the user picks.
+        const double pa_start = params.start;
+        const double pa_step  = (params.step > 1e-6) ? params.step : 0.01;
+        std::vector<double> pas;
+        for (int i = 0; i < 13; ++i) pas.push_back(pa_start + i * pa_step);  // 13 == asset bars
+        // Fire each PA change a couple of layers INTO provino i's wall (not in the thin base
+        // before it): an event landing in the very first base layers near print_z 0 gets
+        // dropped (provino 0's PA=0.000 went missing at INTO=0.25). Landing inside the wall —
+        // which always has material — makes every event, including i=0, attach reliably; only
+        // the bottom ~2 of the 8 wall layers print at the previous PA. Verify by slicing.
+        constexpr double INTO = 0.85;
+
+        add_model(false, Slic3r::resources_dir() + "/calib/pressure_advance/belt_pa_tower_bars.stl");
+
+        ModelObject* obj = model().objects[0];
+
+        // Cut the PA value into the base beside each bar dynamically, so the engraved number
+        // always matches the dialog (Start + i*Step). Per-character full-cut glyph cutters are
+        // assembled and subtracted from the bars body (no runtime text rendering). The layout
+        // constants are the shared contract with gen_belt_pa_tower.py (printed when it runs).
+        {
+            constexpr double PROV_Y = 4.5, NUM_CX = 54.0, CELL_W = 3.844;
+            const std::string gdir = Slic3r::resources_dir() + "/calib/pressure_advance/glyphs/";
+            std::map<char, TriangleMesh> glyph_cache;
+            auto load_glyph = [&](char c) -> const TriangleMesh& {
+                auto it = glyph_cache.find(c);
+                if (it != glyph_cache.end()) return it->second;
+                const std::string name = (c == '.') ? "dot" : std::string(1, c);
+                Model gm;
+                load_stl((gdir + "glyph_" + name + ".stl").c_str(), &gm);
+                TriangleMesh m = (!gm.objects.empty() && !gm.objects[0]->volumes.empty())
+                                 ? gm.objects[0]->volumes[0]->mesh() : TriangleMesh();
+                return glyph_cache.emplace(c, std::move(m)).first->second;
+            };
+            ModelVolume* vol = obj->volumes.empty() ? nullptr : obj->volumes[0];
+            if (vol) {
+                // Add each digit as a NEGATIVE_VOLUME so the slicer subtracts it per-layer (a 2D
+                // boolean, robust to the thin stencil geometry — a 3D CGAL boolean throws on it).
+                // Positions are in the asset's original keel-first coords; add_model re-centered
+                // the loaded mesh, so anchor to the volume mesh's bbox min (the (0,0,0) keel
+                // corner) and give each cutter the bars volume's transform so it lands on the base.
+                const Vec3d o = vol->mesh().bounding_box().min;
+                const Transform3d vt = vol->get_transformation().get_matrix();
+                int nglyph = 0;
+                char buf[16];
+                for (int i = 0; i < 13; ++i) {
+                    snprintf(buf, sizeof(buf), "%.3f", pas[i]);     // "0.XYZ"
+                    std::string s(buf);
+                    for (char& ch : s) if (ch == ',') ch = '.';     // locale-safe
+                    const double y = double(i) * PITCH_Y + PROV_Y / 2.0;
+                    for (size_t k = 0; k < s.size(); ++k) {
+                        TriangleMesh g = load_glyph(s[k]);          // copy
+                        const double x = NUM_CX + (double(k) - double(s.size() - 1) / 2.0) * CELL_W;
+                        g.translate(float(o.x() + x), float(o.y() + y), float(o.z()));
+                        ModelVolume* nv = obj->add_volume(std::move(g), ModelVolumeType::NEGATIVE_VOLUME, false);
+                        nv->set_transformation(vt);
+                        nv->name = "pa_digit";
+                        ++nglyph;
+                    }
+                }
+                BOOST_LOG_TRIVIAL(info) << "[belt_pa] added " << nglyph << " negative-volume digit cutters"
+                                        << " bbmin=(" << o.x() << "," << o.y() << "," << o.z() << ")";
+            }
+        }
+
+        // Place keel-first asset at the belt entry (designed Y = 0), centered laterally.
+        obj->ensure_on_bed();
+        BoundingBoxf3 obb = obj->bounding_box_exact();
+        auto bed_shape = printer_config->option<ConfigOptionPoints>("printable_area")->values;
+        BoundingBoxf bed_ext = get_extents(bed_shape);
+        obj->translate_instances(Vec3d(bed_ext.center().x() - obb.center().x(), -obb.min.y(), 0.0));
+
+        obj->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
+        obj->config.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+        obj->config.set_key_value("overhang_reverse", new ConfigOptionBool(false));
+        // keep the read zone clean: no wipe, no retract-on-layer-change noise on the thin walls
+        auto belt_filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
+        belt_filament_config->set_key_value("filament_wipe", new ConfigOptionBoolsNullable{false});
+        printer_config->set_key_value("wipe", new ConfigOptionBools{false});
+        printer_config->set_key_value("retract_when_changing_layer", new ConfigOptionBools{false});
+
+        const int plate_idx = get_partplate_list().get_curr_plate_index();
+        model().curr_plate_index = plate_idx;
+        CustomGCode::Info& cg_info = model().plates_custom_gcodes[plate_idx];
+        cg_info.mode = CustomGCode::Mode::SingleExtruder;
+        cg_info.gcodes.clear();
+        for (size_t i = 0; i < pas.size(); ++i) {
+            const double pz = double(i) * zone_topz + INTO;
+            char val[16];
+            snprintf(val, sizeof(val), "%.3f", pas[i]);
+            // G-code needs a '.' decimal separator regardless of the UI locale: snprintf("%f")
+            // honours LC_NUMERIC, so on an it_IT session it emits "0,010" which Klipper rejects.
+            for (char* p = val; *p; ++p) if (*p == ',') *p = '.';
+            cg_info.gcodes.push_back(CustomGCode::Item{
+                pz, CustomGCode::Custom, 1, "",
+                std::string("SET_PRESSURE_ADVANCE ADVANCE=") + val + " ; belt PA " + val });
+        }
+
+        changed_objects({ 0 });
+        return;   // do NOT call set_calib_params (would override the discrete SET_PRESSURE_ADVANCE)
+    }
+
     switch (params.mode) {
         case CalibMode::Calib_PA_Line:
             add_model(false, Slic3r::resources_dir() + "/calib/pressure_advance/pressure_advance_test.drc");
@@ -13172,7 +13316,7 @@ void Plater::_calib_pa_select_added_objects() {
 // Adjust settings for flowrate calibration
 // For linear mode, pass 1 means normal version while pass 2 mean "for perfectionists" version
 // ORCA: Add pattern parameter
-void adjust_settings_for_flowrate_calib(ModelObjectPtrs& objects, bool linear, int pass, InfillPattern pattern)
+void adjust_settings_for_flowrate_calib(ModelObjectPtrs& objects, bool linear, int pass, InfillPattern pattern, bool skip_scale = false)
 {
     auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
     auto printerConfig = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
@@ -13190,19 +13334,25 @@ void adjust_settings_for_flowrate_calib(ModelObjectPtrs& objects, bool linear, i
     double layer_height = nozzle_diameter / 2.0; // prefer 0.2 layer height for 0.4 nozzle
     first_layer_height = std::max(first_layer_height, layer_height);
 
-    const auto canvas    = wxGetApp().plater()->canvas3D();
-    auto&      selection = canvas->get_selection();
-    selection.setup_cache();
-    TransformationType transformation_type;
-    transformation_type.set_relative();
-    float zscale = (first_layer_height + 9 * layer_height) / 2;
-    // only enlarge
-    if (xyScale > 1.2) {
-        selection.scale({xyScale, xyScale, zscale}, transformation_type);
-    } else {
-        selection.scale({1, 1, zscale}, transformation_type);
+    // Belt: the asset is already keel-first and correctly sized — this cartesian
+    // mesh Z-scaling (built for the flat pad 3MFs) would deform the 45 deg wedge and
+    // break the constant-print_z reading face. Skip only the scaling; every read-
+    // governing setting below is applied identically so the top layers match.
+    if (!skip_scale) {
+        const auto canvas    = wxGetApp().plater()->canvas3D();
+        auto&      selection = canvas->get_selection();
+        selection.setup_cache();
+        TransformationType transformation_type;
+        transformation_type.set_relative();
+        float zscale = (first_layer_height + 9 * layer_height) / 2;
+        // only enlarge
+        if (xyScale > 1.2) {
+            selection.scale({xyScale, xyScale, zscale}, transformation_type);
+        } else {
+            selection.scale({1, 1, zscale}, transformation_type);
+        }
+        canvas->do_scale("");
     }
-    canvas->do_scale("");
 
     auto cur_flowrate = filament_config->option<ConfigOptionFloats>("filament_flow_ratio")->get_at(0);
     Flow infill_flow = Flow(nozzle_diameter * 1.2f, layer_height, nozzle_diameter);
@@ -13303,6 +13453,99 @@ void Plater::calib_flowrate(bool is_linear, int pass, InfillPattern pattern) {
         return;
 
     wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
+
+    // Belt printers: the cartesian flow-ratio pads (flat plates read on their top
+    // solid infill) cannot be reproduced lying flat on a 45 deg belt — the slicer
+    // cuts constant print_z = (Y_model + Z_model) planes, so a thin flat pad's "top"
+    // is a smeared diagonal sliver, not a flat readable area. The belt-native asset
+    // (belt_flow_ratio.stl, gen_belt_flow_ratio.py) tilts the reading pad 45 deg about
+    // model-X so its face normal becomes the belt-normal (0,1,1)/sqrt2: that face is a
+    // plane of CONSTANT print_z and prints as ONE flat top layer (the top READ_LAYERS
+    // below it = the top solid infill = the read window), laid down LAST. Under it sits
+    // a triangular wedge rooted on the belt (keel-first), sliced as sparse infill (fast,
+    // little filament); only the pad is solid. ONE such pad per flow modifier, laid out
+    // sequentially along the belt (the sweep), each with its own print_flow_ratio.
+    {
+        auto belt_printer_cfg = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+        if (belt_printer_cfg->has("belt_printer") && belt_printer_cfg->opt_bool("belt_printer")) {
+            // Flow modifiers matching the cartesian passes (flowrate-test-pass1/2.3mf object
+            // names): print_flow_ratio = 1 + modifier/100. Pass 1 = coarse 9 pads (-20..+20),
+            // Pass 2 = fine 10 pads (0..-9). One belt wedge+pad per modifier.
+            const std::vector<int> mods = (pass == 2)
+                ? std::vector<int>{0, -1, -2, -3, -4, -5, -6, -7, -8, -9}
+                : std::vector<int>{-20, -15, -10, -5, 0, 5, 10, 15, 20};
+            const size_t N = mods.size();
+
+            // one labeled pad per modifier (flow % engraved on the lateral face, so the pads
+            // are identifiable after they convey off the belt); fall back to the unlabeled pad.
+            const std::string dir = Slic3r::resources_dir() + "/calib/filament_flow/";
+            for (size_t i = 0; i < N; ++i) {
+                const std::string suf = mods[i] < 0 ? "m" + std::to_string(-mods[i]) : std::to_string(mods[i]);
+                std::string a = dir + "belt_flow_ratio_" + suf + ".stl";
+                if (!boost::filesystem::exists(a)) a = dir + "belt_flow_ratio.stl";
+                add_model(false, a);
+            }
+
+            BoundingBoxf bed_ext = get_extents(belt_printer_cfg->option<ConfigOptionPoints>("printable_area")->values);
+            // Pads laid out along the belt (model-Y): on a belt print_z = Y + Z grows with the
+            // conveyor advance, so pads at increasing Y occupy non-overlapping print_z ranges and
+            // print one-after-another under the default by-layer order (no ByObject, which would
+            // inject cartesian per-object clearance moves). pitch = pad Y extent + clearance gap.
+            model().objects[0]->ensure_on_bed();
+            const double pad_y   = model().objects[0]->bounding_box_exact().size().y();
+            const double pitch_y = pad_y + 15.0;
+            for (size_t i = 0; i < N; ++i) {
+                ModelObject* o = model().objects[i];
+                o->ensure_on_bed();
+                BoundingBoxf3 ob = o->bounding_box_exact();
+                // centre in X, place pad i at belt-Y = i * pitch (keel of pad 0 at the Y origin)
+                o->translate_instances(Vec3d(bed_ext.center().x() - ob.center().x(),
+                                             -ob.min.y() + double(i) * pitch_y, 0.0));
+                // name EXACTLY like the cartesian flow objects (flowrate_m20 .. flowrate_20) so
+                // adjust_settings_for_flowrate_calib derives print_flow_ratio (=1+mod/100) from
+                // the name, identical to cartesian. Print order along the belt = read order.
+                o->name = std::string("flowrate_") +
+                          (mods[i] < 0 ? "m" + std::to_string(-mods[i]) : std::to_string(mods[i]));
+            }
+
+            // Lay the read window IDENTICALLY to the cartesian flow pad: reuse the SAME
+            // settings function (1 top wall, top_shell_layers=5, top-surface line width &
+            // pattern, calib_flowrate_topinfill_special_order, infill directions, capped
+            // top/solid-infill speeds, 35% sparse + 100% internal-bridge for matching sag).
+            // Only the cartesian mesh Z-scaling is skipped — it is built for the flat-pad
+            // 3MFs and would deform the 45 deg wedge / break the constant-print_z read face.
+            // The top 5 layers of the keel-first slab become that top solid infill, printed
+            // last as one flat face — so a belt read correlates to flow exactly like cartesian.
+            adjust_settings_for_flowrate_calib(model().objects, is_linear, pass, pattern, /*skip_scale=*/true);
+
+            // per-pad flow ratio (the sweep) + belt overrides (none touch the read-layer layout)
+            std::vector<size_t> all_idx;
+            for (size_t i = 0; i < N; ++i) {
+                auto& oc = model().objects[i]->config;
+                // print_flow_ratio is set per object by adjust_settings_for_flowrate_calib from
+                // the flowrate_<mod> name above (1 + mod/100) — exactly as the cartesian test.
+                oc.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
+                oc.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+                oc.set_key_value("overhang_reverse", new ConfigOptionBool(false));
+                // The keel-first pads are self-supporting by design; force support OFF so a
+                // support-enabled filament/process preset (e.g. the IR3 V2 PLA profile) does not
+                // generate native 45-degree auto-supports under them — those foul the top read
+                // surface and skew the measured flow ratio. (Found in physical PLA print testing.)
+                oc.set_key_value("enable_support", new ConfigOptionBool(false));
+                all_idx.push_back(i);
+            }
+            belt_printer_cfg->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+
+            changed_objects(all_idx);
+            wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
+            wxGetApp().get_tab(Preset::TYPE_FILAMENT)->update_dirty();
+            wxGetApp().get_tab(Preset::TYPE_PRINTER)->update_dirty();
+            wxGetApp().get_tab(Preset::TYPE_PRINT)->reload_config();
+            wxGetApp().get_tab(Preset::TYPE_FILAMENT)->reload_config();
+            wxGetApp().get_tab(Preset::TYPE_PRINTER)->reload_config();
+            return;
+        }
+    }
 
     if (is_linear) {
         if (pass == 1)
@@ -13616,6 +13859,127 @@ void Plater::calib_max_vol_speed(const Calib_Params& params)
     wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
     if (params.mode != CalibMode::Calib_Vol_speed_Tower)
         return;
+
+    // Belt printers: the cartesian vase tower can't be sliced. The belt-native equivalent is a
+    // single STRAIGHT thin wall along machine-X (belt_vol_speed_wall.stl), laid down along the
+    // belt: each constant-print_z layer (print_z = Y_model + Z_model = the 45° conveyor advance)
+    // is ONE machine-X trace, stacked belt-normal — the same belt-safe single-wall print the PA
+    // provini already HW-validate. The outer-wall speed ramps per layer (GCode.cpp), so the
+    // volumetric rate sweeps start→end up the wall; you read the height where flow fails.
+    //
+    // This replaces the earlier ogive-tube+spiral-vase asset, which was geometrically broken: its
+    // solid wedge base couldn't be vased (the calib ramp never touched ~64mm of print_z, which
+    // printed at the plain preset speed) and the tube's sliced print_z range fell far short of the
+    // mesh Y+Z span, so the sweep never reached 'end'. Set ORCABELT_VOLSPEED_OGIVE=1 to fall back
+    // to the old ogive asset (kept for reference / A-B comparison).
+    {
+        auto belt_print_cfg    = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
+        auto belt_filament_cfg = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
+        auto belt_printer_cfg  = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+        if (belt_printer_cfg->has("belt_printer") && belt_printer_cfg->opt_bool("belt_printer")) {
+            const bool use_ogive = (::getenv("ORCABELT_VOLSPEED_OGIVE") != nullptr);
+            add_model(false, Slic3r::resources_dir() + (use_ogive
+                ? "/calib/volumetric_speed/belt_vol_speed.stl"
+                : "/calib/volumetric_speed/belt_vol_speed_v4.stl"));
+            ModelObject* obj = model().objects[0];
+            // leading edge at the belt Y origin, centred in X (asset is keel-first, min Z = 0;
+            // ensure_on_bed just re-asserts it)
+            obj->ensure_on_bed();
+            BoundingBoxf3 obb = obj->bounding_box_exact();
+            BoundingBoxf bed_ext = get_extents(belt_printer_cfg->option<ConfigOptionPoints>("printable_area")->values);
+            obj->translate_instances(Vec3d(bed_ext.center().x() - obb.center().x(), -obb.min.y(), 0.0));
+
+            // Extrusion sizing = the PA-validated belt single-wall (one clean machine-X trace per
+            // belt layer): 0.45 line at 0.2 belt-normal. The SAME values feed the mm3/s→mm/s
+            // conversion below, so the swept volumetric rate matches what is actually extruded
+            // (the old branch assumed 0.7/0.32 — a cross-section the belt slice never used).
+            const double nozzle = belt_printer_cfg->option<ConfigOptionFloats>("nozzle_diameter")->values[0];
+            const double line_width = 0.45;   // matches gen_belt_vol_speed_wall.py WALL_THK (0.4-nozzle belt asset)
+            const double layer_height = 0.2;  // belt-normal; virtual pitch = 0.2/cos45 ≈ 0.283
+            auto& obj_cfg = obj->config;
+            belt_filament_cfg->set_key_value("filament_max_volumetric_speed", new ConfigOptionFloats{200});
+            belt_filament_cfg->set_key_value("slow_down_layer_time", new ConfigOptionFloats{0.0});
+            belt_printer_cfg->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+            obj_cfg.set_key_value("enable_overhang_speed", new ConfigOptionBool{false});
+            obj_cfg.set_key_value("wall_loops", new ConfigOptionInt(1));
+            obj_cfg.set_key_value("top_shell_layers", new ConfigOptionInt(0));
+            obj_cfg.set_key_value("bottom_shell_layers", new ConfigOptionInt(0));
+            obj_cfg.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
+            obj_cfg.set_key_value("outer_wall_line_width", new ConfigOptionFloatOrPercent(line_width, false));
+            obj_cfg.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
+            // single stacked wall (NOT spiral): the belt-validated mechanism. Spiral vase needs a
+            // closed contour; a belt-safe wall is an open straight trace, so spiral does not apply.
+            belt_print_cfg->set_key_value("spiral_mode", new ConfigOptionBool(false));
+            belt_print_cfg->set_key_value("max_volumetric_extrusion_rate_slope", new ConfigOptionFloat(0));
+            // belt prints are inherently sequential (one object leaves the conveyor before the next)
+            belt_print_cfg->set_key_value("print_sequence", new ConfigOptionEnum<PrintSequence>(PrintSequence::ByObject));
+
+            changed_objects({0});
+            wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
+            wxGetApp().get_tab(Preset::TYPE_FILAMENT)->update_dirty();
+            wxGetApp().get_tab(Preset::TYPE_PRINTER)->update_dirty();
+            wxGetApp().get_tab(Preset::TYPE_PRINT)->reload_config();
+            wxGetApp().get_tab(Preset::TYPE_FILAMENT)->reload_config();
+            wxGetApp().get_tab(Preset::TYPE_PRINTER)->reload_config();
+
+            // print_z span (print_z = Y + Z). The instance offset is X-only (placement centres X,
+            // the asset is already keel-first min Y = min Z = 0), so world print_z == object-local
+            // print_z and pz_min ≈ 0.
+            double pz_min = std::numeric_limits<double>::max();
+            double pz_max = std::numeric_limits<double>::lowest();
+            const Transform3d inst_m = obj->instances.front()->get_matrix();
+            for (const ModelVolume* vol : obj->volumes) {
+                if (!vol->is_model_part()) continue;
+                const Transform3d m = inst_m * vol->get_matrix();
+                for (const auto& v : vol->mesh().its.vertices) {
+                    const Vec3d p = m * v.cast<double>();
+                    const double s = p.y() + p.z();
+                    pz_min = std::min(pz_min, s);
+                    pz_max = std::max(pz_max, s);
+                }
+            }
+
+            // Layout the test like the cartesian path "auto-adjusts height", but belt-native:
+            //   • a fixed BASE of 100 belt layers printed at constant START flow (settling/baseline)
+            //   • then a RAMP start→end whose print_z length is sized by the dialog: like the
+            //     cartesian height=(end−start)/step, 1mm of ramp print_z per `step` mm³/s.
+            //   • the asset is CUT along the belt (constant Y+Z plane) to base+ramp, so a small
+            //     requested range yields a short test (no wasted length printing at clamped flow).
+            const double mm3_per_mm = Flow(line_width, layer_height, nozzle).mm3_per_mm()
+                * belt_filament_cfg->option<ConfigOptionFloatsNullable>("filament_flow_ratio")->get_at(0);
+            const double start_speed = params.start / mm3_per_mm;   // mm/s for flow = params.start
+            const double end_speed   = params.end   / mm3_per_mm;   // mm/s for flow = params.end
+            const double pitch   = layer_height / std::cos(M_PI / 4.0);          // virtual print_z per belt layer
+            const double base_pz = 100.0 * pitch;                                // 100-layer constant-START base
+            const double ramp_pz = std::max(1.0, (params.end - params.start) / std::max(1e-6, params.step));
+            const double ramp_top_pz = pz_min + base_pz + ramp_pz;
+
+            // Cut the test along the belt at print_z = ramp_top_pz (constant Y+Z plane, normal
+            // (0,1,1)/√2 — tilt the horizontal cut plane by Rx(−45°)), keeping the leading part.
+            // Mirrors cut_horizontal: translation(point_on_plane − instance_offset) · rotation.
+            if (ramp_top_pz < pz_max) {
+                const Vec3d instance_offset = obj->instances.front()->get_offset();
+                const Transform3d cut_tf =
+                    Geometry::translation_transform(Vec3d(0.0, ramp_top_pz, 0.0) - instance_offset)
+                    * Transform3d(Eigen::AngleAxisd(-M_PI / 4.0, Vec3d::UnitX()));
+                Cut cut(obj, 0, cut_tf, ModelObjectCutAttribute::KeepLower);
+                apply_cut_object_to_model(0, cut.perform_with_plane());
+            }
+
+            // Ramp anchoring (GCode.cpp: outer_wall_speed = max(base_speed, start + print_z·step)):
+            //   step  = (end_speed − start_speed) / ramp_pz
+            //   start = start_speed − (pz_min + base_pz)·step   → flat at start_speed until the base
+            //           ends (clamped by base_speed), then linear, hitting end_speed at ramp_top_pz.
+            auto new_params = params;
+            new_params.step       = (end_speed - start_speed) / ramp_pz;
+            new_params.start      = start_speed - (pz_min + base_pz) * new_params.step;
+            new_params.end        = end_speed;
+            new_params.base_speed = start_speed;   // flat floor for the lead-in base layers
+            p->background_process.fff_print()->set_calib_params(new_params);
+            return;
+        }
+    }
+
     add_model(false, Slic3r::resources_dir() + "/calib/volumetric_speed/SpeedTestStructure.drc");
 
     auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;

@@ -103,6 +103,22 @@ PA_Calibration_Dlg::PA_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plater* 
     wxBoxSizer* v_sizer = new wxBoxSizer(wxVERTICAL);
     SetSizer(v_sizer);
 
+    // Belt printers run a fixed discrete-provino PA test (Plater::calib_pa belt branch): the
+    // cartesian method/range options below do not apply. Detect it once, show a note, and
+    // disable those controls (done at the end of reset_params).
+    {
+        const auto& pcfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+        m_is_belt = pcfg.has("belt_printer") && pcfg.opt_bool("belt_printer");
+    }
+    m_belt_note = new wxStaticText(this, wxID_ANY,
+        _L("Belt printer: a fixed 13-bar discrete Pressure Advance test. Set Start PA and PA "
+           "step below (End is derived); the other options do not apply. Each bar's PA value "
+           "is engraved into its base."));
+    m_belt_note->Wrap(FromDIP(360));
+    m_belt_note->SetForegroundColour(wxColour("#009688"));
+    v_sizer->Add(m_belt_note, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
+    m_belt_note->Show(m_is_belt);
+
     // Extruder type Radio Group
     auto labeled_box_type = new LabeledStaticBox(this, _L("Extruder type"));
     auto type_box = new wxStaticBoxSizer(labeled_box_type, wxHORIZONTAL);
@@ -277,9 +293,46 @@ void PA_Calibration_Dlg::reset_params() {
             m_tiPAStep->GetTextCtrl()->SetValue(wxString::FromDouble(0.02));
         }
     }
+
+    // Belt: a fixed 13-bar discrete test. Start PA + PA step are editable; End is derived
+    // (Start + 12*Step) and the cartesian-only controls are greyed out. Defaults match the
+    // engraved asset labels (0.00 .. 0.12 at step 0.01).
+    if (m_is_belt) {
+        m_rbExtruderType->Enable(false);
+        m_rbMethod->Enable(false);
+        m_tiStartPA->Enable(true);
+        m_tiPAStep->Enable(true);
+        m_tiEndPA->Enable(false);
+        m_cbPrintNum->Enable(false);
+        m_tiBMAccels->Enable(false);
+        m_tiBMSpeeds->Enable(false);
+        m_tiStartPA->GetTextCtrl()->SetValue(wxString::FromDouble(0.0));
+        m_tiPAStep->GetTextCtrl()->SetValue(wxString::FromDouble(0.01));
+        m_tiEndPA->GetTextCtrl()->SetValue(wxString::FromDouble(0.12));   // 0.00 + 12*0.01
+    }
 }
 
 void PA_Calibration_Dlg::on_start(wxCommandEvent& event) {
+    if (m_is_belt) {
+        // Belt: fixed 13-bar discrete test. Read Start PA + PA step; End is derived (13 bars).
+        double pa_start = 0.0, pa_step = 0.01;
+        if (!m_tiStartPA->GetTextCtrl()->GetValue().ToDouble(&pa_start) ||
+            !m_tiPAStep->GetTextCtrl()->GetValue().ToDouble(&pa_step) ||
+            pa_start < 0 || pa_step < 10 * EPSILON) {
+            MessageDialog msg_dlg(nullptr,
+                _L("Please input valid values:\nStart PA: >= 0.0\nPA step: >= 0.001"),
+                wxEmptyString, wxICON_WARNING | wxOK);
+            msg_dlg.ShowModal();
+            return;
+        }
+        m_params.mode  = CalibMode::Calib_PA_Tower;
+        m_params.start = pa_start;
+        m_params.step  = pa_step;
+        m_params.end   = pa_start + 12 * pa_step;   // 13 provini == fixed asset bars
+        m_plater->calib_pa(m_params);
+        EndModal(wxID_OK);
+        return;
+    }
     bool read_double = false;
     read_double = m_tiStartPA->GetTextCtrl()->GetValue().ToDouble(&m_params.start);
     read_double = read_double && m_tiEndPA->GetTextCtrl()->GetValue().ToDouble(&m_params.end);

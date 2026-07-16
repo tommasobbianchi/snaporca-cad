@@ -45,6 +45,11 @@ protected:
 	TextInput* m_tiBMAccels;
 	TextInput* m_tiBMSpeeds;
 
+	// Belt printers run a fixed discrete-provino PA test (see Plater::calib_pa); the cartesian
+	// method/range controls do not apply, so they are disabled and a note is shown.
+	bool m_is_belt = false;
+	wxStaticText* m_belt_note = nullptr;
+
 	Plater* m_plater;
 };
 

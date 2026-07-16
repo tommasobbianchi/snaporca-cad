@@ -5,8 +5,10 @@
 	"from": "system",
 	"instantiation": "true",
 	"compatible_printers": [
-		"IdeaFormer IR3 V2 0.4 nozzle"
+		"IdeaFormer IR3 V2 0.4 nozzle",
+		"IdeaFormer IR3 V2 0.4 nozzle Netiwk"
 	],
+	"compatible_printers_condition": "printer_model=~/IdeaFormer/",
 	"filament_type": [
 		"PLA"
 	],

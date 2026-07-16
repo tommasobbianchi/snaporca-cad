@@ -4405,6 +4405,10 @@ static void clip_support_fills(ExtrusionEntityCollection &fills, const ExPolygon
 
 void PrintObject::_generate_support_material()
 {
+    if (this->print()->config().belt_printer.value && !is_tree(m_config.support_type.value)) {
+        if (this->_generate_belt_gravity_support())
+            return;
+    }
     if (is_tree(m_config.support_type.value)) {
         TreeSupport tree_support(*this, m_slicing_params);
         tree_support.throw_on_cancel = [this]() { this->throw_if_canceled(); };
