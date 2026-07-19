@@ -23,9 +23,15 @@ BUILD_VOL="${BUILD_VOL:-snaporca_buildcache}"
 
 echo "REPO=$REPO  IMAGE=$IMAGE  BUILD_VOL=$BUILD_VOL"
 
+# The root CMakeLists.txt and cmake/ must be mounted too, not taken from the baked image:
+# they carry the build-time gates (e.g. SLIC3R_CAD -> add_definitions(-DSLIC3R_CAD)) that the
+# mounted headers are compiled against. With a stale baked copy the gate silently stays off and
+# the build fails with "class GLCanvas3D has no member named set_design_sketch_tool".
 docker run --rm \
   -v "$REPO/src":/OrcaSlicer/src \
   -v "$REPO/resources":/OrcaSlicer/resources \
+  -v "$REPO/CMakeLists.txt":/OrcaSlicer/CMakeLists.txt \
+  -v "$REPO/cmake":/OrcaSlicer/cmake \
   -v "$BUILD_VOL":/OrcaSlicer/build \
   "$IMAGE" \
   bash -lc 'cd /OrcaSlicer && ./build_linux.sh -sr'
