@@ -1417,7 +1417,7 @@ TEST_CASE("serialize_recipe roundtrip with two bodies", "[CadDocument]")
     }
 }
 
-TEST_CASE("deserialize_recipe rejects future version", "[CadDocument]")
+TEST_CASE("deserialize_recipe rejects future version with error", "[CadDocument]")
 {
     CadDocument doc;
     std::ostringstream oss;
@@ -1427,6 +1427,72 @@ TEST_CASE("deserialize_recipe rejects future version", "[CadDocument]")
         ar(v);
     }
     REQUIRE_FALSE(doc.deserialize_recipe(oss.str()));
+    REQUIRE_FALSE(doc.error.empty());
+    CHECK_THAT(doc.error, Catch::Matchers::Contains("newer version"));
+}
+
+TEST_CASE("deserialize_recipe rejects older version with error", "[CadDocument]")
+{
+    CadDocument doc;
+    std::ostringstream oss;
+    {
+        cereal::BinaryOutputArchive ar(oss);
+        uint32_t v = 1;
+        ar(v);
+    }
+    REQUIRE_FALSE(doc.deserialize_recipe(oss.str()));
+    REQUIRE_FALSE(doc.error.empty());
+    CHECK_THAT(doc.error, Catch::Matchers::Contains("older version"));
+}
+
+TEST_CASE("deserialize_recipe handles truncated blob without throwing", "[CadDocument]")
+{
+    CadDocument doc;
+    std::string garbage = "this is not a valid cereal blob";
+    REQUIRE_FALSE(doc.deserialize_recipe(garbage));
+    REQUIRE_FALSE(doc.error.empty());
+}
+
+TEST_CASE("deserialize_recipe handles empty blob without throwing", "[CadDocument]")
+{
+    CadDocument doc;
+    REQUIRE_FALSE(doc.deserialize_recipe(""));
+    REQUIRE_FALSE(doc.error.empty());
+}
+
+TEST_CASE("deserialize_recipe error is non-empty on every failure path", "[CadDocument]")
+{
+    CadDocument doc;
+    auto reset = [&]() { doc = CadDocument{}; };
+
+    // too new
+    {
+        std::ostringstream oss;
+        { cereal::BinaryOutputArchive ar(oss); uint32_t v = 999; ar(v); }
+        reset();
+        REQUIRE_FALSE(doc.deserialize_recipe(oss.str()));
+        REQUIRE_FALSE(doc.error.empty());
+    }
+    // too old
+    {
+        std::ostringstream oss;
+        { cereal::BinaryOutputArchive ar(oss); uint32_t v = 1; ar(v); }
+        reset();
+        REQUIRE_FALSE(doc.deserialize_recipe(oss.str()));
+        REQUIRE_FALSE(doc.error.empty());
+    }
+    // truncated / garbage
+    {
+        reset();
+        REQUIRE_FALSE(doc.deserialize_recipe("not a valid blob \x00\x01\x02"));
+        REQUIRE_FALSE(doc.error.empty());
+    }
+    // empty
+    {
+        reset();
+        REQUIRE_FALSE(doc.deserialize_recipe(""));
+        REQUIRE_FALSE(doc.error.empty());
+    }
 }
 
 TEST_CASE("re-edit: editing a mid-timeline feature rebuilds downstream", "[CadDocument]")
@@ -1747,7 +1813,7 @@ TEST_CASE("regenerate golden recipe fixture", "[.regen]")
     auto blob = doc.serialize_recipe();
     REQUIRE_FALSE(blob.empty());
 
-    std::string path = std::string(TEST_DATA_DIR) + "/cad_recipe_v1.bin";
+    std::string path = std::string(TEST_DATA_DIR) + "/cad_recipe_v2.bin";
     std::ofstream ofs(path, std::ios::binary);
     REQUIRE(ofs.is_open());
     ofs.write(blob.data(), static_cast<std::streamsize>(blob.size()));
@@ -1761,7 +1827,7 @@ TEST_CASE("golden recipe v1 still deserialises", "[CadDocument]")
     using Catch::Matchers::WithinAbs;
 
     // Read the golden blob from disk
-    std::string path = std::string(TEST_DATA_DIR) + "/cad_recipe_v1.bin";
+    std::string path = std::string(TEST_DATA_DIR) + "/cad_recipe_v2.bin";
     std::ifstream ifs(path, std::ios::binary);
     REQUIRE(ifs.is_open());
     std::string blob((std::istreambuf_iterator<char>(ifs)),
