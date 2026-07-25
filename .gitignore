@@ -45,3 +45,7 @@ deps_src/build/
 .dolt/
 *.db
 .beads-credential-key
+
+# graphify knowledge-graph output (generated, see CLAUDE.md)
+graphify-out/
+__pycache__/
