@@ -1986,9 +1986,11 @@ void GLCanvas3D::render(bool only_init)
         _render_objects(GLVolumeCollection::ERenderType::Opaque, !m_gizmos.is_running());
         _render_sla_slices();
         _render_selection();
-        if (!no_partplate)
+        // m_show_bed gates the plate list too: hiding the bed but leaving its grid and outline
+        // floating would read as a rendering fault rather than a deliberate view option.
+        if (!no_partplate && m_show_bed)
             _render_bed(camera.get_view_matrix(), camera.get_projection_matrix(), !camera.is_looking_downward(), show_axes);
-        if (!no_partplate) //BBS: add outline logic
+        if (!no_partplate && m_show_bed) //BBS: add outline logic
             _render_platelist(camera.get_view_matrix(), camera.get_projection_matrix(), !camera.is_looking_downward(), only_current, only_body, hover_id, true, show_grid);
         _render_objects(GLVolumeCollection::ERenderType::Transparent, !m_gizmos.is_running());
     }
