@@ -36,7 +36,6 @@
 #include <memory>
 #include <functional>
 #include <cmath>
-#include <cstdio>
 #include <algorithm>
 #include <thread>
 #include <atomic>
@@ -103,6 +102,24 @@ static ComboBox* make_combo(wxWindow* parent)
                            wxSize(parent->FromDIP(90), parent->FromDIP(24)), 0, nullptr, wxCB_READONLY);
     c->SetMinSize(wxSize(parent->FromDIP(90), parent->FromDIP(24)));
     return c;
+}
+
+// Append a row that carries a feature/body index as client data.
+//
+// It must go through SetClientData(), not Append()'s clientData argument. Orca's ComboBox keeps
+// client data in its own vector and its Append() writes that vector directly, never routing
+// through wxItemContainer — so the container's m_clientDataItemsType stays wxClientData_None.
+// wxItemContainer::GetClientData() opens with
+//     wxCHECK_MSG( HasClientUntypedData(), NULL, ... );
+// and wxCHECK_MSG is an early RETURN, not a debug-only assert. So the read handed back NULL for
+// every row and every caller resolved it to index 0 no matter what the user had picked — silently,
+// because index 0 is a legal answer. SetClientData() flips the type to wxClientData_Void, after
+// which the value survives the round trip.
+static int combo_append_index(ComboBox* c, const wxString& label, int index)
+{
+    const int row = c->Append(label, wxNullBitmap);
+    c->SetClientData(unsigned(row), reinterpret_cast<void*>(intptr_t(index)));
+    return row;
 }
 
 // Format a value with the international ('.') decimal separator regardless of the
@@ -599,8 +616,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
                         // just like a drawn sketch, so a projected body edge is a valid path.
                         if (m_doc.features[i].type == CadFeatureType::Sketch ||
                             m_doc.features[i].type == CadFeatureType::Project)
-                            m_rib_sketch->Append(wxString::FromUTF8(m_doc.features[i].name), wxNullBitmap,
-                                                 reinterpret_cast<void*>(intptr_t(i)));
+                            combo_append_index(m_rib_sketch, wxString::FromUTF8(m_doc.features[i].name), i);
                     }
                     if (m_rib_sketch->GetCount() > 0) m_rib_sketch->SetSelection(0);
                     else {
@@ -4624,8 +4640,8 @@ void DesignPanel::populate_sheet_body_choices(ComboBox* c) const
     for (size_t i = 0; i < m_doc.bodies.size(); ++i) {
         if (!CadDocument::is_sheet_shape(m_doc.bodies[i].shape)) continue;
         const std::string& n = m_doc.bodies[i].name;
-        c->Append(n.empty() ? wxString::Format(_L("Body %zu"), i + 1) : wxString::FromUTF8(n),
-                  wxNullBitmap, reinterpret_cast<void*>(intptr_t(i)));
+        combo_append_index(c, n.empty() ? wxString::Format(_L("Body %zu"), i + 1)
+                                        : wxString::FromUTF8(n), int(i));
     }
     if (c->GetCount() > 0)
         c->SetSelection(std::min(std::max(keep, 0), int(c->GetCount()) - 1));
@@ -7076,8 +7092,8 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
             int pre_sel = wxNOT_FOUND;
             for (int i = 0; i < int(m_doc.features.size()); ++i) {
                 if (m_doc.features[i].type == CadFeatureType::Sketch) {
-                    const int pos = m_rib_sketch->Append(wxString::FromUTF8(m_doc.features[i].name), wxNullBitmap,
-                                                         reinterpret_cast<void*>(intptr_t(i)));
+                    const int pos = combo_append_index(m_rib_sketch,
+                                                       wxString::FromUTF8(m_doc.features[i].name), i);
                     if (i == f.rib_sketch_ref) pre_sel = pos;
                 }
             }
@@ -8357,9 +8373,8 @@ void DesignPanel::open_tool(Tool t)
         for (int i = 0; i < int(m_doc.features.size()); ++i) {
             if (m_doc.features[i].type != CadFeatureType::CoordSys) continue;
             const wxString nm = wxString::FromUTF8(m_doc.features[i].name);
-            void* const cd = reinterpret_cast<void*>(intptr_t(i));
-            const int pos_a = m_mate_cs_a->Append(nm, wxNullBitmap, cd);
-            const int pos_b = m_mate_cs_b->Append(nm, wxNullBitmap, cd);
+            const int pos_a = combo_append_index(m_mate_cs_a, nm, i);
+            const int pos_b = combo_append_index(m_mate_cs_b, nm, i);
             if (i == keep_a) m_mate_cs_a->SetSelection(pos_a);
             if (i == keep_b) m_mate_cs_b->SetSelection(pos_b);
         }
@@ -8384,10 +8399,7 @@ void DesignPanel::open_tool(Tool t)
         for (int i = 0; i < int(m_doc.features.size()); ++i) {
             const CadFeature& sf = m_doc.features[i];
             if (sf.type != CadFeatureType::Sketch || i == m_sweep_profile_ref) continue;
-            // ComboBox's own Append(text, bitmap) hides wxItemContainer's (text, void*),
-            // so the client data goes through the 3-arg form.
-            const int pos = m_sweep_path->Append(wxString::FromUTF8(sf.name), wxNullBitmap,
-                                                 reinterpret_cast<void*>(intptr_t(i)));
+            const int pos = combo_append_index(m_sweep_path, wxString::FromUTF8(sf.name), i);
             if (i == m_sweep_path_ref) sel_idx = pos;
         }
         if (sel_idx != wxNOT_FOUND) m_sweep_path->SetSelection(sel_idx);
