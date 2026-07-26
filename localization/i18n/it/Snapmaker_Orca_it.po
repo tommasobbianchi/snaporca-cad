@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Snapmaker Orca\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-26 08:31+0200\n"
+"POT-Creation-Date: 2026-07-26 08:59+0200\n"
 "PO-Revision-Date: \n"
 "Last-Translator: \n"
 "Language-Team: \n"
@@ -20755,7 +20755,9 @@ msgstr "Spigolo (definisce la direzione nel piano)"
 msgid ""
 "Without an edge the frame takes X from the face's first edge — pick one to "
 "choose it yourself"
-msgstr "Senza uno spigolo il sistema prende X dal primo spigolo della faccia — selezionane uno per sceglierlo tu"
+msgstr ""
+"Senza uno spigolo il sistema prende X dal primo spigolo della faccia — "
+"selezionane uno per sceglierlo tu"
 
 msgid "X hint X"
 msgstr "Dir. X — X"
@@ -21474,6 +21476,10 @@ msgid "Editing sketch — drag a handle or click a quote to edit"
 msgstr ""
 "Modifica schizzo — trascina una maniglia o clicca una quota per modificarla"
 
+msgid ""
+"An imported solid has no parameters — use Transform to move or rotate it"
+msgstr "Un solido importato non ha parametri — usa Trasforma per spostarlo o ruotarlo"
+
 msgid "This feature type can't be edited yet"
 msgstr "Questo tipo di feature non è ancora modificabile"
 
@@ -21589,6 +21595,340 @@ msgstr ""
 
 msgid "No binding for that field"
 msgstr "Nessuna associazione per quel campo"
+
+msgid "All standard"
+msgstr "Tutti standard"
+
+#, c-format, boost-format
+msgid "Welcome to the %s Configuration Assistant"
+msgstr "Benvenuto nell'assistente di configurazione di %s"
+
+#, c-format, boost-format
+msgid "Welcome to the %s Configuration Wizard"
+msgstr "Benvenuto nella configurazione guidata di %s"
+
+msgid "Welcome"
+msgstr "Benvenuto"
+
+#, c-format, boost-format
+msgid ""
+"Hello, welcome to %s! This %s helps you with the initial configuration; just "
+"a few settings and you will be ready to print."
+msgstr "Ciao, benvenuto in %s! Questo %s ti aiuta con la configurazione iniziale: poche impostazioni e sarai pronto a stampare."
+
+msgid "Remove user profiles (a snapshot will be taken beforehand)"
+msgstr "Rimuovi i profili utente (verrà creato prima uno snapshot)"
+
+msgid ""
+"Perform desktop integration (Sets this binary to be searchable by the "
+"system)."
+msgstr "Esegui l'integrazione con il desktop (rende questo binario ricercabile dal sistema)."
+
+#, c-format, boost-format
+msgid "%s Family"
+msgstr "Famiglia %s"
+
+msgid "Printer:"
+msgstr "Stampante:"
+
+msgid "Vendor:"
+msgstr "Produttore:"
+
+msgid "Profile:"
+msgstr "Profilo:"
+
+msgid "(All)"
+msgstr "(Tutti)"
+
+#, boost-format
+msgid ""
+"%1% marked with <b>*</b> are <b>not</b> compatible with some installed "
+"printers."
+msgstr "%1% contrassegnati con <b>*</b> <b>non</b> sono compatibili con alcune stampanti installate."
+
+msgid "SLA materials"
+msgstr "materiali SLA"
+
+#, boost-format
+msgid "All installed printers are compatible with the selected %1%."
+msgstr "Tutte le stampanti installate sono compatibili con %1% selezionato."
+
+msgid "filament"
+msgstr "filamento"
+
+msgid "SLA material"
+msgstr "materiale SLA"
+
+msgid ""
+"Only the following installed printers are compatible with the selected "
+"filaments"
+msgstr "Solo le seguenti stampanti installate sono compatibili con i filamenti selezionati"
+
+msgid ""
+"Only the following installed printers are compatible with the selected SLA "
+"materials"
+msgstr "Solo le seguenti stampanti installate sono compatibili con i materiali SLA selezionati"
+
+msgid "Custom Printer Setup"
+msgstr "Configurazione stampante personalizzata"
+
+msgid "Custom Printer"
+msgstr "Stampante personalizzata"
+
+msgid "Define a custom printer profile"
+msgstr "Definisci un profilo stampante personalizzato"
+
+msgid "Custom profile name:"
+msgstr "Nome profilo personalizzato:"
+
+msgid "Firmware Type"
+msgstr "Tipo di firmware"
+
+msgid "Firmware"
+msgstr "Firmware"
+
+msgid "Choose the type of firmware used by your printer."
+msgstr "Scegli il tipo di firmware usato dalla stampante."
+
+msgid "Bed Shape and Size"
+msgstr "Forma e dimensioni del piano"
+
+msgid "Set the shape of your printer's bed."
+msgstr "Imposta la forma del piano della stampante."
+
+msgid "Invalid numeric input."
+msgstr "Input numerico non valido."
+
+msgid "Filament and Nozzle Diameters"
+msgstr "Diametri di filamento e ugello"
+
+msgid "Print Diameters"
+msgstr "Diametri di stampa"
+
+msgid "Enter the diameter of your printer's hot end nozzle."
+msgstr "Inserisci il diametro dell'ugello dell'hot end della stampante."
+
+msgid "Nozzle Diameter:"
+msgstr "Diametro ugello:"
+
+msgid "Enter the diameter of your filament."
+msgstr "Inserisci il diametro del filamento."
+
+msgid ""
+"Good precision is required, so use a caliper and do multiple measurements "
+"along the filament, then compute the average."
+msgstr "Serve una buona precisione: usa un calibro ed esegui più misurazioni lungo il filamento, poi calcolane la media."
+
+msgid "Filament Diameter:"
+msgstr "Diametro filamento:"
+
+msgid "Nozzle and Bed Temperatures"
+msgstr "Temperature di ugello e piano"
+
+msgid "Enter the nozzle_temperature needed for extruding your filament."
+msgstr "Inserisci la nozzle_temperature necessaria per estrudere il filamento."
+
+msgid "A rule of thumb is 160 to 230 °C for PLA, and 215 to 250 °C for ABS."
+msgstr "Come regola generale, da 160 a 230 °C per il PLA e da 215 a 250 °C per l'ABS."
+
+msgid "Extrusion Temperature:"
+msgstr "Temperatura di estrusione:"
+
+msgid ""
+"Enter the bed temperature needed for getting your filament to stick to your "
+"heated bed."
+msgstr "Inserisci la temperatura del piano necessaria perché il filamento aderisca al piano riscaldato."
+
+msgid ""
+"A rule of thumb is 60 °C for PLA and 110 °C for ABS. Leave zero if you have "
+"no heated bed."
+msgstr "Come regola generale, 60 °C per il PLA e 110 °C per l'ABS. Lascia zero se non hai un piano riscaldato."
+
+msgid "Bed Temperature:"
+msgstr "Temperatura del piano:"
+
+msgid "SLA Materials"
+msgstr "Materiali SLA"
+
+msgid "FFF Technology Printers"
+msgstr "Stampanti a tecnologia FFF"
+
+msgid "SLA Technology Printers"
+msgstr "Stampanti a tecnologia SLA"
+
+#, boost-format
+msgid ""
+"Following printer profiles has no default filament: %1%Please select one "
+"manually."
+msgstr "I seguenti profili stampante non hanno un filamento predefinito: %1%Selezionane uno manualmente."
+
+#, boost-format
+msgid ""
+"Following printer profiles has no default material: %1%Please select one "
+"manually."
+msgstr "I seguenti profili stampante non hanno un materiale predefinito: %1%Selezionane uno manualmente."
+
+msgid "The following FFF printer models have no filament selected:"
+msgstr "I seguenti modelli di stampante FFF non hanno un filamento selezionato:"
+
+msgid "Do you want to select default filaments for these FFF printer models?"
+msgstr "Vuoi selezionare i filamenti predefiniti per questi modelli di stampante FFF?"
+
+msgid "Configuration is edited in ConfigWizard"
+msgstr "La configurazione si modifica nella configurazione guidata"
+
+msgid "All user presets will be deleted."
+msgstr "Tutti i preset utente verranno eliminati."
+
+msgid "A new vendor was installed and one of its printers will be activated"
+msgid_plural ""
+"New vendors were installed and one of theirs printers will be activated"
+msgstr[0] "È stato installato un nuovo produttore e una delle sue stampanti verrà attivata"
+msgstr[1] "Sono stati installati nuovi produttori e una delle loro stampanti verrà attivata"
+
+msgid "A new Printer was installed and it will be activated."
+msgstr "È stata installata una nuova stampante e verrà attivata."
+
+msgid "Some Printers were uninstalled."
+msgstr "Alcune stampanti sono state disinstallate."
+
+msgid "A new filament was installed and it will be activated."
+msgstr "È stato installato un nuovo filamento e verrà attivato."
+
+msgid "A new SLA material was installed and it will be activated."
+msgstr "È stato installato un nuovo materiale SLA e verrà attivato."
+
+msgid "Some filaments were uninstalled."
+msgstr "Alcuni filamenti sono stati disinstallati."
+
+msgid "Custom printer was installed and it will be activated."
+msgstr "La stampante personalizzata è stata installata e verrà attivata."
+
+msgid "<Back"
+msgstr "<Indietro"
+
+msgid "Next>"
+msgstr "Avanti>"
+
+msgid "Filament Profiles Selection"
+msgstr "Selezione dei profili filamento"
+
+msgid "Configuration Assistant"
+msgstr "Assistente di configurazione"
+
+msgid "Configuration &Assistant"
+msgstr "&Assistente di configurazione"
+
+msgid "Configuration Wizard"
+msgstr "Configurazione guidata"
+
+msgid "Configuration &Wizard"
+msgstr "Configurazione &guidata"
+
+msgid "Add Mix"
+msgstr "Aggiungi miscela"
+
+msgid "Edit Mix"
+msgstr "Modifica miscela"
+
+msgid "Ratio"
+msgstr "Rapporto"
+
+msgid "Cycle"
+msgstr "Ciclo"
+
+msgid "Match"
+msgstr "Corrispondenza"
+
+msgid "Gradient"
+msgstr "Gradiente"
+
+msgid "Target Color"
+msgstr "Colore obiettivo"
+
+msgid "Please enter a valid 6-digit Hex value."
+msgstr "Inserisci un valore esadecimale valido a 6 cifre."
+
+msgid "Filament Selection"
+msgstr "Selezione filamento"
+
+msgid "Swap filaments"
+msgstr "Scambia filamenti"
+
+msgid "Mixing Ratio"
+msgstr "Rapporto di miscelazione"
+
+msgid "Mix Effect"
+msgstr "Effetto miscela"
+
+msgid "Min Mix Ratio"
+msgstr "Rapporto minimo di miscela"
+
+msgid "Allowed Input: Only digits, square brackets ([ and ]), and commas (,)."
+msgstr "Input ammesso: solo cifre, parentesi quadre ([ e ]) e virgole (,)."
+
+msgid "Mixing Recommendations"
+msgstr "Consigli di miscelazione"
+
+#, c-format, boost-format
+msgid ""
+"Filament %d and Filament %d cannot be mixed. Please select filaments of the "
+"same type."
+msgstr "Il filamento %d e il filamento %d non possono essere miscelati. Seleziona filamenti dello stesso tipo."
+
+msgid "Different filament types cannot be mixed. Please correct the settings."
+msgstr "Non è possibile miscelare tipi di filamento diversi. Correggi le impostazioni."
+
+msgid ""
+"Same filament colors cannot produce new colors. Please select different "
+"colors for mixing."
+msgstr "Colori di filamento uguali non possono produrre nuovi colori. Seleziona colori diversi per la miscelazione."
+
+msgid ""
+"Excessive filaments in the mix may affect the result. Please use with "
+"caution."
+msgstr "Troppi filamenti nella miscela possono comprometterne il risultato. Usa con cautela."
+
+#, c-format, boost-format
+msgid "Filament %d ratio is too high. Mix may be affected."
+msgstr "Il rapporto del filamento %d è troppo alto. La miscela potrebbe risentirne."
+
+msgid "Leading or trailing commas are not allowed."
+msgstr "Non sono ammesse virgole iniziali o finali."
+
+msgid ""
+"Invalid characters found. Only digits, square brackets ([ and ]), and commas "
+"(,) are allowed."
+msgstr "Caratteri non validi. Sono ammesse solo cifre, parentesi quadre ([ e ]) e virgole (,)."
+
+msgid "Unrecognized pattern format. Please check the pattern syntax."
+msgstr "Formato del motivo non riconosciuto. Controlla la sintassi del motivo."
+
+#, c-format, boost-format
+msgid "Filament %d not recognized. Please re-enter."
+msgstr "Filamento %d non riconosciuto. Reinseriscilo."
+
+msgid "Refresh Printers"
+msgstr "Aggiorna Stampanti"
+
+msgid "Overwrite a system profile is not allowed"
+msgstr "Non è consentito sovrascrivere un profilo di sistema"
+
+#, boost-format
+msgid "Preset \"%1%\" already exists and is incompatible with current printer."
+msgstr "Il preset \"%1%\" esiste già e non è compatibile con la stampante corrente."
+
+msgid "Please note that saving action will replace this preset"
+msgstr "Nota: il salvataggio sostituirà questo preset"
+
+msgid " The target machine model has not been detected. Please bind manually. "
+msgstr " Il modello di macchina di destinazione non è stato rilevato. Associalo manualmente. "
+
+msgid " connected sucessfully !\n"
+msgstr " connesso correttamente!\n"
+
+msgid "Machine Connected"
+msgstr "Macchina connessa"
 
 #~ msgid "Based on PrusaSlicer and BambuStudio"
 #~ msgstr "Basato su PrusaSlicer e BambuStudio"
@@ -22535,9 +22875,6 @@ msgstr "Nessuna associazione per quel campo"
 
 #~ msgid "Delete Filament"
 #~ msgstr "Elimina filamento"
-
-#~ msgid "Refresh Printers"
-#~ msgstr "Aggiorna Stampanti"
 
 #~ msgid ""
 #~ "Compared with the default profile of a 0.2 mm nozzle, it has a smaller "

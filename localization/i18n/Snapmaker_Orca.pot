@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-26 08:31+0200\n"
+"POT-Creation-Date: 2026-07-26 08:59+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18556,6 +18556,10 @@ msgstr ""
 msgid "Editing sketch — drag a handle or click a quote to edit"
 msgstr ""
 
+msgid ""
+"An imported solid has no parameters — use Transform to move or rotate it"
+msgstr ""
+
 msgid "This feature type can't be edited yet"
 msgstr ""
 
@@ -18668,4 +18672,338 @@ msgid ""
 msgstr ""
 
 msgid "No binding for that field"
+msgstr ""
+
+msgid "All standard"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Welcome to the %s Configuration Assistant"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Welcome to the %s Configuration Wizard"
+msgstr ""
+
+msgid "Welcome"
+msgstr ""
+
+#, c-format, boost-format
+msgid ""
+"Hello, welcome to %s! This %s helps you with the initial configuration; just "
+"a few settings and you will be ready to print."
+msgstr ""
+
+msgid "Remove user profiles (a snapshot will be taken beforehand)"
+msgstr ""
+
+msgid ""
+"Perform desktop integration (Sets this binary to be searchable by the "
+"system)."
+msgstr ""
+
+#, c-format, boost-format
+msgid "%s Family"
+msgstr ""
+
+msgid "Printer:"
+msgstr ""
+
+msgid "Vendor:"
+msgstr ""
+
+msgid "Profile:"
+msgstr ""
+
+msgid "(All)"
+msgstr ""
+
+#, boost-format
+msgid ""
+"%1% marked with <b>*</b> are <b>not</b> compatible with some installed "
+"printers."
+msgstr ""
+
+msgid "SLA materials"
+msgstr ""
+
+#, boost-format
+msgid "All installed printers are compatible with the selected %1%."
+msgstr ""
+
+msgid "filament"
+msgstr ""
+
+msgid "SLA material"
+msgstr ""
+
+msgid ""
+"Only the following installed printers are compatible with the selected "
+"filaments"
+msgstr ""
+
+msgid ""
+"Only the following installed printers are compatible with the selected SLA "
+"materials"
+msgstr ""
+
+msgid "Custom Printer Setup"
+msgstr ""
+
+msgid "Custom Printer"
+msgstr ""
+
+msgid "Define a custom printer profile"
+msgstr ""
+
+msgid "Custom profile name:"
+msgstr ""
+
+msgid "Firmware Type"
+msgstr ""
+
+msgid "Firmware"
+msgstr ""
+
+msgid "Choose the type of firmware used by your printer."
+msgstr ""
+
+msgid "Bed Shape and Size"
+msgstr ""
+
+msgid "Set the shape of your printer's bed."
+msgstr ""
+
+msgid "Invalid numeric input."
+msgstr ""
+
+msgid "Filament and Nozzle Diameters"
+msgstr ""
+
+msgid "Print Diameters"
+msgstr ""
+
+msgid "Enter the diameter of your printer's hot end nozzle."
+msgstr ""
+
+msgid "Nozzle Diameter:"
+msgstr ""
+
+msgid "Enter the diameter of your filament."
+msgstr ""
+
+msgid ""
+"Good precision is required, so use a caliper and do multiple measurements "
+"along the filament, then compute the average."
+msgstr ""
+
+msgid "Filament Diameter:"
+msgstr ""
+
+msgid "Nozzle and Bed Temperatures"
+msgstr ""
+
+msgid "Enter the nozzle_temperature needed for extruding your filament."
+msgstr ""
+
+msgid "A rule of thumb is 160 to 230 °C for PLA, and 215 to 250 °C for ABS."
+msgstr ""
+
+msgid "Extrusion Temperature:"
+msgstr ""
+
+msgid ""
+"Enter the bed temperature needed for getting your filament to stick to your "
+"heated bed."
+msgstr ""
+
+msgid ""
+"A rule of thumb is 60 °C for PLA and 110 °C for ABS. Leave zero if you have "
+"no heated bed."
+msgstr ""
+
+msgid "Bed Temperature:"
+msgstr ""
+
+msgid "SLA Materials"
+msgstr ""
+
+msgid "FFF Technology Printers"
+msgstr ""
+
+msgid "SLA Technology Printers"
+msgstr ""
+
+#, boost-format
+msgid ""
+"Following printer profiles has no default filament: %1%Please select one "
+"manually."
+msgstr ""
+
+#, boost-format
+msgid ""
+"Following printer profiles has no default material: %1%Please select one "
+"manually."
+msgstr ""
+
+msgid "The following FFF printer models have no filament selected:"
+msgstr ""
+
+msgid "Do you want to select default filaments for these FFF printer models?"
+msgstr ""
+
+msgid "Configuration is edited in ConfigWizard"
+msgstr ""
+
+msgid "All user presets will be deleted."
+msgstr ""
+
+msgid "A new vendor was installed and one of its printers will be activated"
+msgid_plural ""
+"New vendors were installed and one of theirs printers will be activated"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "A new Printer was installed and it will be activated."
+msgstr ""
+
+msgid "Some Printers were uninstalled."
+msgstr ""
+
+msgid "A new filament was installed and it will be activated."
+msgstr ""
+
+msgid "A new SLA material was installed and it will be activated."
+msgstr ""
+
+msgid "Some filaments were uninstalled."
+msgstr ""
+
+msgid "Custom printer was installed and it will be activated."
+msgstr ""
+
+msgid "<Back"
+msgstr ""
+
+msgid "Next>"
+msgstr ""
+
+msgid "Filament Profiles Selection"
+msgstr ""
+
+msgid "Configuration Assistant"
+msgstr ""
+
+msgid "Configuration &Assistant"
+msgstr ""
+
+msgid "Configuration Wizard"
+msgstr ""
+
+msgid "Configuration &Wizard"
+msgstr ""
+
+msgid "Add Mix"
+msgstr ""
+
+msgid "Edit Mix"
+msgstr ""
+
+msgid "Ratio"
+msgstr ""
+
+msgid "Cycle"
+msgstr ""
+
+msgid "Match"
+msgstr ""
+
+msgid "Gradient"
+msgstr ""
+
+msgid "Target Color"
+msgstr ""
+
+msgid "Please enter a valid 6-digit Hex value."
+msgstr ""
+
+msgid "Filament Selection"
+msgstr ""
+
+msgid "Swap filaments"
+msgstr ""
+
+msgid "Mixing Ratio"
+msgstr ""
+
+msgid "Mix Effect"
+msgstr ""
+
+msgid "Min Mix Ratio"
+msgstr ""
+
+msgid "Allowed Input: Only digits, square brackets ([ and ]), and commas (,)."
+msgstr ""
+
+msgid "Mixing Recommendations"
+msgstr ""
+
+#, c-format, boost-format
+msgid ""
+"Filament %d and Filament %d cannot be mixed. Please select filaments of the "
+"same type."
+msgstr ""
+
+msgid "Different filament types cannot be mixed. Please correct the settings."
+msgstr ""
+
+msgid ""
+"Same filament colors cannot produce new colors. Please select different "
+"colors for mixing."
+msgstr ""
+
+msgid ""
+"Excessive filaments in the mix may affect the result. Please use with "
+"caution."
+msgstr ""
+
+#, c-format, boost-format
+msgid "Filament %d ratio is too high. Mix may be affected."
+msgstr ""
+
+msgid "Leading or trailing commas are not allowed."
+msgstr ""
+
+msgid ""
+"Invalid characters found. Only digits, square brackets ([ and ]), and commas "
+"(,) are allowed."
+msgstr ""
+
+msgid "Unrecognized pattern format. Please check the pattern syntax."
+msgstr ""
+
+#, c-format, boost-format
+msgid "Filament %d not recognized. Please re-enter."
+msgstr ""
+
+msgid "Refresh Printers"
+msgstr ""
+
+msgid "Overwrite a system profile is not allowed"
+msgstr ""
+
+#, boost-format
+msgid "Preset \"%1%\" already exists and is incompatible with current printer."
+msgstr ""
+
+msgid "Please note that saving action will replace this preset"
+msgstr ""
+
+msgid " The target machine model has not been detected. Please bind manually. "
+msgstr ""
+
+msgid " connected sucessfully !\n"
+msgstr ""
+
+msgid "Machine Connected"
 msgstr ""
