@@ -5,6 +5,7 @@
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/Format/STL.hpp"
 #include "libslic3r/miniz_extension.hpp"
+#include "libslic3r/Utils.hpp"   // set_temporary_dir
 
 #include <boost/filesystem/operations.hpp>
 #include <boost/algorithm/string/predicate.hpp>
@@ -19,6 +20,16 @@ using namespace Slic3r;
 // (recipe -> editable feature tree) is verified live on the Design tab.
 SCENARIO("CAD recipe is embedded in the BBS 3mf archive", "[3mf]") {
     GIVEN("a model carrying a binary cad_recipe") {
+        // store_bbs_3mf reaches Model::get_backup_path(), which builds
+        // temporary_dir() + "/orcaslicer_model/...". temporary_dir() is a static that ONLY
+        // OrcaSlicer.cpp's startup sets, so in a test binary it is the empty string and the
+        // backup path becomes "/orcaslicer_model/..." — absolute, at the filesystem root.
+        // The CI runners cannot create that, so the test died on
+        // "create_directories: Permission denied". It passed locally only because the build
+        // container runs as root, and on Windows only because that drive root is writable —
+        // which is why this went unnoticed until Unit Tests first ran to completion.
+        set_temporary_dir(boost::filesystem::temp_directory_path().string());
+
         Model model;
         std::string src = std::string(TEST_DATA_DIR) + "/test_3mf/Prusa.stl";
         load_stl(src.c_str(), &model);
