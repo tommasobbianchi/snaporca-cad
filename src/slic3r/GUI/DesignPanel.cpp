@@ -8440,6 +8440,23 @@ void DesignPanel::open_tool(Tool t)
                 wxString::FromUTF8(m_doc.features[m_surf_fill_sketch_ref].name));
     }
 
+    // Shell and Draft both take their face from the live pick at Confirm time, but until now
+    // only the PICK handler wrote their labels. So the natural order — pick the face, then open
+    // the card — left Shell reading "(all faces — closed hollow)" and Draft "(pick a side face)"
+    // while Confirm went on to use m_sel_solid_face regardless: the card described one operation
+    // and performed another. Initialise from the current selection here, exactly as Extrude does
+    // with m_extrude_face_src below. Skipped while re-editing, because load_feature_into_dialog
+    // has already written the label from the feature's own stored face and runs before this.
+    if (t == Tool::Shell && m_edit_index < 0)
+        m_shell_face_label->SetLabel(m_sel_solid_face >= 0
+            ? wxString::Format(_L("Face %d"), m_sel_solid_face)
+            : _L("(all faces — closed hollow)"));
+
+    if (t == Tool::Draft && m_edit_index < 0)
+        m_draft_face_label->SetLabel(m_sel_solid_face >= 0
+            ? wxString::Format(_L("Face %d"), m_sel_solid_face)
+            : _L("(pick a side face)"));
+
     if (t == Tool::Extrude) {
         if (m_extrude_face_src >= 0)
             m_extrude_sketch_label->SetLabel(
