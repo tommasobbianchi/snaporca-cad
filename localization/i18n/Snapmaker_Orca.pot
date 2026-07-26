@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-09-28 18:44+0800\n"
+"POT-Creation-Date: 2026-07-26 08:31+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -123,7 +123,7 @@ msgstr ""
 msgid "Gap Fill"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Allows painting only on facets selected by: \"%1%\""
 msgstr ""
 
@@ -142,7 +142,7 @@ msgstr ""
 msgid "Lay on face"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Filament count exceeds the maximum number that painting tool supports. Only "
 "the first %1% filaments will be available in painting tool."
@@ -202,6 +202,17 @@ msgstr ""
 msgid "Shortcut Key "
 msgstr ""
 
+#, c-format, boost-format
+msgid "Filament %d"
+msgstr ""
+
+msgid "Selected filament"
+msgstr ""
+
+#, c-format, boost-format
+msgid "/ %d"
+msgstr ""
+
 msgid "Triangle"
 msgstr ""
 
@@ -217,7 +228,7 @@ msgstr ""
 msgid "Remove painted color"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Painted using: Filament %1%"
 msgstr ""
 
@@ -549,13 +560,13 @@ msgstr ""
 msgid "Invalid connectors detected"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%1$d connector is out of cut contour"
 msgid_plural "%1$d connectors are out of cut contour"
 msgstr[0] ""
 msgstr[1] ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%1$d connector is out of object"
 msgid_plural "%1$d connectors are out of object"
 msgstr[0] ""
@@ -600,7 +611,7 @@ msgstr ""
 msgid "Decimate ratio"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Processing model '%1%' with more than 1M triangles could be slow. It is "
 "highly recommended to simplify the model."
@@ -633,7 +644,7 @@ msgstr ""
 msgid "Extra low"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%d triangles"
 msgstr ""
 
@@ -798,7 +809,7 @@ msgstr ""
 msgid "Revert font changes."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Font \"%1%\" can't be selected."
 msgstr ""
 
@@ -830,7 +841,7 @@ msgstr ""
 msgid "Change Text Type"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Rename style (%1%) for embossing text"
 msgstr ""
 
@@ -855,7 +866,7 @@ msgstr ""
 msgid "First Add style to list."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Save %1% style"
 msgstr ""
 
@@ -883,31 +894,31 @@ msgstr ""
 msgid "Can't remove the last existing style."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Are you sure you want to permanently remove the \"%1%\" style?"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Delete \"%1%\" style."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Can't delete \"%1%\". It is last style."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Can't delete temporary style \"%1%\"."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Modified style \"%1%\""
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Current style is \"%1%\""
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Changing style to \"%1%\" will discard current style modification.\n"
 "\n"
@@ -917,7 +928,7 @@ msgstr ""
 msgid "Not valid style."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Style \"%1%\" can't be used and will be removed from a list."
 msgstr ""
 
@@ -1038,11 +1049,11 @@ msgstr ""
 msgid "Orient the text towards the camera."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Font \"%1%\" can't be used. Please select another."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Can't load exactly same font (\"%1%\"). Application selected a similar one "
 "(\"%2%\"). You have to specify font for enable edit text."
@@ -1135,11 +1146,11 @@ msgstr ""
 msgid "SVG"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Opacity (%1%)"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Color gradient (%1%)"
 msgstr ""
 
@@ -1166,20 +1177,20 @@ msgid ""
 "coordinate."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Shape is marked as invisible (%1%)."
 msgstr ""
 
 #. TRN: The first placeholder is shape identifier, the second is text describing the problem.
-#, possible-boost-format
+#, boost-format
 msgid "Fill of shape (%1%) contains unsupported: %2%."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Stroke of shape (%1%) is too thin (minimal width is %2% mm)."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Stroke of shape (%1%) contains unsupported: %2%."
 msgstr ""
 
@@ -1190,7 +1201,7 @@ msgstr ""
 msgid "Unknown filename"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "SVG file path is \"%1%\""
 msgstr ""
 
@@ -1232,7 +1243,7 @@ msgid "Size in emboss direction."
 msgstr ""
 
 #. TRN: The placeholder contains a number.
-#, possible-boost-format
+#, boost-format
 msgid "Scale also changes amount of curve samples (%1%)"
 msgstr ""
 
@@ -1277,19 +1288,19 @@ msgstr ""
 msgid "Choose SVG file for emboss:"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "File does NOT exist (%1%)."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Filename has to end with \".svg\" but you selected %1%"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Nano SVG parser can't load from file (%1%)."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "SVG file does NOT contain a single path to be embossed (%1%)."
 msgstr ""
 
@@ -1442,11 +1453,12 @@ msgstr ""
 msgid "Undefined"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "%1% was replaced with %2%"
 msgstr ""
 
-msgid "The configuration may be generated by a newer version of Snapmaker Orca."
+msgid ""
+"The configuration may be generated by a newer version of Snapmaker Orca."
 msgstr ""
 
 msgid "Some values have been replaced. Please check them:"
@@ -1464,17 +1476,14 @@ msgstr ""
 msgid "Configuration package was loaded, but some values were not recognized."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Configuration file \"%1%\" was loaded, but some values were not recognized."
 msgstr ""
 
-msgid "Based on PrusaSlicer and BambuStudio"
-msgstr ""
-
 msgid ""
-"Snapmaker Orca will terminate because of running out of memory. It may be a bug. "
-"It will be appreciated if you report the issue to our team."
+"Snapmaker Orca will terminate because of running out of memory.It may be a "
+"bug. It will be appreciated if you report the issue to our team."
 msgstr ""
 
 msgid "Fatal error"
@@ -1488,7 +1497,7 @@ msgstr ""
 msgid "Critical error"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Snapmaker Orca got an unhandled exception: %1%"
 msgstr ""
 
@@ -1504,7 +1513,7 @@ msgstr ""
 msgid "Incorrect password"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Connect %s failed! [SN:%s, code=%s]"
 msgstr ""
 
@@ -1517,11 +1526,11 @@ msgstr ""
 msgid "WebView2 Runtime"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Resources path does not exist or is not a directory: %s"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "%s\n"
 "Do you want to continue?"
@@ -1530,10 +1539,7 @@ msgstr ""
 msgid "Remember my choice"
 msgstr ""
 
-msgid "Loading configuration"
-msgstr ""
-
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Click to download new version in default browser: %s"
 msgstr ""
 
@@ -1546,8 +1552,12 @@ msgstr ""
 msgid "Info"
 msgstr ""
 
+msgid "The configuration is up to date."
+msgstr ""
+
 msgid ""
-"The Snapmaker Orca configuration file may be corrupted and cannot be parsed.\n"
+"The Snapmaker Orca configuration file may be corrupted and cannot be "
+"parsed.\n"
 "Snapmaker Orca has attempted to recreate the configuration file.\n"
 "Please note, application settings will be lost, but printer profiles will "
 "not be affected."
@@ -1577,6 +1587,9 @@ msgstr ""
 msgid "Choose one file (gcode/3mf):"
 msgstr ""
 
+msgid "import failed!"
+msgstr ""
+
 msgid "Some presets are modified."
 msgstr ""
 
@@ -1595,11 +1608,12 @@ msgid "Open Project"
 msgstr ""
 
 msgid ""
-"The version of Snapmaker Orca is too low and needs to be updated to the latest "
-"version before it can be used normally."
+"The version of Snapmaker Orca is too low and needs to be updated to the "
+"latest version before it can be used normally"
 msgstr ""
 
-msgid "Privacy Policy Update"
+#, c-format, boost-format
+msgid "request to server update soft fail with body:%s,error:%s,status:%d"
 msgstr ""
 
 msgid ""
@@ -1660,8 +1674,15 @@ msgstr ""
 msgid "Snapmaker Orca GUI initialization failed"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Fatal error, exception caught: %1%"
+msgstr ""
+
+msgid "Default"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Mixed Filament %d"
 msgstr ""
 
 msgid "Quality"
@@ -1873,13 +1894,6 @@ msgstr ""
 msgid "Set filament for selected items"
 msgstr ""
 
-msgid "Default"
-msgstr ""
-
-#, possible-c-format, possible-boost-format
-msgid "Filament %d"
-msgstr ""
-
 msgid "current"
 msgstr ""
 
@@ -2003,43 +2017,13 @@ msgstr ""
 msgid "Auto orient the object to improve print quality."
 msgstr ""
 
+msgid "Edit"
+msgstr ""
+
+msgid "Delete this filament"
+msgstr ""
+
 msgid "Merge with"
-msgstr ""
-
-msgid "Import Profile"
-msgstr ""
-
-msgid "Import Web Resource"
-msgstr ""
-
-msgid "The following profiles could not be imported due to outdated versions."
-msgstr ""
-
-msgid "This web resouce could not be imported due to outdated versions."
-msgstr ""
-
-msgid "Import Failed"
-msgstr ""
-
-msgid "Please choose a system profile package file:"
-msgstr ""
-
-msgid "Please choose a web resource package file:"
-msgstr ""
-
-msgid "Updating the web resources requires application restart."
-msgstr ""
-
-msgid "Updating the system resources requires application restart."
-msgstr ""
-
-msgid "Print Preprocessing"
-msgstr ""
-
-msgid "Pretreat the uploaded content"
-msgstr ""
-
-msgid "Wait for the temperature when changing tools"
 msgstr ""
 
 msgid "Select All"
@@ -2117,13 +2101,13 @@ msgstr ""
 msgid "Fila."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%1$d error repaired"
 msgid_plural "%1$d errors repaired"
 msgstr[0] ""
 msgstr[1] ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Error: %1$d non-manifold edge."
 msgid_plural "Error: %1$d non-manifold edges."
 msgstr[0] ""
@@ -2132,7 +2116,7 @@ msgstr[1] ""
 msgid "Remaining errors"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%1$d non-manifold edge"
 msgid_plural "%1$d non-manifold edges"
 msgstr[0] ""
@@ -2573,9 +2557,6 @@ msgid ""
 "load or unload filaments."
 msgstr ""
 
-msgid "Edit"
-msgstr ""
-
 msgid ""
 "All the selected objects are on a locked plate.\n"
 "Cannot auto-arrange these objects."
@@ -2609,7 +2590,7 @@ msgid ""
 "Arrange failed. Found some exceptions when processing object geometries."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "Arrangement ignored the following objects which can't fit into a single "
 "bed:\n"
@@ -2723,15 +2704,15 @@ msgstr ""
 msgid "Sending print configuration"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Successfully sent. Will automatically jump to the device page in %ss"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Successfully sent. Will automatically jump to the next page in %ss"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Access code:%s IP address:%s"
 msgstr ""
 
@@ -2744,7 +2725,7 @@ msgstr ""
 msgid "Sending G-code file to SD card"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Successfully sent. Close current page in %s s"
 msgstr ""
 
@@ -2812,7 +2793,7 @@ msgstr ""
 msgid "GNU Affero General Public License, version 3"
 msgstr ""
 
-msgid "Snapmaker Orca is based on PrusaSlicer and BambuStudio"
+msgid "Snapmaker Orca is Based on Orca Slicer"
 msgstr ""
 
 msgid "Libraries"
@@ -2823,22 +2804,36 @@ msgid ""
 "proprietary rights belong to their respective owners"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "About %s"
 msgstr ""
 
-msgid "Snapmaker Orca is based on BambuStudio, PrusaSlicer, and SuperSlicer."
+msgid "Snapmaker Orca "
 msgstr ""
 
-msgid "BambuStudio is originally based on PrusaSlicer by PrusaResearch."
+msgid "Note: The firmware version of SnapmakerU1 should be no less than"
 msgstr ""
 
-msgid "PrusaSlicer is originally based on Slic3r by Alessandro Ranellucci."
+msgid "Snapmaker Orca is forked from Orca Slicer by SoftFever."
+msgstr ""
+
+msgid "OrcaSlicer is forked from Bambu Studio by Bambu Lab."
 msgstr ""
 
 msgid ""
-"Slic3r was created by Alessandro Ranellucci with the help of many other "
-"contributors."
+"Bambu Studio is forked from PrusaSlicer by Prusa Research, which is from "
+"Slic3r by Alessandro Ranellucci and the RepRap community. Orca Slicer "
+"incorporates a lot of features from SuperSlicer by @supermerill."
+msgstr ""
+
+msgid ""
+"Snapmaker Orca integrates some features from the 3D printing open-source "
+"community, with specific attributions provided in the code comments."
+msgstr ""
+
+msgid ""
+"Snapmaker Orca is licensed under the GNU Affero General Public License, "
+"version 3."
 msgstr ""
 
 msgid "Version"
@@ -2864,7 +2859,7 @@ msgstr ""
 msgid "min"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "The input value should be greater than %1% and less than %2%"
 msgstr ""
 
@@ -2895,11 +2890,11 @@ msgstr ""
 msgid "You need to select the material type and color first."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Please input a valid value (K in %.1f~%.1f)"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Please input a valid value (K in %.1f~%.1f, N in %.1f~%.1f)"
 msgstr ""
 
@@ -2957,14 +2952,14 @@ msgstr ""
 msgid "Example"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Calibrating... %d%%"
 msgstr ""
 
 msgid "Calibration completed"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%s does not support %s"
 msgstr ""
 
@@ -3155,7 +3150,7 @@ msgid ""
 "program"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "A fatal error occurred: \"%1%\""
 msgstr ""
 
@@ -3198,46 +3193,46 @@ msgstr ""
 msgid "Unknown error occurred during exporting G-code."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Copying of the temporary G-code to the output G-code failed. Maybe the SD "
 "card is write locked?\n"
 "Error message: %1%"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Copying of the temporary G-code to the output G-code failed. There might be "
 "problem with target device, please try exporting again or using different "
 "device. The corrupted output G-code is at %1%.tmp."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Renaming of the G-code after copying to the selected destination folder has "
 "failed. Current path is %1%.tmp. Please try exporting again."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Copying of the temporary G-code has finished but the original code at %1% "
 "couldn't be opened during copy check. The output G-code is at %2%.tmp."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Copying of the temporary G-code has finished but the exported code couldn't "
 "be opened during copy check. The output G-code is at %1%.tmp."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "G-code file exported to %1%"
 msgstr ""
 
 msgid "Unknown error when exporting G-code."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Failed to save G-code file.\n"
 "Error message: %1%.\n"
@@ -3247,7 +3242,7 @@ msgstr ""
 msgid "Copying of the temporary G-code to the output G-code failed"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Scheduling upload to `%1%`. See Window -> Print Host Upload Queue"
 msgstr ""
 
@@ -3266,11 +3261,11 @@ msgstr ""
 msgid "Select connected printers (0/6)"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Select Connected Printers (%d/6)"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "The maximum number of printers that can be selected is %d"
 msgstr ""
 
@@ -3548,7 +3543,7 @@ msgid ""
 "\n"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "The recommended nozzle temperature for this filament type is [%d, %d] "
 "degrees Celsius."
@@ -3559,7 +3554,7 @@ msgid ""
 "Reset to 0.5."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "Current chamber temperature is higher than the material's safe temperature, "
 "this may result in material softening and clogging. The maximum safe "
@@ -3638,6 +3633,7 @@ msgid ""
 "Reset to 0."
 msgstr ""
 
+#, c-format, boost-format
 msgid ""
 "Lock depth should smaller than skin depth.\n"
 "Reset to 50% of skin depth."
@@ -3854,7 +3850,7 @@ msgstr ""
 msgid "default"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Edit Custom G-code (%1%)"
 msgstr ""
 
@@ -3897,7 +3893,7 @@ msgstr ""
 msgid "Timestamps"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Specific for %1%"
 msgstr ""
 
@@ -3919,32 +3915,32 @@ msgstr ""
 msgid "parameter name"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%s can't be a percentage"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Value %s is out of range, continue?"
 msgstr ""
 
 msgid "Parameter validation"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Value %s is out of range. The valid range is from %d to %d."
 msgstr ""
 
 msgid "Value is out of range."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "Is it %s%% or %s %s?\n"
 "YES for %s%%, \n"
 "NO for %s %s."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Invalid input format. Expected vector of dimensions in the following format: "
 "\"%1%\""
@@ -3964,7 +3960,7 @@ msgid ""
 "entry. Examples: 5, 5#2, 1,7,9, 5,9#2,18."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Invalid format. Expected vector format: \"%1%\""
 msgstr ""
 
@@ -4316,7 +4312,7 @@ msgstr ""
 msgid "Size:"
 msgstr ""
 
-#, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "Conflicts of G-code paths have been found at layer %d, z = %.2lf mm. Please "
 "separate the conflicted objects farther (%s <-> %s)."
@@ -4437,6 +4433,9 @@ msgstr ""
 msgid "Logging"
 msgstr ""
 
+msgid "Design"
+msgstr ""
+
 msgid "Preview"
 msgstr ""
 
@@ -4470,12 +4469,6 @@ msgstr ""
 msgid "Export all sliced file"
 msgstr ""
 
-msgid "Print all"
-msgstr ""
-
-msgid "Send all"
-msgstr ""
-
 msgid "Keyboard Shortcuts"
 msgstr ""
 
@@ -4488,16 +4481,34 @@ msgstr ""
 msgid "Show Configuration Folder"
 msgstr ""
 
+msgid "Export Logs"
+msgstr ""
+
+msgid "Export application logs as ZIP file"
+msgstr ""
+
 msgid "Show Tip of the Day"
 msgstr ""
 
 msgid "Check for Update"
 msgstr ""
 
+msgid "Check for Process Preset Updates"
+msgstr ""
+
+msgid "Check for Web Resource Updates"
+msgstr ""
+
+msgid "Import Profile"
+msgstr ""
+
+msgid "Import Web Resource"
+msgstr ""
+
 msgid "Open Network Test"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "&About %s"
 msgstr ""
 
@@ -4560,7 +4571,7 @@ msgstr ""
 msgid "Open a project file"
 msgstr ""
 
-msgid "Recent files"
+msgid "Recent projects"
 msgstr ""
 
 msgid "Save Project"
@@ -4838,7 +4849,7 @@ msgstr ""
 msgid "&Quit"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Quit %s"
 msgstr ""
 
@@ -4851,11 +4862,11 @@ msgstr ""
 msgid "&Help"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "A file exists with the same name: %s, do you want to overwrite it?"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "A config exists with the same name: %s, do you want to overwrite it?"
 msgstr ""
 
@@ -4874,7 +4885,7 @@ msgstr ""
 msgid "Choose a directory"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "There is %d config exported. (Only non-system configs)"
 msgid_plural "There are %d configs exported. (Only non-system configs)"
 msgstr[0] ""
@@ -4886,7 +4897,7 @@ msgstr ""
 msgid "Select profile to load:"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "There is %d config imported. (Only non-system and compatible configs)"
 msgid_plural ""
 "There are %d configs imported. (Only non-system and compatible configs)"
@@ -4908,7 +4919,30 @@ msgstr ""
 msgid "The project is no longer available."
 msgstr ""
 
+msgid "downloading the model"
+msgstr ""
+
+#, c-format, boost-format
+msgid "The downloaded file '%s' is not a valid 3MF project file."
+msgstr ""
+
+msgid "Invalid File"
+msgstr ""
+
 msgid "Filament Settings"
+msgstr ""
+
+msgid "No logs found."
+msgstr ""
+
+msgid "Save logs as ZIP file"
+msgstr ""
+
+msgid "Logs exported successfully."
+msgstr ""
+
+#, c-format, boost-format
+msgid "Failed to export logs: %s"
 msgstr ""
 
 msgid ""
@@ -4986,7 +5020,7 @@ msgid ""
 "Do you want to stop this virtual camera?"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Virtual camera initialize failed (%s)!"
 msgstr ""
 
@@ -5078,7 +5112,7 @@ msgstr ""
 msgid "Browsing file in SD card is not supported in LAN Only Mode."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "You are going to delete %u file from printer. Are you sure to continue?"
 msgid_plural ""
 "You are going to delete %u files from printer. Are you sure to continue?"
@@ -5088,7 +5122,7 @@ msgstr[1] ""
 msgid "Delete files"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Do you want to delete the file '%s' from printer?"
 msgstr ""
 
@@ -5105,15 +5139,15 @@ msgid "Failed to parse model information."
 msgstr ""
 
 msgid ""
-"The .gcode.3mf file contains no G-code data. Please slice it with Orca "
-"Slicer and export a new .gcode.3mf file."
+"The .gcode.3mf file contains no G-code data. Please slice it with Snapmaker "
+"Orca and export a new .gcode.3mf file."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "File '%s' was lost! Please download it again."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "File: %s\n"
 "Title: %s\n"
@@ -5131,7 +5165,7 @@ msgstr ""
 msgid "Download finished"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Downloading %d%%..."
 msgstr ""
 
@@ -5152,7 +5186,7 @@ msgstr ""
 msgid "Storage unavailable, insert SD card."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Error code: %d"
 msgstr ""
 
@@ -5274,15 +5308,15 @@ msgstr ""
 msgid "Cloud Slicing..."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "In Cloud Slicing Queue, there are %s tasks ahead."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Layer: %s"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Layer: %d/%d"
 msgstr ""
 
@@ -5410,6 +5444,65 @@ msgid ""
 "to give a positive rating (4 or 5 stars)."
 msgstr ""
 
+msgid "select file"
+msgstr ""
+
+msgid "UpLoad Failed"
+msgstr ""
+
+msgid " has already been uploaded"
+msgstr ""
+
+msgid "UpLoad Successfully"
+msgstr ""
+
+msgid "Save file"
+msgstr ""
+
+msgid " download failed"
+msgstr ""
+
+msgid "DownLoad Failed"
+msgstr ""
+
+msgid " has already been downloaded"
+msgstr ""
+
+msgid "DownLoad Successfully"
+msgstr ""
+
+msgid "setting failed"
+msgstr ""
+
+msgid "Print Job Setting"
+msgstr ""
+
+msgid "Create Failed"
+msgstr ""
+
+msgid ""
+"Connection has been disconnected and recovery attempt failed. Please "
+"reconnect."
+msgstr ""
+
+msgid "Machine Disconnected"
+msgstr ""
+
+msgid "The target machine model has been detected as"
+msgstr ""
+
+msgid "Please bind the nozzle information"
+msgstr ""
+
+msgid "Nozzle Bind"
+msgstr ""
+
+msgid "The target machine model has not been detected. Please bind manually."
+msgstr ""
+
+msgid "Machine Bind"
+msgstr ""
+
 msgid "Status"
 msgstr ""
 
@@ -5419,39 +5512,36 @@ msgstr ""
 msgid "Don't show again"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%s error"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%s has encountered an error"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%s warning"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%s has a warning"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%s info"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%s information"
-msgstr ""
-
-msgid "Skip"
 msgstr ""
 
 msgid "Newer 3mf version"
 msgstr ""
 
 msgid ""
-"The 3mf file version is in Beta and it is newer than the current Snapmaker Orca "
-"version."
+"The 3mf file version is in Beta and it is newer than the current Snapmaker "
+"Orca version."
 msgstr ""
 
 msgid "If you would like to try Snapmaker Orca Beta, you may click to"
@@ -5463,7 +5553,8 @@ msgstr ""
 msgid "The 3mf file version is newer than the current Snapmaker Orca version."
 msgstr ""
 
-msgid "Update your Snapmaker Orca could enable all functionality in the 3mf file."
+msgid ""
+"Updating your Snapmaker Orca could enable all functionality in the 3MF file."
 msgstr ""
 
 msgid "Current Version: "
@@ -5542,25 +5633,25 @@ msgstr ""
 msgid "Safely remove hardware."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%1$d Object has custom supports."
 msgid_plural "%1$d Objects have custom supports."
 msgstr[0] ""
 msgstr[1] ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%1$d Object has color painting."
 msgid_plural "%1$d Objects have color painting."
 msgstr[0] ""
 msgstr[1] ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%1$d object was loaded as a part of cut object."
 msgid_plural "%1$d objects were loaded as parts of cut object."
 msgstr[0] ""
 msgstr[1] ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%1$d object was loaded with fuzzy skin painting."
 msgid_plural "%1$d objects were loaded with fuzzy skin painting."
 msgstr[0] ""
@@ -5640,7 +5731,7 @@ msgstr ""
 msgid "Unsupported OpenGL version"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "Unable to load shaders:\n"
 "%s"
@@ -5698,7 +5789,7 @@ msgstr ""
 msgid "Nozzle Type"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%.1f"
 msgstr ""
 
@@ -5744,8 +5835,11 @@ msgstr ""
 msgid "Customize current plate"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid " plate %1%:"
+msgstr ""
+
+msgid "Nozzle"
 msgstr ""
 
 msgid "Invalid name, the following characters are not allowed:"
@@ -5772,22 +5866,116 @@ msgstr ""
 msgid "Filament changes"
 msgstr ""
 
-msgid "Click to edit preset"
+msgid "Add Color"
 msgstr ""
 
-msgid "Connection"
+msgid ""
+"Pick from the current filament gamut. The dialog previews the closest 2-"
+"color, 3-color, or 4-color FilamentMixer recipe before it is added."
+msgstr ""
+
+msgid "Hex"
+msgstr ""
+
+msgid ""
+"Enter a hex color like #00FF88. The picker will snap to the closest "
+"supported FilamentMixer color."
+msgstr ""
+
+msgid ""
+"Classic color picker. The result will snap to the closest supported "
+"FilamentMixer color."
+msgstr ""
+
+msgid ""
+"Minimum percent for each participating color. Higher values block highly "
+"skewed mixes."
+msgstr ""
+
+msgid "Requested"
+msgstr ""
+
+msgid "Creates"
+msgstr ""
+
+msgid "Exact preset mixes"
+msgstr ""
+
+msgid "Matching closest supported mix..."
+msgstr ""
+
+msgid "Calculating closest supported mix..."
+msgstr ""
+
+#, c-format, boost-format
+msgid "%d%% min"
+msgstr ""
+
+msgid "Use a valid hex color like #00FF88."
+msgstr ""
+
+msgid "No supported 2-color, 3-color, or 4-color recipe found."
+msgstr ""
+
+#, c-format, boost-format
+msgid "Matching %s..."
+msgstr ""
+
+#, c-format, boost-format
+msgid "Requested %s, closest recipe delta: %.2f"
+msgstr ""
+
+msgid ""
+"Unable to create a color mix from the current physical filament colors "
+"within the selected range."
+msgstr ""
+
+msgid "Brass"
+msgstr ""
+
+msgid "Synchronize nozzle information"
+msgstr ""
+
+msgid ""
+"Printer not connected. Please go to the home page or the device page to "
+"connect the printer."
+msgstr ""
+
+msgid "Note"
+msgstr ""
+
+msgid ""
+"No nozzle information detected. Please go to the printer settings to "
+"configure the nozzle."
+msgstr ""
+
+msgid ""
+"Note: Inconsistent nozzle diameters. Current version does not support mixed "
+"diameter printing. Please select one nozzle for this print."
+msgstr ""
+
+msgid "Set Nozzle Diameter"
+msgstr ""
+
+msgid "Nozzle settings synchronized successfully"
+msgstr ""
+
+msgid "settings"
+msgstr ""
+
+msgid "Connect to printer"
+msgstr ""
+
+msgid "The machine has been connected and is currently in working mode"
 msgstr ""
 
 msgid "Bed type"
 msgstr ""
 
+msgid "Filament Management"
+msgstr ""
+
 msgid "Flushing volumes"
-msgstr ""
-
-msgid "Add one filament"
-msgstr ""
-
-msgid "Remove last filament"
 msgstr ""
 
 msgid "Synchronize filament list from AMS"
@@ -5796,10 +5984,153 @@ msgstr ""
 msgid "Set filaments to use"
 msgstr ""
 
+msgid "Click to edit preset"
+msgstr ""
+
+msgid "Remove last filament"
+msgstr ""
+
+msgid "Add one filament"
+msgstr ""
+
+msgid "Mixed Filaments"
+msgstr ""
+
+msgid "Add Gradient"
+msgstr ""
+
+msgid "Add Pattern"
+msgstr ""
+
+msgid ""
+"Unable to create a color match from the current physical filament colors."
+msgstr ""
+
 msgid "Search plate, object and part."
 msgstr ""
 
-msgid "Pellets"
+msgid "Pellet Configuration"
+msgstr ""
+
+msgid "Gradient Mix Weights"
+msgstr ""
+
+msgid "Pick a point in the gradient map to control multi-filament mix."
+msgstr ""
+
+msgid "Click to choose a physical filament color"
+msgstr ""
+
+msgid "Pattern"
+msgstr ""
+
+msgid ""
+"Manual repeating pattern. Digits 1-9 for filament IDs 1-9. Use [N] for IDs "
+">= 10 (e.g. [12]). Use commas to define per-perimeter groups, e.g. 12,21. "
+"Example: 11112222, 12,21, or 1234."
+msgstr ""
+
+#, c-format, boost-format
+msgid "Append filament %d to pattern"
+msgstr ""
+
+msgid ""
+"Positive bias recesses the second filament in the pair; negative bias "
+"recesses the first filament.\n"
+"\n"
+"The color chip shows which filament the current value affects.\n"
+"\n"
+"Grouped wall patterns and Local-Z dithering ignore it."
+msgstr ""
+
+msgid "Bias"
+msgstr ""
+
+msgid "Limit Local-Z"
+msgstr ""
+
+msgid ""
+"Store a per-color Local-Z cadence cap. It applies when Local-Z dithering "
+"mode is enabled in print settings."
+msgstr ""
+
+msgid "Max sublayers"
+msgstr ""
+
+msgid ""
+"Maximum number of Local-Z sublayers this color may use before its cadence "
+"repeats."
+msgstr ""
+
+#, c-format, boost-format
+msgid "%d-color layer cycle"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Simple %d%%/%d%%"
+msgstr ""
+
+#, c-format, boost-format
+msgid "%d%%/%d%%"
+msgstr ""
+
+msgid "None (Selected)"
+msgstr ""
+
+msgid "Color Mixing"
+msgstr ""
+
+msgid ""
+"No mixed filaments yet. Use Add Gradient, Add Pattern, or Add Color to "
+"create one."
+msgstr ""
+
+msgid "(Pattern)"
+msgstr ""
+
+msgid "(Color)"
+msgstr ""
+
+msgid "Drag to reorder mixed filaments in this panel."
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "Delete mixed filament"
+msgstr ""
+
+msgid "Click to edit automatic mixed filament settings (saved as custom)."
+msgstr ""
+
+msgid "Click to expand/retract mixed filament settings"
+msgstr ""
+
+msgid ""
+"The target mixed filament uses this physical filament as a component. "
+"Merging will remove this physical filament and may invalidate the mixed "
+"filament. Continue?"
+msgstr ""
+
+msgid ""
+"This filament is used in the following mixed filament configurations:\n"
+"\n"
+msgstr ""
+
+#, c-format, boost-format
+msgid "• Mixed Filament %d\n"
+msgstr ""
+
+msgid ""
+"\n"
+"Merging this filament will invalidate these mixed filament configurations. "
+"Continue?"
+msgstr ""
+
+msgid ""
+"\n"
+"Deleting this filament will invalidate these mixed filament configurations. "
+"Continue?"
 msgstr ""
 
 msgid ""
@@ -5830,21 +6161,33 @@ msgstr ""
 
 msgid ""
 "There are some unknown filaments mapped to generic preset. Please update "
-"Snapmaker Orca or restart Snapmaker Orca to check if there is an update to system "
-"presets."
+"Snapmaker Orca or restart Snapmaker Orca to check if there is an update to "
+"system presets."
 msgstr ""
 
-#, possible-boost-format
+msgid "Note: Changing this will sync all other nozzles to the same diameter."
+msgstr ""
+
+msgid "Don't show this again"
+msgstr ""
+
+msgid "Left Nozzle"
+msgstr ""
+
+msgid "Right Nozzle"
+msgstr ""
+
+#, boost-format
 msgid "Do you want to save changes to \"%1%\"?"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "Successfully unmounted. The device %s (%s) can now be safely removed from "
 "the computer."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Ejecting of device %s (%s) has failed."
 msgstr ""
 
@@ -5880,7 +6223,18 @@ msgstr ""
 msgid "Tab"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+msgid ""
+"Fusion 360 .f3d files can't be opened directly — they use Autodesk's closed "
+"file format, which no offline tool can read.\n"
+"\n"
+"In Fusion 360, use File ▸ Export and choose STEP (.step), then open that "
+"file here."
+msgstr ""
+
+msgid "Unsupported format: .f3d"
+msgstr ""
+
+#, c-format, boost-format
 msgid "Loading file: %s"
 msgstr ""
 
@@ -5891,17 +6245,17 @@ msgid "Load 3mf"
 msgstr ""
 
 msgid ""
-"This project was created with an Snapmaker Orca 2.3.1-alpha and uses infill "
-"rotation template settings that may not work properly with your current "
-"infill pattern. This could result in weak support or print quality issues."
+"This project was created with an Snapmaker Orca and uses infill rotation "
+"template settings that may not work properly with your current infill "
+"pattern. This could result in weak support or print quality issues."
 msgstr ""
 
 msgid ""
-"Would you like Snapmaker Orca to automatically fix this by clearing the rotation "
-"template settings?"
+"Would you like Snapmaker Orca to automatically fix this by clearing the "
+"rotation template settings?"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "The 3mf's version %s is newer than %s's version %s, found following "
 "unrecognized keys:"
@@ -5910,7 +6264,7 @@ msgstr ""
 msgid "You'd better upgrade your software.\n"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "The 3mf's version %s is newer than %s's version %s, Suggest to upgrade your "
 "software."
@@ -5945,6 +6299,11 @@ msgstr ""
 msgid "Customized Preset"
 msgstr ""
 
+msgid ""
+"Printing by object with caution. This function may cause the print head to "
+"collide with printed parts during switching."
+msgstr ""
+
 msgid "Name of components inside step file is not UTF8 format!"
 msgstr ""
 
@@ -5954,7 +6313,7 @@ msgstr ""
 msgid "Remember my choice."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Failed loading file \"%1%\". An invalid configuration was found."
 msgstr ""
 
@@ -5964,7 +6323,7 @@ msgstr ""
 msgid "The volume of the object is zero"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "The object from file %s is too small, and maybe in meters or inches.\n"
 " Do you want to scale to millimeters?"
@@ -6011,7 +6370,7 @@ msgstr ""
 msgid "Export OBJ file:"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "The file %s already exists\n"
 "Do you want to replace it?"
@@ -6030,6 +6389,28 @@ msgid ""
 msgstr ""
 
 msgid "The selected object couldn't be split."
+msgstr ""
+
+msgid "(unknown)"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Note: Using a %s mm %s nozzle for %s is not recommended."
+msgstr ""
+
+msgid ""
+"Note: Filament may not adhere well to the smooth PEI plate on the first "
+"layer. Apply glue before printing."
+msgstr ""
+
+msgid ""
+"Note: Filament may stick too strongly to the smooth PEI plate. Apply glue to "
+"protect the plate and ease part removal."
+msgstr ""
+
+msgid ""
+"Note: Low adhesion to the graphic effect plate may cause failure. Use a "
+"different filament instead."
 msgstr ""
 
 msgid "Another export job is running."
@@ -6080,11 +6461,20 @@ msgstr ""
 msgid "Slicing Canceled"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Slicing Plate %d"
 msgstr ""
 
 msgid "Please resolve the slicing errors and publish again."
+msgstr ""
+
+#, c-format, boost-format
+msgid ""
+"Using %d physical filaments will create %d auto-generated gradients.\n"
+"Do you want to create them now?"
+msgstr ""
+
+msgid "Auto gradients"
 msgstr ""
 
 msgid ""
@@ -6129,7 +6519,7 @@ msgstr ""
 msgid "Download failed, File size exception."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Project downloaded %d%%"
 msgstr ""
 
@@ -6161,16 +6551,16 @@ msgid "Error occurs while loading G-code file"
 msgstr ""
 
 #. TRN %1% is archive path
-#, possible-boost-format
+#, boost-format
 msgid "Loading of a ZIP archive on path %1% has failed."
 msgstr ""
 
 #. TRN: First argument = path to file, second argument = error description
-#, possible-boost-format
+#, boost-format
 msgid "Failed to unzip file to %1%: %2%"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Failed to find unzipped file at %1%. Unzipping of file has failed."
 msgstr ""
 
@@ -6225,7 +6615,7 @@ msgstr ""
 msgid "Save Sliced file as:"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "The file %s has been sent to the printer's storage space and can be viewed "
 "on the printer."
@@ -6236,19 +6626,19 @@ msgid ""
 "will be kept. You may fix the meshes and try again."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Reason: part \"%1%\" is empty."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Reason: part \"%1%\" does not bound a volume."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Reason: part \"%1%\" has self intersection."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Reason: \"%1%\" and another part have no intersection."
 msgstr ""
 
@@ -6298,39 +6688,39 @@ msgstr ""
 msgid "Plate Settings"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Number of currently selected parts: %1%\n"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Number of currently selected objects: %1%\n"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Part name: %1%\n"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Object name: %1%\n"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Size: %1% x %2% x %3% in\n"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Size: %1% x %2% x %3% mm\n"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Volume: %1% in³\n"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Volume: %1% mm³\n"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Triangles: %1%\n"
 msgstr ""
 
@@ -6342,7 +6732,7 @@ msgid ""
 "on Snapmaker Orca(windows) or CAD softwares."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "Plate %d: %s is not suggested to be used to print filament %s (%s). If you "
 "still want to do this print job, please set this filament's bed temperature "
@@ -6364,10 +6754,16 @@ msgstr ""
 msgid "Changing application language"
 msgstr ""
 
-msgid "Changing the region will log out your account.\n"
+msgid "Changing the region will log out your account and restart.\n"
 msgstr ""
 
 msgid "Region selection"
+msgstr ""
+
+msgid "Change Region"
+msgstr ""
+
+msgid "Switching the region requires application restart.\n"
 msgstr ""
 
 msgid "Second"
@@ -6400,9 +6796,6 @@ msgstr ""
 msgid "Asia-Pacific"
 msgstr ""
 
-msgid "China"
-msgstr ""
-
 msgid "Chinese Mainland"
 msgstr ""
 
@@ -6416,27 +6809,6 @@ msgid "Others"
 msgstr ""
 
 msgid "Login Region"
-msgstr ""
-
-msgid "Stealth Mode"
-msgstr ""
-
-msgid ""
-"This stops the transmission of data to Bambu's cloud services. Users who "
-"don't use BBL machines or use LAN mode only can safely turn on this function."
-msgstr ""
-
-msgid "Enable network plugin"
-msgstr ""
-
-msgid "Use legacy network plugin (Takes effect after restarting Orca)"
-msgstr ""
-
-msgid ""
-"Disable to use latest network plugin that supports new BambuLab firmwares."
-msgstr ""
-
-msgid "Check for stable updates only"
 msgstr ""
 
 msgid "Metric"
@@ -6542,6 +6914,14 @@ msgstr ""
 msgid "If enabled, auto-calculate every time when filament is changed"
 msgstr ""
 
+msgid "Mixed filaments: Auto-generate gradients."
+msgstr ""
+
+msgid ""
+"If enabled, Snapmaker Orca automatically creates gradient mixed filaments "
+"from physical filament pairs."
+msgstr ""
+
 msgid "Remember printer configuration"
 msgstr ""
 
@@ -6571,9 +6951,6 @@ msgstr ""
 msgid "Auto arrange plate after object cloning"
 msgstr ""
 
-msgid "Network"
-msgstr ""
-
 msgid "Auto sync user presets (Printer/Filament/Process)"
 msgstr ""
 
@@ -6595,19 +6972,22 @@ msgstr ""
 msgid "Associate .3mf files to Snapmaker Orca"
 msgstr ""
 
-msgid "If enabled, sets Snapmaker Orca as default application to open .3mf files"
+msgid ""
+"If enabled, sets Snapmaker Orca as default application to open .3mf files"
 msgstr ""
 
 msgid "Associate .stl files to Snapmaker Orca"
 msgstr ""
 
-msgid "If enabled, sets Snapmaker Orca as default application to open .stl files"
+msgid ""
+"If enabled, sets Snapmaker Orca as default application to open .stl files"
 msgstr ""
 
 msgid "Associate .step/.stp files to Snapmaker Orca"
 msgstr ""
 
-msgid "If enabled, sets Snapmaker Orca as default application to open .step files"
+msgid ""
+"If enabled, sets Snapmaker Orca as default application to open .step files"
 msgstr ""
 
 msgid "Associate web links to Snapmaker Orca"
@@ -6669,6 +7049,18 @@ msgid "Dark Mode"
 msgstr ""
 
 msgid "Enable Dark mode"
+msgstr ""
+
+msgid "Enable dark mode"
+msgstr ""
+
+msgid "User Experience"
+msgstr ""
+
+msgid "Join Customer Experience Improvement Program."
+msgstr ""
+
+msgid "What data would be collected?"
 msgstr ""
 
 msgid "Develop mode"
@@ -6791,6 +7183,9 @@ msgstr ""
 msgid "Edit preset"
 msgstr ""
 
+msgid "Machine Filament"
+msgstr ""
+
 msgid "Project-inside presets"
 msgstr ""
 
@@ -6893,7 +7288,7 @@ msgstr ""
 msgid "Jump to webpage"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Save %s as"
 msgstr ""
 
@@ -6909,11 +7304,11 @@ msgstr ""
 msgid "Overwriting a system profile is not allowed."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Preset \"%1%\" already exists."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Preset \"%1%\" already exists and is incompatible with the current printer."
 msgstr ""
@@ -6931,23 +7326,23 @@ msgctxt "PresetName"
 msgid "Copy"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Printer \"%1%\" is selected with preset \"%2%\""
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Please choose an action with \"%1%\" preset after saving."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "For \"%1%\", change \"%2%\" to \"%3%\" "
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "For \"%1%\", add \"%2%\" as a new preset"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Simply switch to \"%1%\""
 msgstr ""
 
@@ -6970,6 +7365,9 @@ msgid "High temperature Plate"
 msgstr ""
 
 msgid "Bambu Textured PEI Plate"
+msgstr ""
+
+msgid "Graphic Effect Plate"
 msgstr ""
 
 msgid "Send print job to"
@@ -7009,7 +7407,7 @@ msgstr ""
 msgid "The printer is busy on other print job"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "Filament %s exceeds the number of AMS slots. Please update the printer "
 "firmware to support AMS slot assignment."
@@ -7030,7 +7428,7 @@ msgid ""
 "sending the print job"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "Filament %s does not match the filament in AMS slot %s. Please update the "
 "printer firmware to support AMS slot assignment."
@@ -7049,7 +7447,7 @@ msgstr ""
 msgid "An SD card needs to be inserted before printing."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "The selected printer (%s) is incompatible with the chosen printer profile in "
 "the slicer (%s)."
@@ -7096,11 +7494,11 @@ msgid ""
 "start printing."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "nozzle in preset: %.1f %s"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "nozzle memorized: %.1f %s"
 msgstr ""
 
@@ -7110,7 +7508,7 @@ msgid ""
 "change settings."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "Printing high temperature material (%s material) with %s may cause nozzle "
 "damage"
@@ -7247,7 +7645,7 @@ msgstr ""
 msgid "Statement about User Experience Improvement Program"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "In the 3D Printing community, we learn from each other's successes and "
 "failures to adjust our own slicing parameters and settings. %s follows the "
@@ -7287,7 +7685,7 @@ msgid "Failed to log out."
 msgstr ""
 
 #. TRN "Save current Settings"
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Save current %s"
 msgstr ""
 
@@ -7538,6 +7936,9 @@ msgstr ""
 msgid "Ooze prevention"
 msgstr ""
 
+msgid "Color Mixing (Experimental)"
+msgstr ""
+
 msgid "Skirt"
 msgstr ""
 
@@ -7556,7 +7957,7 @@ msgstr ""
 msgid "Frequent"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "Following line %s contains reserved keywords.\n"
 "Please remove it, or will beat G-code visualization and printing time "
@@ -7593,9 +7994,6 @@ msgid "Print chamber temperature"
 msgstr ""
 
 msgid "Print temperature"
-msgstr ""
-
-msgid "Nozzle"
 msgstr ""
 
 msgid "Nozzle temperature when printing"
@@ -7648,6 +8046,11 @@ msgstr ""
 msgid ""
 "Bed temperature when the Textured PEI Plate is installed. A value of 0 means "
 "the filament does not support printing on the Textured PEI Plate."
+msgstr ""
+
+msgid ""
+"Bed temperature when the Graphic Effect Plate is installed. A value of 0 "
+"means the filament does not support printing on the Graphic Effect Plate."
 msgstr ""
 
 msgid "Volumetric speed limitation"
@@ -7719,11 +8122,14 @@ msgstr ""
 msgid "Compatible process profiles"
 msgstr ""
 
+msgid "Smooth PEI Plate"
+msgstr ""
+
 msgid "Printable space"
 msgstr ""
 
 #. TRN: The first argument is the parameter's name; the second argument is its value.
-#, possible-boost-format
+#, boost-format
 msgid "Invalid value provided for parameter %1%: %2%"
 msgstr ""
 
@@ -7821,7 +8227,7 @@ msgstr ""
 msgid "Single extruder multi-material parameters"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Extruder %d"
 msgstr ""
 
@@ -7851,7 +8257,7 @@ msgstr ""
 msgid "Detached"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "%d Filament Preset and %d Process Preset is attached to this printer. Those "
 "presets would be deleted if the printer is deleted."
@@ -7866,7 +8272,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. TRN  Remove/Delete
-#, possible-boost-format
+#, boost-format
 msgid "%1% Preset"
 msgstr ""
 
@@ -7881,7 +8287,7 @@ msgid ""
 "please reset the filament information for that slot."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Are you sure to %1% the selected preset?"
 msgstr ""
 
@@ -7939,35 +8345,35 @@ msgstr ""
 msgid "Transfer the selected options to the newly selected preset."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Save the selected options to preset \n"
 "\"%1%\"."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Transfer the selected options to the newly selected preset \n"
 "\"%1%\"."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Preset \"%1%\" contains the following unsaved changes:"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Preset \"%1%\" is not compatible with the new printer profile and it "
 "contains the following unsaved changes:"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Preset \"%1%\" is not compatible with the new process profile and it "
 "contains the following unsaved changes:"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "You have changed some settings of preset \"%1%\"."
 msgstr ""
 
@@ -8033,7 +8439,7 @@ msgstr ""
 msgid "Cover"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "The name \"%1%\" already exists."
 msgstr ""
 
@@ -8058,7 +8464,7 @@ msgstr ""
 msgid "Description:"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%s Update"
 msgstr ""
 
@@ -8077,13 +8483,13 @@ msgstr ""
 msgid "the configuration package is incompatible with the current application."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "The configuration package is incompatible with the current application.\n"
 "%s will update the configuration package to allow the application to start."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Exit %s"
 msgstr ""
 
@@ -8093,16 +8499,13 @@ msgstr ""
 msgid "No updates available."
 msgstr ""
 
-msgid "The configuration is up to date."
-msgstr ""
-
 msgid "Obj file Import color"
 msgstr ""
 
 msgid "Specify number of colors:"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "The color count should be in range [%d, %d]."
 msgstr ""
 
@@ -8127,13 +8530,17 @@ msgstr ""
 msgid "Add consumable extruder after existing extruders."
 msgstr ""
 
-msgid "Keep color"
-msgstr ""
-
-msgid "Add this cluster color as a new filament."
-msgstr ""
-
 msgid "Reset mapped extruders."
+msgstr ""
+
+msgid ""
+"Warning: The count of newly added and \n"
+"current extruders exceeds 16."
+msgstr ""
+
+msgid ""
+"Note: The color has been selected, you can choose OK \n"
+"to continue or manually adjust it."
 msgstr ""
 
 msgid "Cluster colors"
@@ -8142,14 +8549,10 @@ msgstr ""
 msgid "Map Filament"
 msgstr ""
 
-msgid ""
-"Note: The color has been selected, you can choose OK \n"
-"to continue or manually adjust it."
+msgid "Keep color"
 msgstr ""
 
-msgid ""
-"Warning: The count of newly added and \n"
-"current extruders exceeds 16."
+msgid "Add this cluster color as a new filament."
 msgstr ""
 
 msgid "Ramming customization"
@@ -8167,7 +8570,7 @@ msgid ""
 "jams, extruder wheel grinding into filament etc."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "For constant flow rate, hold %1% while dragging."
 msgstr ""
 
@@ -8197,11 +8600,11 @@ msgstr ""
 msgid "Flushing volume (mm³) for each filament pair."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Suggestion: Flushing Volume in range [%d, %d]"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "The multiplier should be in range [%.2f, %.2f]."
 msgstr ""
 
@@ -8245,7 +8648,7 @@ msgstr ""
 
 msgid ""
 "Your system is missing H.264 codecs for GStreamer, which are required to "
-"play video. (Try installing the gstreamer1.0-plugins-bad or gstreamer1.0-"
+"play video.  (Try installing the gstreamer1.0-plugins-bad or gstreamer1.0-"
 "libav packages, then restart Snapmaker Orca?)"
 msgstr ""
 
@@ -8256,6 +8659,9 @@ msgid "Click here to download it."
 msgstr ""
 
 msgid "Login"
+msgstr ""
+
+msgid "Log out"
 msgstr ""
 
 msgid "The configuration package is changed in previous Config Guide"
@@ -8489,7 +8895,7 @@ msgstr ""
 msgid "Release Note"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "version %s update information:"
 msgstr ""
 
@@ -8497,10 +8903,11 @@ msgid "Network plug-in update"
 msgstr ""
 
 msgid ""
-"Click OK to update the Network plug-in when Snapmaker Orca launches next time."
+"Click OK to update the Network plug-in when Snapmaker Orca launches next "
+"time."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "A new Network plug-in (%s) is available. Do you want to install it?"
 msgstr ""
 
@@ -8508,6 +8915,9 @@ msgid "New version of Snapmaker Orca"
 msgstr ""
 
 msgid "Skip this Version"
+msgstr ""
+
+msgid "Check for stable updates only"
 msgstr ""
 
 msgid "Done"
@@ -8553,11 +8963,11 @@ msgid "Connect the printer using IP and access code"
 msgstr ""
 
 msgid ""
-"Step 1. Please confirm Snapmaker Orca and your printer are in the same LAN."
+"Step 1, please confirm Snapmaker Orca and your printer are in the same LAN."
 msgstr ""
 
 msgid ""
-"Step 2. If the IP and Access Code below are different from the actual values "
+"Step 2, if the IP and Access Code below are different from the actual values "
 "on your printer, please correct them."
 msgstr ""
 
@@ -8711,8 +9121,29 @@ msgstr ""
 msgid "Repair canceled"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Copying of file %1% to %2% failed: %3%"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Flutter resource download failed: %s"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Profiles resource download failed: %s"
+msgstr ""
+
+#, c-format, boost-format
+msgid ""
+"request to server update web resource fail with body:%s,error:%s,status:%d"
+msgstr ""
+
+#, c-format, boost-format
+msgid ""
+"request to server update preset resource fail with body:%s,error:%s,status:%d"
+msgstr ""
+
+msgid "needed, but current version is "
 msgstr ""
 
 msgid "Need to check the unsaved changes before configuration updates."
@@ -8724,6 +9155,30 @@ msgstr ""
 msgid " updated to "
 msgstr ""
 
+msgid "Import Failed"
+msgstr ""
+
+msgid "This web resouce could not be imported due to outdated versions."
+msgstr ""
+
+msgid "Updating the web resources requires application restart."
+msgstr ""
+
+msgid "Snapmaker Orca"
+msgstr ""
+
+msgid "Update web resources"
+msgstr ""
+
+msgid "Please choose a web resource package file:"
+msgstr ""
+
+msgid "Please choose a system profile package file:"
+msgstr ""
+
+msgid "The following profiles could not be imported due to outdated versions."
+msgstr ""
+
 msgid "Open G-code file:"
 msgstr ""
 
@@ -8732,11 +9187,11 @@ msgid ""
 "bottom or enable supports."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Object can't be printed for empty layer between %1% and %2%."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Object: %1%"
 msgstr ""
 
@@ -8761,7 +9216,7 @@ msgstr ""
 msgid "Please check the custom G-code or use the default custom G-code."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Generating G-code: layer %1%"
 msgstr ""
 
@@ -8801,7 +9256,7 @@ msgstr ""
 msgid "Multiple"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "Failed to calculate line width of %1%. Cannot get value of \"%2%\" "
 msgstr ""
 
@@ -8903,16 +9358,16 @@ msgstr ""
 msgid "write callback failed"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "%1% is too close to exclusion area, there may be collisions when printing."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "%1% is too close to others, and collisions may be caused."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "%1% is too tall, and collisions will be caused."
 msgstr ""
 
@@ -8955,17 +9410,17 @@ msgid ""
 "materials."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "While the object %1% itself fits the build volume, it exceeds the maximum "
 "build volume height because of material shrinkage compensation."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid "The object %1% exceeds the maximum build volume height."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "While the object %1% itself fits the build volume, its last layer exceeds "
 "the maximum build volume height."
@@ -9094,7 +9549,7 @@ msgid ""
 "extruder addressing."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Plate %d: %s does not support filament %s"
 msgstr ""
 
@@ -9296,8 +9751,7 @@ msgstr ""
 msgid "Avoid crossing walls"
 msgstr ""
 
-msgid ""
-"Detour to avoid traveling across walls, which may cause blobs on the surface."
+msgid "Detour and avoid to travel across wall which may cause blob on surface"
 msgstr ""
 
 msgid "Avoid crossing walls - Max detour length"
@@ -9346,6 +9800,11 @@ msgid ""
 "filament does not support printing on the Textured PEI Plate."
 msgstr ""
 
+msgid ""
+"Bed temperature for layers except the initial one. A value of 0 means the "
+"filament does not support printing on the Graphic Effect Plate."
+msgstr ""
+
 msgid "Initial layer"
 msgstr ""
 
@@ -9380,6 +9839,11 @@ msgstr ""
 msgid ""
 "Bed temperature of the initial layer. A value of 0 means the filament does "
 "not support printing on the Textured PEI Plate."
+msgstr ""
+
+msgid ""
+"Bed temperature of the initial layer. A value of 0 means the filament does "
+"not support printing on the Graphic Effect Plate."
 msgstr ""
 
 msgid "Bed types supported by the printer."
@@ -10261,7 +10725,7 @@ msgid ""
 "This option sets the max point for the allowed bed mesh area. Due to the "
 "probe's XY offset, most printers are unable to probe the entire bed. To "
 "ensure the probe point does not go outside the bed area, the minimum and "
-"maximum points of the bed mesh should be set appropriately. Snapmaker Orca "
+"maximum points of the bed mesh should be set appropriately. Snapmaker_Orca "
 "ensures that adaptive_bed_mesh_min/adaptive_bed_mesh_max values do not "
 "exceed these min/max points. This information can usually be obtained from "
 "your printer manufacturer. The default setting is (99999, 99999), which "
@@ -10451,6 +10915,18 @@ msgid ""
 "Right click to reset value to system default."
 msgstr ""
 
+msgid "small thumb"
+msgstr ""
+
+msgid "first small thumb"
+msgstr ""
+
+msgid "big thumb"
+msgstr ""
+
+msgid "first big thumb"
+msgstr ""
+
 msgid "Filament notes"
 msgstr ""
 
@@ -10496,6 +10972,14 @@ msgid ""
 "Time taken to switch tools. It's usually applicable for tool changers or "
 "multi-tool machines. For single-extruder multi-material machines, it's "
 "typically 0. For statistics only."
+msgstr ""
+
+msgid "Wait for the temperature when changing tools"
+msgstr ""
+
+msgid ""
+"It will use the M109 instead of M104 T[target] after changing tools if this "
+"is set to true"
 msgstr ""
 
 msgid ""
@@ -10610,8 +11094,9 @@ msgid ""
 "After a tool change, the exact position of the newly loaded filament inside "
 "the nozzle may not be known, and the filament pressure is likely not yet "
 "stable. Before purging the print head into an infill or a sacrificial "
-"object, Snapmaker Orca will always prime this amount of material into the wipe "
-"tower to produce successive infill or sacrificial object extrusions reliably."
+"object, Snapmaker Orca will always prime this amount of material into the "
+"wipe tower to produce successive infill or sacrificial object extrusions "
+"reliably."
 msgstr ""
 
 msgid "Speed of the last cooling move"
@@ -10904,8 +11389,8 @@ msgid "mm/s² or %"
 msgstr ""
 
 msgid ""
-"Acceleration of sparse infill. If the value is expressed as a percentage "
-"(e.g. 100%), it will be calculated based on the default acceleration."
+"Acceleration of sparse infill. If the value is expressed as a percentage (e."
+"g. 100%), it will be calculated based on the default acceleration."
 msgstr ""
 
 msgid ""
@@ -10928,7 +11413,7 @@ msgstr ""
 msgid "accel_to_decel"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "Klipper's max_accel_to_decel will be adjusted to this %% of acceleration."
 msgstr ""
@@ -11088,7 +11573,7 @@ msgstr ""
 msgid "Fuzzy skin generator mode"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "Fuzzy skin generation mode. Works only with Arachne!\n"
 "Displacement: Сlassic mode when the pattern is formed by shifting the nozzle "
@@ -11244,9 +11729,6 @@ msgid "Hardened steel"
 msgstr ""
 
 msgid "Stainless steel"
-msgstr ""
-
-msgid "Brass"
 msgstr ""
 
 msgid "Nozzle HRC"
@@ -12059,7 +12541,7 @@ msgstr ""
 msgid "Detect overhang wall"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "Detect the overhang percentage relative to line width and use different "
 "speed to print. For 100%% overhang, bridge speed is used."
@@ -12099,6 +12581,224 @@ msgid ""
 "Scripts will be passed the absolute path to the G-code file as the first "
 "argument, and they can access the Snapmaker Orca config settings by reading "
 "environment variables."
+msgstr ""
+
+msgid "Dithering cadence height A"
+msgstr ""
+
+msgid ""
+"Layer height contribution of component A for dithering virtual filaments. "
+"Set to 0 to use normal 1-layer A / 1-layer B alternation.\n"
+"\n"
+"Detailed mixed filament setting explanations will be published once the "
+"project wiki is available."
+msgstr ""
+
+msgid "Dithering cadence height B"
+msgstr ""
+
+msgid ""
+"Layer height contribution of component B for dithering virtual filaments. "
+"Set to 0 to use normal 1-layer A / 1-layer B alternation.\n"
+"\n"
+"Detailed mixed filament setting explanations will be published once the "
+"project wiki is available."
+msgstr ""
+
+msgid "Height-weighted cadence"
+msgstr ""
+
+msgid ""
+"Enable height-weighted cadence for mixed filaments. Limitation: only one "
+"height-weighted mixed color should be present at a given Z plane, because "
+"independent per-color layer heights are not supported and the resulting "
+"layer height applies to the whole plane. When disabled, layer-cycle cadence "
+"is used.\n"
+"\n"
+"Detailed mixed filament setting explanations will be published once the "
+"project wiki is available."
+msgstr ""
+
+msgid "Local-Z lower height bound"
+msgstr ""
+
+msgid ""
+"Lower bound used when Local-Z mixed-filament dithering chooses per-color "
+"sublayer heights.\n"
+"\n"
+"Smaller values let Local-Z use thinner sublayers for a color when needed.\n"
+"\n"
+"Detailed mixed filament setting explanations will be published once the "
+"project wiki is available."
+msgstr ""
+
+msgid "Local-Z upper height bound"
+msgstr ""
+
+msgid ""
+"Upper bound used when Local-Z mixed-filament dithering chooses per-color "
+"sublayer heights.\n"
+"\n"
+"Larger values let Local-Z use thicker sublayers for a color when needed.\n"
+"\n"
+"Detailed mixed filament setting explanations will be published once the "
+"project wiki is available."
+msgstr ""
+
+msgid "Advanced dithering"
+msgstr ""
+
+msgid ""
+"Distribute mixed filament layer-cycle cadence using an advanced ordered "
+"dithering pattern instead of a simple contiguous A-then-B run. This can "
+"reduce visible striping for some hues.\n"
+"\n"
+"This is an even more experimental mode and the perceived color may differ "
+"from normal dithering for the same filament pair and ratio.\n"
+"\n"
+"Detailed mixed filament setting explanations will be published once the "
+"project wiki is available."
+msgstr ""
+
+msgid "Pointillisme pixel size"
+msgstr ""
+
+msgid ""
+"Length of one pointillisme segment along an extrusion path for same-layer "
+"pointillisme mode. Set to 0 to use automatic nozzle-based sizing.\n"
+"\n"
+"Warning: Same-layer pointillisme is extremely experimental and may produce "
+"unusable results."
+msgstr ""
+
+msgid "Pointillisme line gap"
+msgstr ""
+
+msgid ""
+"Optional non-extruded spacing between adjacent pointillisme segments. "
+"Increase carefully to improve separation and print quality.\n"
+"\n"
+"Warning: Same-layer pointillisme is extremely experimental and may produce "
+"unusable results."
+msgstr ""
+
+msgid "Enable mixed filament bias"
+msgstr ""
+
+msgid ""
+"Show and apply the per-row mixed filament Bias control.\n"
+"\n"
+"When enabled, the selected filament in a mixed pair is recessed slightly so "
+"the other component becomes more visible.\n"
+"\n"
+"Bias is ignored for grouped wall patterns, same-layer pointillisme, and "
+"Local Z dithering."
+msgstr ""
+
+msgid "Selective Expansion contraction"
+msgstr ""
+
+msgid ""
+"XY offset applied to mixed-filament painted regions before region "
+"assignment.\n"
+"\n"
+"Positive values contract the mixed zone inward. Negative values expand it "
+"outward.\n"
+"\n"
+"This applies to mixed filament usage in layer cadence, height cadence, same-"
+"layer pointillisme, and local Z dithering."
+msgstr ""
+
+msgid "Collapse same-color mixed regions"
+msgstr ""
+
+msgid ""
+"Merge ordinary mixed-filament painted regions into a single area when they "
+"resolve to the same physical filament on a layer.\n"
+"\n"
+"This improves continuity for adjacent same-color areas.\n"
+"\n"
+"Subdivide Mix Layer disables this behavior, and gradient mixed regions also "
+"bypass it because they use the Local-Z pipeline."
+msgstr ""
+
+msgid "Mixed filament custom definitions"
+msgstr ""
+
+msgid ""
+"Serialized custom mixed filament rows.\n"
+"\n"
+"Detailed mixed filament setting explanations will be published once the "
+"project wiki is available."
+msgstr ""
+
+msgid "Dithering Z step size"
+msgstr ""
+
+msgid ""
+"Layer height used in Z zones painted with dithering (mixed virtual "
+"filaments). Set to 0 to keep normal layer height in those zones.\n"
+"\n"
+"Detailed mixed filament setting explanations will be published once the "
+"project wiki is available."
+msgstr ""
+
+msgid "Subdivide Mix Layer"
+msgstr ""
+
+msgid "Material"
+msgstr ""
+
+msgid ""
+"Enable \"Subdivide Mix Layer\" for mixing areas. Layer height will be "
+"subdivided for better color mixing results."
+msgstr ""
+
+msgid "Full domain"
+msgstr ""
+
+msgid ""
+"Experimental. Apply Local-Z thinning across whole mixed-color regions "
+"instead of limiting the effect strictly to painted mixed masks.\n"
+"\n"
+"Only available when Subdivide Mix Layer is enabled."
+msgstr ""
+
+msgid "Apply subdivision to infill"
+msgstr ""
+
+msgid ""
+"Experimental. When Subdivide Mix Layer is enabled, also apply the same "
+"subdivision to infill inside mixed-color areas.\n"
+"\n"
+"This is enabled automatically with Subdivide Mix Layer. Turn it off to keep "
+"infill on the normal layer height.\n"
+"\n"
+"It can improve internal color mixing, but may add toolchanges and affect "
+"infill behavior."
+msgstr ""
+
+msgid "Use direct multicolor Local-Z solver"
+msgstr ""
+
+msgid ""
+"Experimental. For mixed rows with 3 or more physical filaments, allocate "
+"Local-Z sublayers directly across all components with carry-over error "
+"between layers instead of collapsing them into pair cadence.\n"
+"\n"
+"This can reduce visible banding in multicolor Local-Z blends at the cost of "
+"more toolchanges. It is ignored when explicit Local-Z A/B heights are set."
+msgstr ""
+
+msgid "Use step size in painted zones only"
+msgstr ""
+
+msgid ""
+"When enabled, dithering Z step size is applied only where mixed filament is "
+"painted. Unpainted zones keep their original layer height.\n"
+"\n"
+"Detailed mixed filament setting explanations will be published once the "
+"project wiki is available."
 msgstr ""
 
 msgid "Printer type"
@@ -12201,6 +12901,9 @@ msgid ""
 "change."
 msgstr ""
 
+msgid "Retraction Length (Toolchange)"
+msgstr ""
+
 msgid "Z-hop height"
 msgstr ""
 
@@ -12236,6 +12939,9 @@ msgid "Slope"
 msgstr ""
 
 msgid "Spiral"
+msgstr ""
+
+msgid "Z hop when moving to tower"
 msgstr ""
 
 msgid "Traveling angle"
@@ -12462,8 +13168,8 @@ msgid "Role base wipe speed"
 msgstr ""
 
 msgid ""
-"The wipe speed is determined by the speed of the current extrusion role. "
-"e.g. if a wipe action is executed immediately following an outer wall "
+"The wipe speed is determined by the speed of the current extrusion role. e."
+"g. if a wipe action is executed immediately following an outer wall "
 "extrusion, the speed of the outer wall extrusion will be utilized for the "
 "wipe action."
 msgstr ""
@@ -12543,9 +13249,6 @@ msgid ""
 "Note: With the draft shield active, the skirt will be printed at skirt "
 "distance from the object. Therefore, if brims are active it may intersect "
 "with them. To avoid this, increase the skirt distance value.\n"
-msgstr ""
-
-msgid "Enabled"
 msgstr ""
 
 msgid "Skirt type"
@@ -12690,6 +13393,14 @@ msgid ""
 "the tool in advance."
 msgstr ""
 
+msgid "Preheat delta temperature"
+msgstr ""
+
+msgid ""
+"Allow user to set the Preheat temperature. If target temperature is 220 and "
+"Preheat delta temperature is -30, then the preheat temperature will be 190"
+msgstr ""
+
 msgid "Preheat steps"
 msgstr ""
 
@@ -12731,6 +13442,26 @@ msgid "Purge remaining filament into prime tower."
 msgstr ""
 
 msgid "Enable filament ramming"
+msgstr ""
+
+msgid "Ramming line width ratio"
+msgstr ""
+
+msgid ""
+"This is used to decide the line width of wipe tower when ramming, ramming "
+"line width = [this ratio] * extruder * 1.25"
+msgstr ""
+
+msgid "Enable change pressure advance when wiping"
+msgstr ""
+
+msgid "If it's set to false, the pressure advance value will not be changed."
+msgstr ""
+
+msgid "Pressure advance value when ramming"
+msgstr ""
+
+msgid "Set_Pressure_advance [this value] when ramming on wipe tower"
 msgstr ""
 
 msgid "No sparse layers (beta)"
@@ -13317,6 +14048,24 @@ msgstr ""
 msgid "Width of the brim."
 msgstr ""
 
+msgid "Brim chamfer"
+msgstr ""
+
+msgid ""
+"Enable gradual layer-by-layer reduction of the brim around the prime tower. "
+"This creates a chamfered/tapered effect, reducing material usage while "
+"maintaining first layer adhesion."
+msgstr ""
+
+msgid "Max chamfer width"
+msgstr ""
+
+msgid ""
+"Maximum width of the chamfer zone measured from the tower perimeter. The "
+"brim will reduce within this distance. Larger values create a more gradual "
+"taper but take more layers to complete."
+msgstr ""
+
 msgid "Stabilization cone apex angle"
 msgstr ""
 
@@ -13435,6 +14184,18 @@ msgid ""
 "Extra flow used for the purging lines on the wipe tower. This makes the "
 "purging lines thicker or narrower than they normally would be. The spacing "
 "is adjusted automatically."
+msgstr ""
+
+msgid "Local-Z mini wipe lines"
+msgstr ""
+
+msgid ""
+"Number of purge lines reserved for each runtime Local-Z wipe tower "
+"toolchange. Higher values improve cleanup but increase tower depth. Only "
+"used when Local-Z dithering and the prime tower are enabled."
+msgstr ""
+
+msgid "lines"
 msgstr ""
 
 msgid "Idle temperature"
@@ -13874,8 +14635,8 @@ msgid "Debug level"
 msgstr ""
 
 msgid ""
-"Sets debug logging level. 0:fatal, 1:error, 2:warning, 3:info, 4:debug, "
-"5:trace\n"
+"Sets debug logging level. 0:fatal, 1:error, 2:warning, 3:info, 4:debug, 5:"
+"trace\n"
 msgstr ""
 
 msgid "Enable timelapse for print"
@@ -14238,7 +14999,7 @@ msgstr ""
 msgid "large overhangs"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "It seems object %s has %s. Please re-orient the object or enable support "
 "generation."
@@ -14379,7 +15140,7 @@ msgstr ""
 msgid "Busy"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "Please input valid values:\n"
 "Start value: >= %.1f\n"
@@ -14391,7 +15152,7 @@ msgstr ""
 msgid "The name cannot be empty."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "The selected preset: %s was not found."
 msgstr ""
 
@@ -14437,14 +15198,14 @@ msgstr ""
 msgid "Flow Dynamics Calibration result has been saved to the printer."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "There is already a historical calibration result with the same name: %s. "
 "Only one of the results with the same name is saved. Are you sure you want "
 "to override the historical result?"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "This machine type can only hold %d history results per nozzle. This result "
 "will not be saved."
@@ -14632,7 +15393,7 @@ msgstr ""
 msgid "Skip Calibration2"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "flow ratio : %s "
 msgstr ""
 
@@ -14680,13 +15441,10 @@ msgid ""
 "- Different filament brand and family (Brand = Bambu, Family = Basic, Matte)"
 msgstr ""
 
-msgid "Pattern"
-msgstr ""
-
 msgid "Method"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "%s is not compatible with %s"
 msgstr ""
 
@@ -14738,7 +15496,7 @@ msgstr ""
 msgid "Action"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "This machine type can only hold %d history results per nozzle."
 msgstr ""
 
@@ -14778,7 +15536,7 @@ msgstr ""
 msgid "Multiple resolved IP addresses"
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "There are several IP addresses resolving to hostname %1%.\n"
 "Please select one that should be used."
@@ -15001,16 +15759,21 @@ msgstr ""
 msgid "Upload to Printer Host with the following filename:"
 msgstr ""
 
-msgid "Use forward slashes ( / ) as a directory separator if needed."
+msgid ""
+"Please do not include the special characters #, *, ;, \\, /, :, \", <, >, or "
+"| in filenames."
 msgstr ""
 
 msgid "Upload to storage"
 msgstr ""
 
-msgid "Switch to Device tab after upload."
+#, c-format, boost-format
+msgid ""
+"The filename '%s' contains special characters (#, *, ;, \\, /, :, \", <, >, "
+"or |) which may cause issues.Do you wish to continue?"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Upload filename doesn't end with \"%s\". Do you wish to continue?"
 msgstr ""
 
@@ -15052,6 +15815,12 @@ msgid "Canceling"
 msgstr ""
 
 msgid "Error uploading to print host"
+msgstr ""
+
+msgid "Use forward slashes ( / ) as a directory separator if needed."
+msgstr ""
+
+msgid "Switch to Device tab after upload."
 msgstr ""
 
 msgid ""
@@ -15122,6 +15891,9 @@ msgstr ""
 msgid "Export Log"
 msgstr ""
 
+msgid "Clear Log"
+msgstr ""
+
 msgid "Snapmaker Orca Version:"
 msgstr ""
 
@@ -15131,10 +15903,10 @@ msgstr ""
 msgid "DNS Server:"
 msgstr ""
 
-msgid "Test Snapmaker Orca (GitHub)"
+msgid "Test Snapmaker Orca(GitHub)"
 msgstr ""
 
-msgid "Test Snapmaker Orca (GitHub):"
+msgid "Test Snapmaker Orca(GitHub):"
 msgstr ""
 
 msgid "Test bing.com"
@@ -15143,7 +15915,47 @@ msgstr ""
 msgid "Test bing.com:"
 msgstr ""
 
+msgid "Test LAN Device"
+msgstr ""
+
+msgid "Test LAN Device:"
+msgstr ""
+
+msgid "Test Cloud Server"
+msgstr ""
+
+msgid "Test Cloud Server:"
+msgstr ""
+
+msgid "Test Login API"
+msgstr ""
+
+msgid "Test Login API:"
+msgstr ""
+
+msgid "Test Upload API"
+msgstr ""
+
+msgid "Test Upload API:"
+msgstr ""
+
 msgid "Log Info"
+msgstr ""
+
+msgid "Network test started"
+msgstr ""
+
+msgid ""
+"Please enter the LAN device IP address for testing (leave empty to skip):"
+msgstr ""
+
+msgid "LAN Device Test - Sequence Mode"
+msgstr ""
+
+msgid "Please enter the device IP address:"
+msgstr ""
+
+msgid "LAN Device Test"
 msgstr ""
 
 msgid "Select filament preset"
@@ -15225,7 +16037,7 @@ msgid ""
 "You have not selected a printer or preset yet. Please select at least one."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "The Filament name %s you created already exists.\n"
 "If you continue creating, the preset created will be displayed with its full "
@@ -15297,7 +16109,7 @@ msgstr ""
 msgid "Max Print Height"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "The file exceeds %d MB, please import again."
 msgstr ""
 
@@ -15457,7 +16269,7 @@ msgstr ""
 msgid "Export successful"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "The '%s' folder already exists in the current directory. Do you want to "
 "clear it and rebuild it.\n"
@@ -15465,7 +16277,7 @@ msgid ""
 "creation."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "The file: %s\n"
 "may have been opened by another program.\n"
@@ -15580,9 +16392,6 @@ msgstr ""
 msgid "Edit Preset"
 msgstr ""
 
-msgid "For more information, please check out Wiki"
-msgstr ""
-
 msgid "Collapse"
 msgstr ""
 
@@ -15592,7 +16401,7 @@ msgstr ""
 msgid "BigTraffic"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "nozzle in preset: %s %s"
 msgstr ""
 
@@ -15601,7 +16410,7 @@ msgid ""
 "diameter. Did you change your nozzle lately?"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "*Printing %s material with %s may cause nozzle damage"
 msgstr ""
 
@@ -15651,7 +16460,7 @@ msgstr ""
 msgid "Open CA certificate file"
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid ""
 "On this system, %s uses HTTPS certificates from the system Certificate Store "
 "or Keychain."
@@ -15668,7 +16477,7 @@ msgstr ""
 msgid "Connection to printers connected via the print host failed."
 msgstr ""
 
-#, possible-c-format, possible-boost-format
+#, c-format, boost-format
 msgid "Mismatched type of print host: %s"
 msgstr ""
 
@@ -15741,17 +16550,17 @@ msgid "Storages found"
 msgstr ""
 
 #. TRN %1% = storage path
-#, possible-boost-format
+#, boost-format
 msgid "%1% : read only"
 msgstr ""
 
 #. TRN %1% = storage path
-#, possible-boost-format
+#, boost-format
 msgid "%1% : no free space"
 msgstr ""
 
 #. TRN %1% = host
-#, possible-boost-format
+#, boost-format
 msgid "Upload has failed. There is no suitable storage found at %1%."
 msgstr ""
 
@@ -15759,6 +16568,15 @@ msgid "Connection to Prusa Connect is working correctly."
 msgstr ""
 
 msgid "Could not connect to Prusa Connect"
+msgstr ""
+
+msgid "Connection to Moonraker works correctly."
+msgstr ""
+
+msgid "Could not connect to Moonraker"
+msgstr ""
+
+msgid "Note: Moonraker version at least 1.1.0 is required."
 msgstr ""
 
 msgid "Connection to Repetier is working correctly."
@@ -15770,20 +16588,20 @@ msgstr ""
 msgid "Note: Repetier version 0.90.0 or higher is required."
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "HTTP status: %1%\n"
 "Message body: \"%2%\""
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Parsing of host response failed.\n"
 "Message body: \"%1%\"\n"
 "Error: \"%2%\""
 msgstr ""
 
-#, possible-boost-format
+#, boost-format
 msgid ""
 "Enumeration of host printers failed.\n"
 "Message body: \"%1%\"\n"
@@ -16042,219 +16860,1812 @@ msgstr ""
 msgid "Please select single object."
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Precise wall]
-msgid "Precise wall\nDid you know that turning on precise wall can improve precision and layer consistency?"
+msgid "Construction"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Sandwich mode]
-msgid "Sandwich mode\nDid you know that you can use sandwich mode (inner-outer-inner) to improve precision and layer consistency if your model doesn't have very steep overhangs?"
+msgid "Line — click start, then end"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Chamber temperature]
-msgid "Chamber temperature\nDid you know that Snapmaker Orca supports chamber temperature?"
+msgid "Rectangle — click two opposite corners"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Calibration]
-msgid "Calibration\nDid you know that calibrating your printer can do wonders? Check out our beloved calibration solution in Snapmaker Orca."
+msgid "Circle — click center, then radius"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Auxiliary fan]
-msgid "Auxiliary fan\nDid you know that Snapmaker Orca supports Auxiliary part cooling fan?"
+msgid "Arc — click start, end, then a point"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Air filtration]
-msgid "Air filtration/Exhaust Fan\nDid you know that Snapmaker Orca can support Air filtration/Exhaust Fan?"
+msgid "Slot — two centerline ends, then width"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:G-code window]
-msgid "G-code window\nYou can turn on/off the G-code window by pressing the <b>C</b> key."
+msgid "Ellipse — center, major end, minor point"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Switch workspaces]
-msgid "Switch workspaces\nYou can switch between <b>Prepare</b> and <b>Preview</b> workspaces by pressing the <b>Tab</b> key."
+msgid "Spline — click control points"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:How to use keyboard shortcuts]
-msgid "How to use keyboard shortcuts\nDid you know that Snapmaker Orca offers a wide range of keyboard shortcuts and 3D scene operations?"
+msgid "Point — click to place"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Reverse on odd]
-msgid "Reverse on odd\nDid you know that <b>Reverse on odd</b> feature can significantly improve the surface quality of your overhangs?"
+msgid "Dimension — click 2 points or an entity"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Cut Tool]
-msgid "Cut Tool\nDid you know that you can cut a model at any angle and position with the cutting tool?"
+msgid "Trim — click a segment to trim it"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Fix Model]
-msgid "Fix Model\nDid you know that you can fix a corrupted 3D model to avoid a lot of slicing problems on the Windows system?"
+msgid "Extend — click a line/arc to extend it"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Timelapse]
-msgid "Timelapse\nDid you know that you can generate a timelapse video during each print?"
+msgid "Offset — pick an entity, drag the distance"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Auto-Arrange]
-msgid "Auto-Arrange\nDid you know that you can auto-arrange all the objects in your project?"
+msgid "Mirror — pick axis, then entities"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Auto-Orient]
-msgid "Auto-Orient\nDid you know that you can rotate objects to an optimal orientation for printing with a simple click?"
+msgid "Fillet — pick two lines, set the radius"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Lay on Face]
-msgid "Lay on Face\nDid you know that you can quickly orient a model so that one of its faces sits on the print bed? Select the \"Place on face\" function or press the <b>F</b> key."
+msgid "Chamfer — pick two lines, set the distance"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Object List]
-msgid "Object List\nDid you know that you can view all objects/parts in a list and change settings for each object/part?"
+msgid "Polygon — click center, then a vertex"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Search Functionality]
-msgid "Search Functionality\nDid you know that you use the Search tool to quickly find a specific Snapmaker Orca setting?"
+msgid "Origin planes shown"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Simplify Model]
-msgid "Simplify Model\nDid you know that you can reduce the number of triangles in a mesh using the Simplify mesh feature? Right-click the model and select Simplify model."
+msgid "Origin planes hidden"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Slicing Parameter Table]
-msgid "Slicing Parameter Table\nDid you know that you can view all objects/parts on a table and change settings for each object/part?"
+msgid "World axes shown"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Split to Objects/Parts]
-msgid "Split to Objects/Parts\nDid you know that you can split a big object into small ones for easy colorizing or printing?"
+msgid "World axes hidden"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Subtract a Part]
-msgid "Subtract a Part\nDid you know that you can subtract one mesh from another using the Negative part modifier? That way you can, for example, create easily resizable holes directly in Snapmaker Orca."
+msgid "FEATURES"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:STEP]
-msgid "STEP\nDid you know that you can improve your print quality by slicing a STEP file instead of an STL?\nSnapmaker Orca supports slicing STEP files, providing smoother results than a lower resolution STL. Give it a try!"
+msgid "Sketch"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Z seam location]
-msgid "Z seam location\nDid you know that you can customize the location of the Z seam, and even paint it on your print, to have it in a less visible location? This improves the overall look of your model. Check it out!"
+msgid "Pick a plane and a sketch tool, then draw"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Fine-tuning for flow rate]
-msgid "Fine-tuning for flow rate\nDid you know that flow rate can be fine-tuned for even better-looking prints? Depending on the material, you can improve the overall finish of the printed model by doing some fine-tuning."
+msgid "Add material (extrude / revolve / sweep / loft / thicken / rib)"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Split your prints into plates]
-msgid "Split your prints into plates\nDid you know that you can split a model that has a lot of parts into individual plates ready to print? This will simplify the process of keeping track of all the parts."
+msgid "Extrude"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Speed up your print with Adaptive Layer Height]
-msgid "Speed up your print with Adaptive Layer Height\nDid you know that you can print a model even faster, by using the Adaptive Layer Height option? Check it out!"
+msgid "Extrude a sketch profile, or push/pull a picked face"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Support painting]
-msgid "Support painting\nDid you know that you can paint the location of your supports? This feature makes it easy to place the support material only on the sections of the model that actually need it."
+msgid "Create a sketch, or pick a solid face, first"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Different types of supports]
-msgid "Different types of supports\nDid you know that you can choose from multiple types of supports? Tree supports work great for organic models, while saving filament and improving print speed. Check them out!"
+msgid "Revolve"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Printing Silk Filament]
-msgid "Printing Silk Filament\nDid you know that Silk filament needs special consideration to print it successfully? Higher temperature and lower speed are always recommended for the best results."
+msgid "Revolve a profile about an axis"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Brim for better adhesion]
-msgid "Brim for better adhesion\nDid you know that when printed models have a small contact interface with the printing surface, it's recommended to use a brim?"
+msgid "Create a sketch profile to revolve first"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Set parameters for multiple objects]
-msgid "Set parameters for multiple objects\nDid you know that you can set slicing parameters for all selected objects at once?"
+msgid "Sweep"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Stack objects]
-msgid "Stack objects\nDid you know that you can stack objects as a whole one?"
+msgid "Sweep a profile along a path"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Flush into support/objects/infill]
-msgid "Flush into support/objects/infill\nDid you know that you can save wasted filament by flushing it into support/objects/infill during filament change?"
+msgid "Create a profile sketch to sweep first"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Improve strength]
-msgid "Improve strength\nDid you know that you can use more wall loops and higher sparse infill density to improve the strength of the model?"
+msgid "Loft"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:When do you need to print with the printer door opened]
-msgid "When do you need to print with the printer door opened?\nDid you know that opening the printer door can reduce the probability of extruder/hotend clogging when printing lower temperature filament with a higher enclosure temperature? More info about this in the Wiki."
+msgid "Loft (skin) between two or more profiles"
 msgstr ""
 
-#: resources/data/hints.ini: [hint:Avoid warping]
-msgid "Avoid warping\nDid you know that when printing materials that are prone to warping such as ABS, appropriately increasing the heatbed temperature can reduce the probability of warping?"
+msgid "Create at least two profile sketches to loft"
 msgstr ""
 
-msgid "Ramming line width ratio"
+msgid "Thicken"
 msgstr ""
 
-msgid "Enable change pressure advance when wiping"
+msgid "Offset a solid face into a thin plate (new body)"
 msgstr ""
 
-msgid "Pressure advance value when ramming"
+msgid "Thicken needs a solid body — add or import one first"
 msgstr ""
 
-msgid "Ramming line width ratio"
+#, c-format
+msgid "Body %zu"
 msgstr ""
 
-msgid "Enable change pressure advance when wiping"
+msgid "(pick a solid face)"
 msgstr ""
 
-msgid "Pressure advance value when ramming"
+msgid "Rib"
 msgstr ""
 
-msgid "Z hop when moving to tower"
+msgid "Grow a thin wall from an open sketch line, fused to a body"
 msgstr ""
 
-msgid "Retraction Length(Toolchange)"
+msgid "Rib needs a solid body — add or import one first"
 msgstr ""
 
-msgid "Face and face assembly"
+msgid "Create a sketch with an open line first"
 msgstr ""
 
-msgid "Point and point assembly"
+msgid "Create a solid body to pattern first"
 msgstr ""
 
-msgid "Please do not include the special characters #, *, ;, \\, /, :, \", <, >, or | in filenames."
+msgid "Surface (extrude / revolve / loft / fill / offset / thicken)"
 msgstr ""
 
-msgid "The filename '%s' contains special characters (#, *, ;, \\, /, :, \", <, >, or |) which may cause issues.Do you wish to continue?"
+msgid "Surface Extrude"
 msgstr ""
 
-msgid "Connection has been disconnected and recovery attempt failed. Please reconnect."
+msgid "Extrude a sketch into a sheet body (no end caps)"
 msgstr ""
 
-msgid "User Experience"
+msgid "Create a sketch first"
 msgstr ""
 
-msgid "Join Customer Experience Improvement Program."
+msgid "Surface Revolve"
 msgstr ""
 
-msgid "What data would be collected?"
+msgid "Revolve a sketch profile into a sheet body"
 msgstr ""
 
-msgid "Note: The firmware version of SnapmakerU1 should be no less than"
+msgid "Surface Loft"
 msgstr ""
 
-msgid "Snapmaker Orca is forked from Orca Slicer by SoftFever."
+msgid "Loft (skin) between 2+ profiles, open (no end caps)"
 msgstr ""
 
-msgid "Bambu Studio is forked from PrusaSlicer by Prusa Research, which is from Slic3r by Alessandro Ranellucci and the RepRap community. Orca Slicer incorporates a lot of features from SuperSlicer by @supermerill."
+msgid "Surface Fill"
 msgstr ""
 
-msgid "Snapmaker Orca integrates some features from the 3D printing open-source community, with specific attributions provided in the code comments."
-msgstr "
-
-msgid "Snapmaker Orca is licensed under the GNU Affero General Public License, version 3."
+msgid "Fill a sketch boundary with a smooth face"
 msgstr ""
 
-msgid "OrcaSlicer is forked from Bambu Studio by Bambu Lab."
+msgid "Create a sketch profile to fill first"
 msgstr ""
 
-msgid "Incompatible filament types cannot be mixed. Please correct the selection."
+msgid "Surface Offset"
+msgstr ""
+
+msgid "Offset a sheet body's shell by a signed distance"
+msgstr ""
+
+msgid "No sheet body to offset — create a surface feature first"
+msgstr ""
+
+msgid "Thicken Surface"
+msgstr ""
+
+msgid "Thicken a sheet body into a solid"
+msgstr ""
+
+msgid "No sheet body to thicken — create a surface feature first"
+msgstr ""
+
+msgid "Datum / Curve (plane / axis / coord sys / helix / project)"
+msgstr ""
+
+msgid ""
+"Reference plane (offset / tilt / midplane / tangent / two edges / coincident)"
+msgstr ""
+
+msgid "Axis"
+msgstr ""
+
+msgid ""
+"Datum axis (two points, face normal, cylinder centerline, two planes, along "
+"edge)"
+msgstr ""
+
+msgid "Coord Sys"
+msgstr ""
+
+msgid "Datum coordinate system (world point, or face + direction edge)"
+msgstr ""
+
+msgid "Helix"
+msgstr ""
+
+msgid ""
+"Helical curve (spring path) — use as a sweep path for coils / springs / "
+"augers"
+msgstr ""
+
+msgid "Project body edges onto a plane as sketch entities"
+msgstr ""
+
+msgid "Project needs a body — add or import one first"
+msgstr ""
+
+msgid "(all edges)"
+msgstr ""
+
+msgid "Placement (transform / mirror / mate)"
+msgstr ""
+
+msgid "Transform"
+msgstr ""
+
+msgid "Move and/or rotate an existing body"
+msgstr ""
+
+msgid "Transform needs a body — add or import one first"
+msgstr ""
+
+msgid "Reflect a body about a plane"
+msgstr ""
+
+msgid "Mirror needs a body — add or import one first"
+msgstr ""
+
+msgid "Mate"
+msgstr ""
+
+msgid ""
+"Assembly: align two CoordSys features (fastened, planar, revolute, slider, "
+"cylindrical)"
+msgstr ""
+
+msgid "Boolean (combine bodies)"
+msgstr ""
+
+msgid "Boolean needs two bodies — create or import a second solid"
+msgstr ""
+
+msgid "Cut (split a body with a plane)"
+msgstr ""
+
+msgid "Create a solid body to cut first"
+msgstr ""
+
+msgid "Color — set the selected body's display colour"
+msgstr ""
+
+msgid "Dress-up (fillet / chamfer / draft / shell / delete face)"
+msgstr ""
+
+msgid "Fillet / Chamfer"
+msgstr ""
+
+msgid "Round or bevel a picked edge"
+msgstr ""
+
+msgid "Draft (taper a face)"
+msgstr ""
+
+msgid "Tilt a picked face by a draft angle"
+msgstr ""
+
+msgid "Hollow the body to a wall thickness, opening a picked face"
+msgstr ""
+
+msgid "Delete Face"
+msgstr ""
+
+msgid "Remove faces from a body and heal the solid"
+msgstr ""
+
+msgid "Delete Face needs a body — add or import one first"
+msgstr ""
+
+msgid "(none)"
+msgstr ""
+
+msgid "Hole / thread"
+msgstr ""
+
+msgid "Hole"
+msgstr ""
+
+msgid "Drill a hole, centred on a picked face or placed on a plane"
+msgstr ""
+
+msgid "Thread"
+msgstr ""
+
+msgid "Thread a cylindrical surface (inner bore / outer) or a circular edge"
+msgstr ""
+
+msgid ""
+"Pick a cylindrical surface (bore / outer) or a circular edge for a thread"
+msgstr ""
+
+msgid "Import STEP (editable B-rep solid)"
+msgstr ""
+
+msgid "Import mesh (STL/OBJ) as an editable B-rep solid"
+msgstr ""
+
+msgid "Constrain selected sketch"
+msgstr ""
+
+msgid "SKETCH"
+msgstr ""
+
+msgid "Click to select; Shift to add; double-click for a whole loop"
+msgstr ""
+
+msgid "Dimension"
+msgstr ""
+
+msgid "Click 2 points or a line / circle / arc to place a dimension"
+msgstr ""
+
+msgid "Line / polyline"
+msgstr ""
+
+msgid "Click start, then end — then set the exact length"
+msgstr ""
+
+msgid "Polyline"
+msgstr ""
+
+msgid "Click points; click first / right-click to close the loop"
+msgstr ""
+
+msgid "Corner rectangle"
+msgstr ""
+
+msgid "Click two opposite corners"
+msgstr ""
+
+msgid "Center rectangle"
+msgstr ""
+
+msgid "Click center, then a corner"
+msgstr ""
+
+msgid "Oblique rectangle"
+msgstr ""
+
+msgid "Click two corners of one edge, then a point for the width"
+msgstr ""
+
+msgid "Rounded rectangle"
+msgstr ""
+
+msgid "Click two opposite corners, then a point for the corner radius"
+msgstr ""
+
+msgid "Center circle"
+msgstr ""
+
+msgid "Click center, then radius"
+msgstr ""
+
+msgid "2-point circle"
+msgstr ""
+
+msgid "Click two ends of the diameter"
+msgstr ""
+
+msgid "3-point circle"
+msgstr ""
+
+msgid "Click three points on the circle"
+msgstr ""
+
+msgid "Arc"
+msgstr ""
+
+msgid "3-point arc"
+msgstr ""
+
+msgid "Click start, end, then a point on the arc"
+msgstr ""
+
+msgid "Tangent arc"
+msgstr ""
+
+msgid "Click start (on the last entity) then end"
+msgstr ""
+
+msgid "Center-point arc"
+msgstr ""
+
+msgid "Click center, then start, then a point for the end angle"
+msgstr ""
+
+msgid "Slot"
+msgstr ""
+
+msgid "Click two centerline ends, then a point for width"
+msgstr ""
+
+msgid "Arc slot"
+msgstr ""
+
+msgid "Click center, start, end, then a point for the width"
+msgstr ""
+
+msgid "Ellipse"
+msgstr ""
+
+msgid "Click center, a major-axis end, then a point for the minor axis"
+msgstr ""
+
+msgid "Elliptical arc"
+msgstr ""
+
+msgid "Click center, major-axis end, minor point, then arc start and end"
+msgstr ""
+
+msgid "Spline"
+msgstr ""
+
+msgid "Click control points; double-click or right-click to finish"
+msgstr ""
+
+msgid "Click to place a point"
+msgstr ""
+
+msgid "Text — emboss text as a profile"
+msgstr ""
+
+msgid "SVG — import an outline as a profile"
+msgstr ""
+
+msgid "Fillet / chamfer"
+msgstr ""
+
+msgid "Fillet"
+msgstr ""
+
+msgid "Pick two lines, then drag the arrow or click the radius to set it"
+msgstr ""
+
+msgid "Chamfer"
+msgstr ""
+
+msgid "Pick two lines, then drag the arrow or click the distance to set it"
+msgstr ""
+
+msgid "Offset"
+msgstr ""
+
+msgid ""
+"Pick an entity, then drag the arrow or click the distance; click empty to "
+"apply"
+msgstr ""
+
+msgid ""
+"Pick a mirror-axis line, then the entities to mirror; click empty to apply"
+msgstr ""
+
+msgid "Trim"
+msgstr ""
+
+msgid ""
+"Click a segment to trim it back to its nearest intersection; right-click "
+"exits"
+msgstr ""
+
+msgid "Extend"
+msgstr ""
+
+msgid ""
+"Click a line or arc to extend it to the nearest entity; right-click exits"
+msgstr ""
+
+msgid "Constrain — add geometric/dimensional relations"
+msgstr ""
+
+msgid "Move / rotate / scale"
+msgstr ""
+
+msgid "Move (translate)"
+msgstr ""
+
+msgid ""
+"Pick entities, then drag the handle or click the distance; click empty to "
+"apply"
+msgstr ""
+
+msgid "Rotate (about centroid)"
+msgstr ""
+
+msgid ""
+"Pick entities, then drag around the pivot or click the angle; click empty to "
+"apply"
+msgstr ""
+
+msgid "Scale (about centroid)"
+msgstr ""
+
+msgid ""
+"Pick entities, then drag the handle or click the factor; click empty to apply"
+msgstr ""
+
+msgid "Linear / polar array"
+msgstr ""
+
+msgid "Linear array"
+msgstr ""
+
+msgid ""
+"Pick entities, drag the spacing handle, click the count; click empty to apply"
+msgstr ""
+
+msgid "Polar array (about centroid)"
+msgstr ""
+
+msgid ""
+"Pick entities, drag the sweep handle, click the count; click empty to apply"
+msgstr ""
+
+msgid "Polygon"
+msgstr ""
+
+msgid "Click center then a vertex"
+msgstr ""
+
+msgid "CONSTRAIN"
+msgstr ""
+
+msgid "Perpendicular"
+msgstr ""
+
+msgid "Coincident"
+msgstr ""
+
+msgid "Equal length"
+msgstr ""
+
+msgid "Tangent"
+msgstr ""
+
+msgid "Midpoint"
+msgstr ""
+
+msgid "Symmetric"
+msgstr ""
+
+msgid "Fix point (anchor in place)"
+msgstr ""
+
+msgid "✓ Confirm"
+msgstr ""
+
+msgid "✗ Cancel"
+msgstr ""
+
+msgid "Undo (Ctrl+Z)"
+msgstr ""
+
+msgid "Redo (Ctrl+Shift+Z)"
+msgstr ""
+
+msgid "New Design — clear the feature tree"
+msgstr ""
+
+msgid "Export STEP…"
+msgstr ""
+
+msgid "Show the printer bed and its plate grid"
+msgstr ""
+
+msgid "Place on Face (F) — lay the picked face on the bed"
+msgstr ""
+
+msgid ""
+"Section View — hide part of the model to see inside. PageUp/PageDown move "
+"the plane; Delete removes it."
+msgstr ""
+
+msgid "Flip Section — show the opposite half"
+msgstr ""
+
+msgid "Commit to Plate — send the solid to Prepare"
+msgstr ""
+
+msgid "XY"
+msgstr ""
+
+msgid "XZ"
+msgstr ""
+
+msgid "YZ"
+msgstr ""
+
+msgid "Width / X"
+msgstr ""
+
+msgid "Height / Y"
+msgstr ""
+
+msgid "Distance X"
+msgstr ""
+
+msgid "Distance Y"
+msgstr ""
+
+msgid "Distance Z"
+msgstr ""
+
+msgid "X"
+msgstr ""
+
+msgid "Y"
+msgstr ""
+
+msgid "Z"
+msgstr ""
+
+msgid "Rotation axis"
+msgstr ""
+
+msgid "Angle °"
+msgstr ""
+
+msgid "Move / Rotate"
+msgstr ""
+
+msgid "Sides"
+msgstr ""
+
+msgid "Circumscribed"
+msgstr ""
+
+msgid "Sketch: —"
+msgstr ""
+
+msgid "Extrude dist"
+msgstr ""
+
+msgid "2nd dist"
+msgstr ""
+
+msgid "Taper °"
+msgstr ""
+
+msgid "New body"
+msgstr ""
+
+msgid "Intersect"
+msgstr ""
+
+msgid "Result"
+msgstr ""
+
+msgid "Flip direction"
+msgstr ""
+
+msgid "Dress-up"
+msgstr ""
+
+msgid "Lateral"
+msgstr ""
+
+msgid "Edges"
+msgstr ""
+
+msgid "Size (r/dist)"
+msgstr ""
+
+msgid "Hole plane"
+msgstr ""
+
+msgid "Depth (blind)"
+msgstr ""
+
+msgid "Pos X"
+msgstr ""
+
+msgid "Pos Y"
+msgstr ""
+
+msgid "Through"
+msgstr ""
+
+msgid "Thread plane"
+msgstr ""
+
+msgid "Pitch"
+msgstr ""
+
+msgid "Thread depth"
+msgstr ""
+
+msgid "Plane X"
+msgstr ""
+
+msgid "Plane Y"
+msgstr ""
+
+msgid "Profile: —"
+msgstr ""
+
+msgid "Path"
+msgstr ""
+
+msgid "Linear"
+msgstr ""
+
+msgid "Count"
+msgstr ""
+
+msgid "Direction"
+msgstr ""
+
+msgid "Total angle°"
+msgstr ""
+
+msgid "Boolean"
+msgstr ""
+
+msgid "Union (join)"
+msgstr ""
+
+msgid "Subtract (cut)"
+msgstr ""
+
+msgid "Target (kept)"
+msgstr ""
+
+msgid "Keep tool body"
+msgstr ""
+
+msgid "Body"
+msgstr ""
+
+msgid "Insert"
+msgstr ""
+
+msgid ""
+"Drag a corner to size, the centre to move.\n"
+"Confirm or Cancel in the toolbar above."
+msgstr ""
+
+msgid "Midplane"
+msgstr ""
+
+msgid "Two edges"
+msgstr ""
+
+msgid "Plane type"
+msgstr ""
+
+msgid "Base"
+msgstr ""
+
+msgid "Angle°"
+msgstr ""
+
+msgid "Base X"
+msgstr ""
+
+msgid "Base Y"
+msgstr ""
+
+msgid "Tilt axis"
+msgstr ""
+
+msgid "Pick Face A"
+msgstr ""
+
+msgid "Pick Face B"
+msgstr ""
+
+msgid "Pick Edge A"
+msgstr ""
+
+msgid "Pick Edge B"
+msgstr ""
+
+msgid "Size U"
+msgstr ""
+
+msgid "Size V"
+msgstr ""
+
+msgid "Profiles (check 2+, in order):"
+msgstr ""
+
+msgid "Ruled (straight) sections"
+msgstr ""
+
+msgid "Fills the sketch's closed boundary with a smooth face."
+msgstr ""
+
+msgid "Sheet body"
+msgstr ""
+
+msgid "Offsets a sheet body's shell. Positive = outward, negative = inward."
+msgstr ""
+
+msgid "Thickens a sheet body into a solid. Flip reverses the direction."
+msgstr ""
+
+msgid "(all faces — closed hollow)"
+msgstr ""
+
+msgid "Open face"
+msgstr ""
+
+msgid "Pick a solid face to open it, then set the wall thickness."
+msgstr ""
+
+msgid "Angle (°)"
+msgstr ""
+
+msgid "(pick a side face)"
+msgstr ""
+
+msgid "Draft"
+msgstr ""
+
+msgid ""
+"Pick a side face, then set the draft angle. The face pivots about the body "
+"base."
+msgstr ""
+
+msgid "Translate X"
+msgstr ""
+
+msgid "Translate Y"
+msgstr ""
+
+msgid "Translate Z"
+msgstr ""
+
+msgid "Rotate axis"
+msgstr ""
+
+msgid "Pivot X"
+msgstr ""
+
+msgid "Pivot Y"
+msgstr ""
+
+msgid "Pivot Z"
+msgstr ""
+
+msgid "Keep original (make a copy)"
+msgstr ""
+
+msgid ""
+"Translate and/or rotate the selected body. Rotation is applied about the "
+"pivot, then translation follows."
+msgstr ""
+
+msgid "Mirror plane"
+msgstr ""
+
+msgid "Keep original"
+msgstr ""
+
+msgid ""
+"Reflect the selected body about a plane. The mirror is always a new body; "
+"keeping the original gives you both."
+msgstr ""
+
+msgid ""
+"Pick a solid face and offset it into a new thin body. Not for sheet bodies — "
+"use Thicken Surface for those."
+msgstr ""
+
+msgid "Target body"
+msgstr ""
+
+msgid "Entity index"
+msgstr ""
+
+msgid ""
+"Grow a thin wall from an open sketch Line entity, fused to the target body. "
+"Entity index is the position of the open Line in the sketch."
+msgstr ""
+
+msgid "Source body"
+msgstr ""
+
+msgid "Target plane"
+msgstr ""
+
+msgid ""
+"Project the edges of a body onto a plane as sketch entities. Pick a face to "
+"project only its edges, or leave the face empty to project the whole body."
+msgstr ""
+
+msgid "Add picked face"
+msgstr ""
+
+msgid "Click a face on the body first, then Add picked face"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Face %d is already in the list"
+msgstr ""
+
+msgid "Faces to delete"
+msgstr ""
+
+msgid ""
+"Pick a solid face, then click 'Add picked face' to accumulate faces. Confirm "
+"to remove all listed faces and heal the solid."
+msgstr ""
+
+msgid "Left-handed"
+msgstr ""
+
+msgid "Taper (°)"
+msgstr ""
+
+msgid ""
+"A helical curve (spring path). Use as a sweep path to build springs, coils, "
+"or augers."
+msgstr ""
+
+msgid "Two points"
+msgstr ""
+
+msgid "Face normal"
+msgstr ""
+
+msgid "Cylinder centerline"
+msgstr ""
+
+msgid "Plane intersection"
+msgstr ""
+
+msgid "Along edge"
+msgstr ""
+
+msgid "Axis type"
+msgstr ""
+
+msgid "Pick Face"
+msgstr ""
+
+msgid "Pick Edge"
+msgstr ""
+
+msgid "Plane A"
+msgstr ""
+
+msgid "Plane B"
+msgstr ""
+
+msgid "Point 1 X"
+msgstr ""
+
+msgid "Point 1 Y"
+msgstr ""
+
+msgid "Point 1 Z"
+msgstr ""
+
+msgid "Point 2 X"
+msgstr ""
+
+msgid "Point 2 Y"
+msgstr ""
+
+msgid "Point 2 Z"
+msgstr ""
+
+msgid "Point (world)"
+msgstr ""
+
+msgid "Face + direction"
+msgstr ""
+
+msgid "Edge (sets in-plane direction)"
+msgstr ""
+
+msgid ""
+"Without an edge the frame takes X from the face's first edge — pick one to "
+"choose it yourself"
+msgstr ""
+
+msgid "X hint X"
+msgstr ""
+
+msgid "X hint Y"
+msgstr ""
+
+msgid "X hint Z"
+msgstr ""
+
+msgid "Fastened — 6 DOF locked, B driven onto A exactly"
+msgstr ""
+
+msgid "Planar — z aligned, offset distance; free in-plane slide"
+msgstr ""
+
+msgid "Revolute — axes collinear; free rotation about z"
+msgstr ""
+
+msgid "Slider — orientation locked; free axial slide"
+msgstr ""
+
+msgid "Cylindrical — axes collinear; free spin + axial slide"
+msgstr ""
+
+msgid "Kind"
+msgstr ""
+
+msgid "CS A (fixed)"
+msgstr ""
+
+msgid "CS B (moves)"
+msgstr ""
+
+msgid "Flip (oppose z axes)"
+msgstr ""
+
+msgid "Plane distance"
+msgstr ""
+
+msgid "Axial position"
+msgstr ""
+
+msgid "Expression"
+msgstr ""
+
+msgid "Field"
+msgstr ""
+
+msgid "Expr"
+msgstr ""
+
+msgid "(no bindings)"
+msgstr ""
+
+msgid "Value"
+msgstr ""
+
+msgid "Pick a plane, then draw. Finish (✓) when done."
+msgstr ""
+
+msgid "Constraints"
+msgstr ""
+
+msgid "Feature tree"
+msgstr ""
+
+msgid "Move body / Scale imported Text-SVG"
+msgstr ""
+
+msgid "Select a body to move it, or an imported Text/SVG to scale"
+msgstr ""
+
+msgid "Show / hide"
+msgstr ""
+
+msgid "Move up"
+msgstr ""
+
+msgid "Move down"
+msgstr ""
+
+msgid "Check interference — find overlapping bodies"
+msgstr ""
+
+msgid "Bodies"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Body %d selected — next Extrude / Fillet acts on it"
+msgstr ""
+
+msgid "Variables"
+msgstr ""
+
+msgid "+"
+msgstr ""
+
+msgid "Sketch created — select it and Extrude"
+msgstr ""
+
+msgid "Sketch empty — nothing committed"
+msgstr ""
+
+msgid "Sketch updated"
+msgstr ""
+
+#, c-format
+msgid "Sketch created (%zu driving dims) — select it and Extrude"
+msgstr ""
+
+msgid "✗ Conflicting constraints"
+msgstr ""
+
+msgid "✓ Fully constrained"
+msgstr ""
+
+#, c-format, boost-format
+msgid "%d degrees of freedom"
+msgstr ""
+
+#, c-format, boost-format
+msgid "%d selected — Delete removes them"
+msgstr ""
+
+msgid "Click to select; click a filled face to extrude; Shift to add"
+msgstr ""
+
+msgid "Could not resolve the sketch to extrude"
+msgstr ""
+
+msgid "Face selected — set the depth and Confirm"
+msgstr ""
+
+msgid "Loop selected — Extrude it, or Edit / Delete the sketch"
+msgstr ""
+
+msgid "Sketch selected — Extrude it, or Edit / Delete from the tree"
+msgstr ""
+
+msgid "Selection cleared"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Body %d selected — click again for a face"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Body %d, face %d — click again for an edge"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Body %d, edge %d selected"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Face %d"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Body %d "
+msgstr ""
+
+msgid "selected (whole) — click again for a face"
+msgstr ""
+
+#, c-format, boost-format
+msgid "face %d selected — Extrude to push/pull it, or click again for an edge"
+msgstr ""
+
+#, c-format, boost-format
+msgid ""
+"edge %d selected — open Fillet/Chamfer to dress it, or click again to reset"
+msgstr ""
+
+msgid "Nothing selected"
+msgstr ""
+
+#, c-format, boost-format
+msgid "%s plane selected — press Sketch to draw on it"
+msgstr ""
+
+#, c-format, boost-format
+msgid "placed (%.1f, %.1f, %.1f) mm — drag arrows to move, rings to rotate"
+msgstr ""
+
+msgid "Tool exited"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Sketch %d"
+msgstr ""
+
+#, c-format
+msgid "OK — %zu triangles"
+msgstr ""
+
+msgid "Text to insert:"
+msgstr ""
+
+msgid "Import SVG"
+msgstr ""
+
+msgid "SnapOrca"
+msgstr ""
+
+msgid "Import STEP"
+msgstr ""
+
+msgid "Reading STEP…"
+msgstr ""
+
+msgid "No solids found in STEP"
+msgstr ""
+
+msgid "STEP import failed: "
+msgstr ""
+
+msgid "Rebuilding model…"
+msgstr ""
+
+#, c-format, boost-format
+msgid ""
+"Imported %d solid(s) — pick a face or edge, then Fillet / Cut / Shell to "
+"modify"
+msgstr ""
+
+msgid "Import mesh"
+msgstr ""
+
+msgid "Could not read the STL file"
+msgstr ""
+
+msgid "Could not read the OBJ file: "
+msgstr ""
+
+msgid "Unsupported mesh format (STL and OBJ are supported)"
+msgstr ""
+
+msgid "The mesh contains no triangles"
+msgstr ""
+
+#, c-format, boost-format
+msgid ""
+"This mesh has %d triangles. Every triangle becomes a B-rep face before "
+"coplanar merging, so importing it may take a long time and leave a body that "
+"is slow to edit. Decimating the mesh first is usually better.\n"
+"\n"
+"Import anyway?"
+msgstr ""
+
+msgid "Large mesh"
+msgstr ""
+
+msgid "Mesh conversion failed: "
+msgstr ""
+
+msgid "Mesh conversion produced no geometry"
+msgstr ""
+
+msgid "Mesh import failed: "
+msgstr ""
+
+#, c-format, boost-format
+msgid ""
+"Imported solid — %d triangles → %d faces, volume %.2f mm³. Pick a face or "
+"edge, then Fillet / Cut / Shell to modify"
+msgstr ""
+
+#, c-format, boost-format
+msgid ""
+"Imported as an open shell (not watertight): %d boundary edge(s), %d non-"
+"manifold edge(s) — %d triangles → %d faces. The source mesh has holes or "
+"duplicated geometry; boolean features may fail on it"
+msgstr ""
+
+msgid "No importable geometry found"
+msgstr ""
+
+msgid " — drag to place/size, then Confirm"
+msgstr ""
+
+msgid "Insert cancelled"
+msgstr ""
+
+msgid "Drag a corner to scale, the centre to move — right-click when done"
+msgstr ""
+
+msgid "Sketch added — select it and Extrude"
+msgstr ""
+
+msgid "Recompute error: "
+msgstr ""
+
+msgid "Add a solid (sketch + extrude) first"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Thread standard: %s  (pitch %.3g mm)"
+msgstr ""
+
+msgid "Thread needs a solid body — add or import one first"
+msgstr ""
+
+msgid "Pick a sketch profile to revolve first"
+msgstr ""
+
+msgid "Revolve needs a solid body — add or import one first"
+msgstr ""
+
+msgid "Pick a profile sketch to sweep first"
+msgstr ""
+
+msgid "Pick a path sketch for the sweep"
+msgstr ""
+
+msgid "Sweep needs a solid body — add or import one first"
+msgstr ""
+
+msgid "Check at least two profile sketches to loft"
+msgstr ""
+
+msgid "Loft needs a solid body — add or import one first"
+msgstr ""
+
+msgid "Pick a sketch profile to extrude first"
+msgstr ""
+
+msgid "Pick a sketch to fill first"
+msgstr ""
+
+msgid "Select a sheet body first"
+msgstr ""
+
+msgid "Pick a solid face to thicken first"
+msgstr ""
+
+msgid "Pick a sketch with an open line first"
+msgstr ""
+
+msgid "Add at least one face to delete first"
+msgstr ""
+
+msgid "Mate needs two CoordSys features — create them first"
+msgstr ""
+
+msgid "Mate: CS A and CS B must be different CoordSys features"
+msgstr ""
+
+msgid "Mate rejected"
+msgstr ""
+
+msgid "No interference — need at least two solid bodies to check"
+msgstr ""
+
+msgid "No interference found"
+msgstr ""
+
+#, c-format
+msgid "%zu interference pairs, worst %.2f mm³"
+msgstr ""
+
+msgid ""
+"Interference pairs:\n"
+"\n"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Body %d"
+msgstr ""
+
+msgid "Interference"
+msgstr ""
+
+msgid "Pattern needs a solid body — add or import one first"
+msgstr ""
+
+msgid "Boolean needs two solid bodies — add or import a second one"
+msgstr ""
+
+msgid "Cut needs a solid body — add or import one first"
+msgstr ""
+
+msgid "Click a solid FACE in the viewport"
+msgstr ""
+
+msgid "Click a solid EDGE in the viewport"
+msgstr ""
+
+msgid "Plane added — pick it as a sketch plane"
+msgstr ""
+
+msgid "Axis added"
+msgstr ""
+
+msgid "Coord Sys added"
+msgstr ""
+
+msgid "Shell needs a solid body — add or import one first"
+msgstr ""
+
+msgid "Draft needs a solid body — add or import one first"
+msgstr ""
+
+msgid "Draft needs a picked face — click a side face first"
+msgstr ""
+
+msgid "Could not restore the CAD model from this project"
+msgstr ""
+
+msgid ""
+"Section view on — hides half the model to see inside; PageUp / PageDown move "
+"the plane, Flip shows the other half"
+msgstr ""
+
+msgid "Section view off"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Section view — showing the %s half"
+msgstr ""
+
+msgid "upper"
+msgstr ""
+
+msgid "lower"
+msgstr ""
+
+msgid "Select a body first — click it in the viewport or the Bodies list"
+msgstr ""
+
+msgid "That body has no display mesh yet — recompute first"
+msgstr ""
+
+msgid ""
+"Drag the arrows to move, the rings to rotate — then Confirm (Esc cancels)"
+msgstr ""
+
+msgid "Select a body first"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Body %d colour set"
+msgstr ""
+
+msgid ""
+"Pick a body face first (click a solid, then click again to a face), then "
+"press F"
+msgstr ""
+
+msgid "Placed on face — body laid flat on the bed"
+msgstr ""
+
+msgid "Edit rejected: "
+msgstr ""
+
+msgid ""
+"Erase all features and bodies and start a new design? This cannot be undone."
+msgstr ""
+
+msgid "New Design"
+msgstr ""
+
+msgid "Select the FEATURE that created this body (or use New Design)"
+msgstr ""
+
+msgid "Select a feature in the tree first"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Body %d shown"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Body %d hidden"
+msgstr ""
+
+msgid "Feature shown"
+msgstr ""
+
+msgid "Feature hidden"
+msgstr ""
+
+msgid "Draw a sketch first, then Constrain"
+msgstr ""
+
+msgid "Select a sketch in the tree first"
+msgstr ""
+
+msgid "Selected feature is not a sketch"
+msgstr ""
+
+msgid "Pick 1-2 lines, then a constraint; right-click exits"
+msgstr ""
+
+msgid "Pick 1-2 entities, then a constraint or dimension; right-click exits"
+msgstr ""
+
+msgid "Pick two entities first"
+msgstr ""
+
+msgid "Pick an entity first"
+msgstr ""
+
+msgid "Concentric needs two circles or arcs"
+msgstr ""
+
+msgid "Tangent needs a line and a circle/arc, or two circles/arcs"
+msgstr ""
+
+msgid "Midpoint needs a point and a line"
+msgstr ""
+
+msgid "Symmetric: pick two entities, then an axis line"
+msgstr ""
+
+msgid "Symmetric needs two points or two lines + an axis"
+msgstr ""
+
+msgid "Radius/Diameter needs a circle or arc"
+msgstr ""
+
+msgid "Unsupported constraint"
+msgstr ""
+
+msgid "Constraint rejected (over-constrained)"
+msgstr ""
+
+msgid "Applied constraint"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Fix %s"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Lock X %s"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Lock Y %s"
+msgstr ""
+
+msgid "Equal"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Symmetric %s — %s / %s"
+msgstr ""
+
+msgid "On line"
+msgstr ""
+
+msgid "On edge"
+msgstr ""
+
+msgid "Constraint"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Constraints (%d)"
+msgstr ""
+
+msgid "No constraints yet"
+msgstr ""
+
+msgid "Delete constraint"
+msgstr ""
+
+msgid "Constraint deleted"
+msgstr ""
+
+msgid "Press Constrain on a sketch first"
+msgstr ""
+
+msgid "Pick the entity, then a mirror-axis line"
+msgstr ""
+
+msgid "Mirror axis must be a line"
+msgstr ""
+
+msgid "Mirror produced nothing"
+msgstr ""
+
+msgid "Offset distance (+left / -right of direction)"
+msgstr ""
+
+msgid "Offset collapsed the entity"
+msgstr ""
+
+msgid "Pick two lines to fillet"
+msgstr ""
+
+msgid "Fillet needs two lines"
+msgstr ""
+
+msgid "Fillet radius"
+msgstr ""
+
+msgid "Fillet failed (parallel lines or radius too large)"
+msgstr ""
+
+msgid "Pick two lines to chamfer"
+msgstr ""
+
+msgid "Chamfer needs two lines"
+msgstr ""
+
+msgid "Chamfer distance"
+msgstr ""
+
+msgid "Chamfer failed (parallel lines or distance too large)"
+msgstr ""
+
+msgid "Trim works on lines, arcs and circles"
+msgstr ""
+
+msgid "Extend works on lines and arcs"
+msgstr ""
+
+msgid "Pick the edge to trim/extend"
+msgstr ""
+
+msgid "Nothing to trim at the pick"
+msgstr ""
+
+msgid "No edge to extend to"
+msgstr ""
+
+msgid "Array count (incl. original)"
+msgstr ""
+
+msgid "Spacing (mm)"
+msgstr ""
+
+msgid "Array produced nothing"
+msgstr ""
+
+msgid "Move dX (mm)"
+msgstr ""
+
+msgid "Move dY (mm)"
+msgstr ""
+
+msgid "Move produced nothing"
+msgstr ""
+
+msgid "Rotate angle (deg)"
+msgstr ""
+
+msgid "Rotate produced nothing"
+msgstr ""
+
+msgid "Scale factor"
+msgstr ""
+
+msgid "Scale produced nothing"
+msgstr ""
+
+msgid "Polar count (incl. original)"
+msgstr ""
+
+msgid "Total sweep (deg)"
+msgstr ""
+
+msgid "Polar array produced nothing"
+msgstr ""
+
+msgid "Applied edit"
+msgstr ""
+
+msgid " — type a value, press Enter (or Confirm)"
+msgstr ""
+
+msgid "Pick a segment in the viewport first"
+msgstr ""
+
+msgid "Applied Horizontal"
+msgstr ""
+
+msgid "Applied Vertical"
+msgstr ""
+
+msgid "Sketch: "
+msgstr ""
+
+msgid "Editing sketch — drag a handle or click a quote to edit"
+msgstr ""
+
+msgid "This feature type can't be edited yet"
+msgstr ""
+
+msgid "Nothing to export — add a feature first"
+msgstr ""
+
+msgid "Export STEP"
+msgstr ""
+
+msgid "Exported STEP"
+msgstr ""
+
+msgid "STEP export failed: "
+msgstr ""
+
+msgid "Nothing to commit — add a feature first"
+msgstr ""
+
+msgid "All bodies hidden — show one before committing"
+msgstr ""
+
+msgid "Plane ready"
+msgstr ""
+
+msgid "Axis ready"
+msgstr ""
+
+msgid "Coord Sys ready"
+msgstr ""
+
+msgid "Helix ready"
+msgstr ""
+
+msgid "Project ready"
+msgstr ""
+
+msgid "Sketch ready"
+msgstr ""
+
+msgid "Mate needs at least two CoordSys features"
+msgstr ""
+
+msgid "Mate: CS A and CS B must be different"
+msgstr ""
+
+msgid "Mate ready"
+msgstr ""
+
+#, c-format
+msgid "Preview — %zu triangles"
+msgstr ""
+
+msgid "Invalid: "
+msgstr ""
+
+#, c-format, boost-format
+msgid "Body %d — moved (%.1f, %.1f, %.1f) mm, rotated %.1f°"
+msgstr ""
+
+msgid "Profile: "
+msgstr ""
+
+#, c-format, boost-format
+msgid "Face %d (push/pull)"
+msgstr ""
+
+msgid "Move cancelled"
+msgstr ""
+
+msgid "Finish or cancel the current tool first (Esc)"
+msgstr ""
+
+msgid "Nothing to redo"
+msgstr ""
+
+msgid "Nothing to undo"
+msgstr ""
+
+#, c-format
+msgid "Redo  (%zu more)"
+msgstr ""
+
+#, c-format
+msgid "Undo  (%zu more)"
+msgstr ""
+
+msgid "Variable name:"
+msgstr ""
+
+msgid "Add Variable"
+msgstr ""
+
+msgid "Variable name must not contain spaces"
+msgstr ""
+
+#, c-format, boost-format
+msgid "Expression for '%s':"
+msgstr ""
+
+msgid "Select a variable first"
+msgstr ""
+
+msgid "Edit Variable"
+msgstr ""
+
+#, c-format, boost-format
+msgid ""
+"Variable '%s' could not be removed (likely still referenced by a feature "
+"expression): %s"
+msgstr ""
+
+msgid "No binding for that field"
 msgstr ""
