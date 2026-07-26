@@ -2666,6 +2666,17 @@ DesignPanel::DesignPanel(wxWindow* parent)
     m_box_constraints->Add(m_constraint_rows, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 12);
     cards->Add(m_box_constraints, 0, wxEXPAND);
 
+    // Wrap every card label now that the whole stack exists. wxStaticText never wraps on its
+    // own, so a one-sentence help line under a card sets that card's sizer min width to the
+    // width of the entire sentence — the same failure make_combo's explicit width fixes above,
+    // and with the same symptom: the card is wider than the sidebar, so every control in it is
+    // clipped at the panel's right edge. Found by click-testing Transform, Mirror and Coord Sys,
+    // whose hints are the longest. 240 px sits under m_form's 264 px minimum, so a wrapped hint
+    // always fits; the short two-column labels are far below it and Wrap() leaves them alone.
+    for (wxWindow* w : m_cards->GetChildren())
+        if (auto* t = dynamic_cast<wxStaticText*>(w))
+            t->Wrap(240);
+
     // Feature tree card. Same idiom as Prepare's sections (icon + Head_14 title + rule) via the
     // shared card_header helper, instead of the bare micro-label this used to be; the row-edit
     // actions live in the header, as Prepare puts its section actions.
