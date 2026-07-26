@@ -7752,10 +7752,15 @@ CadFeature DesignPanel::build_candidate(Tool t) const
     // extrude mutate it). -1 when nothing is picked => auto (last body).
     // Targeting the picked body is an ADD-time concern; while editing, the original feature's
     // target_body is preserved from the seed (the card did not re-pick a body).
+    // HAZARD: this is a negative list, so a tool that picks its own body is broken by OMISSION —
+    // the card computes target_body and this line then throws it away. SurfaceOffset and
+    // ThickenSurface were missing: both read a SHEET body from their own combo and both had it
+    // overwritten with the picked SOLID's index. Any new card that picks a body belongs here.
     if (!editing && m_active != Tool::Boolean && m_active != Tool::Cut
         && m_active != Tool::Transform && m_active != Tool::Mirror && m_active != Tool::Thicken
         && m_active != Tool::DeleteFace && m_active != Tool::Rib && m_active != Tool::Project
-        && m_active != Tool::Helix)
+        && m_active != Tool::Helix && m_active != Tool::SurfaceOffset
+        && m_active != Tool::ThickenSurface)
         f.target_body = m_sel_solid_body;
     return f;
 }
