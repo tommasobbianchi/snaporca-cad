@@ -24,6 +24,15 @@ jobs:
   upload_symbols:
     name: Upload Debug Symbols to Sentry
     runs-on: ${{ inputs.os }}
+    # Lifted to the job so the upload steps can test them in `if:` — the `secrets` context is not
+    # available there, the `env` context is. A repository without these three (any fork, and any
+    # pull request from a fork, where GitHub withholds secrets by design) would otherwise run
+    # sentry-cli with --org "" and get back a 404 "organization not found", failing the whole
+    # `Build all` run over a symbol upload that was never going to work.
+    env:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
     steps:
       # ==================== Windows ====================
       - name: "[Windows] Install sentry-cli via choco"
@@ -60,7 +69,7 @@ jobs:
           }
 
       - name: "[Windows] Upload PDB to Sentry (sentry-cli)"
-        if: inputs.os == 'windows-latest'
+        if: inputs.os == 'windows-latest' && env.SENTRY_AUTH_TOKEN != '' && env.SENTRY_ORG != '' && env.SENTRY_PROJECT != ''
         shell: pwsh
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -131,7 +140,7 @@ jobs:
           path: ./symbols
 
       - name: "[macOS] Upload dSYM to Sentry (sentry-cli)"
-        if: inputs.os == 'macos-14'
+        if: inputs.os == 'macos-14' && env.SENTRY_AUTH_TOKEN != '' && env.SENTRY_ORG != '' && env.SENTRY_PROJECT != ''
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_LOG_LEVEL: debug
