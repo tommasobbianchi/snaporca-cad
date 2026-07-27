@@ -12,6 +12,9 @@ on:
      - 'localization/**'
      - 'resources/**'
      - ".github/workflows/build_*.yml"
+     # build_deps.yml calls this one, so it can fail the run — but it did not trigger it,
+     # which is how a fix to it could not be verified without a manual dispatch. snaporca-a6a.
+     - ".github/workflows/sentry_cli.yml"
 
   schedule:
     - cron: '0 18 * * *' # everyday 2:00(beijing time UTC+8)
