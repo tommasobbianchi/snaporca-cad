@@ -257,10 +257,16 @@ static ExtrusionEntityCollection traverse_loops(const PerimeterGenerator &perime
             ExtrusionLoop *eloop = static_cast<ExtrusionLoop*>(coll.entities[idx.first]);
             coll.entities[idx.first] = nullptr;
 
-            if ((perimeter_generator.config->wall_direction == WallDirection::CounterClockwise) == (loop.is_contour || reverse_thin_wall_hole))
-                eloop->make_counter_clockwise();
-            else
-                eloop->make_clockwise();
+            {
+                bool want_ccw =
+                    (perimeter_generator.config->wall_direction == WallDirection::CounterClockwise)
+                    != (perimeter_generator.config->alternate_wall_direction
+                        && perimeter_generator.layer_id % 2 == 1);
+                if (want_ccw == (loop.is_contour || reverse_thin_wall_hole))
+                    eloop->make_counter_clockwise();
+                else
+                    eloop->make_clockwise();
+            }
 
             // Orca: Reverse print order for thin wall holes.
             if (reverse_thin_wall_hole) {
@@ -526,11 +532,16 @@ static ExtrusionEntityCollection traverse_extrusions(const PerimeterGenerator& p
         if (!paths.empty()) {
             if (extrusion->is_closed) {
                 ExtrusionLoop extrusion_loop(std::move(paths), pg_extrusion.is_contour ? elrDefault : elrHole);
-                if ((perimeter_generator.config->wall_direction == WallDirection::CounterClockwise) ==
-                    (pg_extrusion.is_contour || pg_extrusions.size() == 2))
-                    extrusion_loop.make_counter_clockwise();
-                else
-                    extrusion_loop.make_clockwise();  
+                {
+                    bool want_ccw =
+                        (perimeter_generator.config->wall_direction == WallDirection::CounterClockwise)
+                        != (perimeter_generator.config->alternate_wall_direction
+                            && perimeter_generator.layer_id % 2 == 1);
+                    if (want_ccw == (pg_extrusion.is_contour || pg_extrusions.size() == 2))
+                        extrusion_loop.make_counter_clockwise();
+                    else
+                        extrusion_loop.make_clockwise();
+                }
                 // TODO: it seems in practice that ExtrusionLoops occasionally have significantly disconnected paths,
                 // triggering the asserts below. Is this a problem?
                 for (auto it = std::next(extrusion_loop.paths.begin()); it != extrusion_loop.paths.end(); ++it) {

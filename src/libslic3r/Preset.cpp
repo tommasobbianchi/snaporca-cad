@@ -994,6 +994,7 @@ static std::vector<std::string> s_Preset_print_options{
     "overhang_reverse_threshold",
     "overhang_reverse_internal_only",
     "wall_direction",
+    "alternate_wall_direction",
     "seam_position",
     "staggered_inner_seams",
     "wall_sequence",

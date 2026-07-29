@@ -1388,6 +1388,7 @@ bool PrintObject::invalidate_state_by_config_options(
             || opt_key == "overhang_reverse_internal_only"
             || opt_key == "overhang_reverse_threshold"
             || opt_key == "wall_direction"
+            || opt_key == "alternate_wall_direction"
             || opt_key == "enable_overhang_speed"
             || opt_key == "detect_thin_wall"
             || opt_key == "precise_outer_wall") {
@@ -4405,7 +4406,10 @@ static void clip_support_fills(ExtrusionEntityCollection &fills, const ExPolygon
 
 void PrintObject::_generate_support_material()
 {
-    if (this->print()->config().belt_printer.value && !is_tree(m_config.support_type.value)) {
+    // Belt: the gravity generator handles every support style. The tree generators run in
+    // the pre-rotated slicing frame and grow belt-normal, i.e. 45 deg off gravity, which is
+    // unprintable on a conveyor — so route tree styles here too.
+    if (this->print()->config().belt_printer.value) {
         if (this->_generate_belt_gravity_support())
             return;
     }

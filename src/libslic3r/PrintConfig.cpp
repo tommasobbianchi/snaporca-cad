@@ -2217,6 +2217,15 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionEnum<WallDirection>(WallDirection::CounterClockwise));
 
+    def = this->add("alternate_wall_direction", coBool);
+    def->label = L("Alternate wall direction");
+    def->category = L("Quality");
+    def->tooltip = L("Reverse the wall loop direction every other layer. "
+                     "Alternating between counter-clockwise and clockwise can "
+                     "improve layer bonding and reduce artifacts.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool{false});
+
     def = this->add("extruder", coInt);
     def->gui_type = ConfigOptionDef::GUIType::i_enum_open;
     def->label = L("Extruder");
