@@ -1,8 +1,7 @@
-# Orca-CAD — UX guidelines and design charter
+# SnapOrca-CAD — UX guidelines and design charter
 
-Status: proposed, v1. Owner: design working group. Applies to the Design tab in
-both forks (Orca-CAD on OrcaSlicer, SnapOrca-CAD on Snapmaker Orca) — the CAD
-sources are byte-identical across them, so the UX doctrine is one doctrine.
+Status: proposed, v1. Owner: design working group. Applies to the Design tab —
+the parametric CAD environment inside Snapmaker Orca.
 
 This document is a **review instrument**, not an essay. Sections 3–9 are written
 so that a reviewer can hold a pull request against them and get a yes or a no.
@@ -23,8 +22,8 @@ So we write the rule down first, and we make additions argue against it.
 
 ## 2. Product thesis
 
-**Orca-CAD is a modelling space for people who want a part, inside the tool that
-prints it.**
+**SnapOrca-CAD is a modelling space for people who want a part, inside the
+tool that prints it.**
 
 Two audiences, one interface:
 
@@ -45,8 +44,8 @@ We are not cloning Shapr3D's feature set. We are adopting its *interaction
 economy*: the smallest number of visible controls that still makes an expert
 fast.
 
-**And one thing neither reference has:** Orca-CAD lives inside a slicer. The
-plate, the nozzle, the material and the print constraints are known to the
+**And one thing neither reference has:** SnapOrca-CAD lives inside a slicer.
+The plate, the nozzle, the material and the print constraints are known to the
 application at design time. Designing for print is not a plugin here, it is the
 home advantage. Where a rule below trades generality for print-awareness, it
 trades in favour of print-awareness.
