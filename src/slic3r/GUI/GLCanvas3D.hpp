@@ -579,6 +579,10 @@ private:
     std::array<unsigned int, 2> m_old_size{ 0, 0 };
 
     bool m_is_touchpad_navigation{ false };
+    // CAD navigation (Design tab only): left-drag is a selection rubber band, so orbit moves
+    // to middle-drag and pan to right-drag — the Onshape/SolidWorks mapping. Off everywhere
+    // else, so Prepare/Preview keep the mouse the user already learned.
+    bool m_cad_navigation{ false };
 
     // Screen is only refreshed from the OnIdle handler if it is dirty.
     bool m_dirty;
@@ -1002,6 +1006,7 @@ public:
 
     bool is_camera_rotate(const wxMouseEvent& evt, const bool buttonsSwapped) const;
     bool is_camera_pan(const wxMouseEvent& evt, const bool buttonsSwapped) const;
+    void set_cad_navigation(bool b) { m_cad_navigation = b; }
 
     Size get_canvas_size() const;
     Vec2d get_local_mouse_position() const;
