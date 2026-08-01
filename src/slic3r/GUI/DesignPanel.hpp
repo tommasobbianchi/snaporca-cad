@@ -127,6 +127,7 @@ private:
     void on_add_helix();
     void on_add_mate();
     void on_check_interference();
+    void on_mass_properties();          // read-only report on the selected solid; edits nothing
     // Fill m_bool_target / m_bool_tool / m_cut_target. as_of_feature < 0 = current bodies (add);
     // >= 0 = the bodies as they existed just before that feature index (Boolean re-edit, so a
     // consumed tool body still appears and its saved selection round-trips).

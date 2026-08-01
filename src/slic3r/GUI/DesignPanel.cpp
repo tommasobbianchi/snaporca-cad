@@ -897,6 +897,8 @@ DesignPanel::DesignPanel(wxWindow* parent)
         fadd("color", b_color);
         m_verb_actions["btn:colour"] = [this] { on_set_body_color(); };
         m_verb_actions["btn:delete"] = [this] { on_delete_feature(); };
+        m_verb_actions["btn:edit"]   = [this] { on_edit_feature(); };
+        m_verb_actions["btn:mass"]   = [this] { on_mass_properties(); };
 
         // Dress-up: finishing operations on the faces and edges of an existing solid — nothing
         // that moves a body (see the Placement drawer) and nothing that creates geometry.
@@ -4720,6 +4722,31 @@ void DesignPanel::on_check_interference()
         msg += wxString::Format("%s <-> %s: %.4f mm³\n", na, nb, p.volume);
     }
     wxMessageBox(msg, _L("Interference"), wxOK, this);
+}
+
+// Mass properties of the selected solid. A report, not a feature: it never checkpoints, never
+// recomputes and never opens a card, which is why it sits beside the interference check rather
+// than in the on_add_* family. The caller only reaches us with m_sel_solid_body in range.
+void DesignPanel::on_mass_properties()
+{
+    const auto mp = GeometryEngine::mass_properties(m_doc.bodies[m_sel_solid_body].shape);
+    if (!mp.valid) {
+        m_status->SetForegroundColour(wxColour(235, 110, 110));
+        m_status->SetLabel(_L("Mass properties could not be computed for this body"));
+        m_status->Refresh();
+        return;
+    }
+    // 1-based, and the body's own name when it has one — the same wording the parts list uses.
+    wxString name = wxString::Format(_L("Body %d"), m_sel_solid_body + 1);
+    if (!m_doc.bodies[m_sel_solid_body].name.empty())
+        name = wxString::FromUTF8(m_doc.bodies[m_sel_solid_body].name);
+    m_status->SetForegroundColour(wxNullColour);
+    m_status->SetLabel(wxString::Format(_L("%s: %.3f cm³, %.2f cm²"),
+                                        name, mp.volume / 1000.0, mp.surface_area / 100.0));
+    m_status->Refresh();
+    wxMessageBox(wxString::Format(_L("%s\n\nVolume: %.3f cm³\nSurface area: %.2f cm²"),
+                                  name, mp.volume / 1000.0, mp.surface_area / 100.0),
+                 _L("Mass properties"), wxOK, this);
 }
 
 // The rows are only the SHEET bodies, so a row index is NOT a body index — with a solid at 0
