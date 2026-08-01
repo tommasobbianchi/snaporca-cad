@@ -532,7 +532,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
             m_status->Refresh();
             if (m_sketch_hint) {   // the card must agree with the status line, not argue with it
                 m_sketch_hint->SetLabel(have_plane
-                    ? wxString::Format(_L("Drawing on %s.\nPick a tool, or right-click for the list."), where)
+                    ? wxString::Format(_L("Drawing on %s.\nPick a tool, or press Menu for the list."), where)
                     : _L("Click a face or a reference plane, then a sketch tool."));
                 m_sketch_hint->Refresh();
                 m_cards->Layout();
