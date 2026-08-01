@@ -375,7 +375,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
     sk_key('R', DesignSketchTool::Mode::CornerRect,   _L("Rectangle — click two opposite corners"));
     sk_key('C', DesignSketchTool::Mode::CenterCircle, _L("Circle — click center, then radius"));
     sk_key('A', DesignSketchTool::Mode::ThreePointArc,_L("Arc — click start, end, then a point"));
-    sk_key('S', DesignSketchTool::Mode::Slot,         _L("Slot — two centerline ends, then width"));
+    sk_key('S', DesignSketchTool::Mode::Slot,         _L("Slot — two centerline ends, then end radius"));
     sk_key('E', DesignSketchTool::Mode::Ellipse,      _L("Ellipse — center, major end, minor point"));
     sk_key('B', DesignSketchTool::Mode::BSpline,      _L("Spline — click control points"));
     sk_key('P', DesignSketchTool::Mode::Point,        _L("Point — click to place"));
@@ -1130,7 +1130,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
             {"design_tangentarc", DesignSketchTool::Mode::TangentArc,    _L("Tangent arc"),      _L("Click start (on the last entity) then end")},
             {"design_arc_center", DesignSketchTool::Mode::CenterArc,     _L("Center-point arc"), _L("Click center, then start, then a point for the end angle")} });
         dropdown("design_slot", _L("Slot"), {
-            {"design_slot",     DesignSketchTool::Mode::Slot,    _L("Slot"),     _L("Click two centerline ends, then a point for width")},
+            {"design_slot",     DesignSketchTool::Mode::Slot,    _L("Slot"),     _L("Click two centerline ends, then a point for the end radius")},
             {"design_slot_arc", DesignSketchTool::Mode::ArcSlot, _L("Arc slot"), _L("Click center, start, end, then a point for the width")} });
         dropdown("design_ellipse", _L("Ellipse"), {
             {"design_ellipse",     DesignSketchTool::Mode::Ellipse,    _L("Ellipse"),        _L("Click center, a major-axis end, then a point for the minor axis")},
