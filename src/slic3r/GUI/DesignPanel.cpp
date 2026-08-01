@@ -541,7 +541,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
             // mode change has settled before a modal menu takes the loop; the menu carries each
             // tool's shortcut, so pressing the key instead of picking a row costs nothing.
             if (have_plane)
-                CallAfter([this] { show_offer_menu(wxGetMousePosition()); });
+                CallAfter([this] { show_offer_menu(offer_anchor()); });
         };
         b_sketch->Bind(wxEVT_BUTTON, [act_sketch](wxCommandEvent&) { act_sketch(); });
         m_keys_feature[SHIFT('S')] = act_sketch;
@@ -3471,6 +3471,20 @@ DesignPanel::DesignPanel(wxWindow* parent)
         const bool dismissable = m_active != Tool::None || (m_viewport && m_viewport->moving_body());
         if (key == WXK_ESCAPE && dismissable) { tool_cancel(); return; }
 
+        // The offer from the keyboard (charter 4.1): the Menu key, or Shift+F10 for keyboards that
+        // do not have one. Same menu the right-click opens — show_offer_menu already decides which
+        // half of the map applies via sketch_map_applies(), so nothing about the content is decided
+        // here. With no press to anchor it, offer_anchor() puts it on the viewport.
+        // WXK_MENU is the GTK code for the physical Menu key (GDK_KEY_Menu); wxMSW instead sends
+        // WXK_WINDOWS_MENU for VK_APPS and maps Alt to WXK_ALT, so accepting both is safe
+        // everywhere. CallAfter because the menu is modal: let the key event finish dispatching
+        // before a nested loop takes the queue, the same reason the Sketch entry does it.
+        if (!in_text && !ctrl
+            && (key == WXK_MENU || key == WXK_WINDOWS_MENU || (key == WXK_F10 && e.ShiftDown()))) {
+            CallAfter([this] { show_offer_menu(offer_anchor()); });
+            return;
+        }
+
         // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y — undo/redo handled here (not only in the GL canvas) so
         // it works even when the canvas lost keyboard focus. In a sketch, undo drops the last entity.
         if (!in_text && ctrl && (key == 'Z' || key == 'z' || key == WXK_CONTROL_Z ||
@@ -5012,6 +5026,17 @@ void DesignPanel::run_offer_action(const char* action)
     auto it = m_verb_actions.find(a);
     if (it != m_verb_actions.end() && it->second)
         it->second();
+}
+
+wxPoint DesignPanel::offer_anchor() const
+{
+    const wxPoint mouse = wxGetMousePosition();
+    if (!m_viewport)
+        return mouse;
+    const wxRect r = m_viewport->GetScreenRect();
+    if (r.Contains(mouse))
+        return mouse;
+    return wxPoint(r.x + r.width / 2, r.y + r.height / 2);
 }
 
 void DesignPanel::show_offer_menu(const wxPoint& screen_pos)

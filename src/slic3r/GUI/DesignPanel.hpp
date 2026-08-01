@@ -617,6 +617,11 @@ private:
     // the verbs that have no keyboard shortcut to route through.
     std::map<std::string, std::function<void()>> m_verb_actions;
     void show_offer_menu(const wxPoint& screen_pos);
+    // Where the offer opens when no mouse press anchors it: the keyboard route, and the automatic
+    // open on entering Sketch. The pointer if it is over the viewport, else the viewport's centre.
+    // A raw wxGetMousePosition() can be sitting on the toolbar, on the card column or on another
+    // monitor, and the menu would map there — detached from the geometry it is about.
+    wxPoint offer_anchor() const;
     int  offer_selection_kind() const;          // an OfferSel, as int to keep the header light
     // Does the SKETCH half of the map apply? A mode question, not a session one: begin_sketch
     // does not run until the first tool is armed, so between "press Sketch" and "pick a tool"
