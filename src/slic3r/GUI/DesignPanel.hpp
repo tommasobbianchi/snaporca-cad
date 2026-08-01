@@ -405,7 +405,6 @@ private:
     // from "nobody has chosen anything yet". This does.
     bool              m_plane_picked{false};
     ComboBox*         m_shape{nullptr};
-    ComboBox*         m_plane{nullptr};
     ComboBox*         m_mode{nullptr};
     wxSpinCtrlDouble* m_width{nullptr};
     wxSpinCtrlDouble* m_height{nullptr};

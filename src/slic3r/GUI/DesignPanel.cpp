@@ -1417,13 +1417,10 @@ DesignPanel::DesignPanel(wxWindow* parent)
     form->Add(new wxStaticText(m_cards, wxID_ANY, _L("Shape")), 0, wxALIGN_CENTER_VERTICAL);
     form->Add(m_shape, 0, wxEXPAND);
 
-    m_plane = make_combo(m_cards);
-    m_plane->Append(_L("XY"));
-    m_plane->Append(_L("XZ"));
-    m_plane->Append(_L("YZ"));
-    m_plane->SetSelection(0);
-    form->Add(new wxStaticText(m_cards, wxID_ANY, _L("Plane")), 0, wxALIGN_CENTER_VERTICAL);
-    form->Add(m_plane, 0, wxEXPAND);
+    // NO plane row. A sketch takes its plane from what is picked in the VIEWPORT — a planar face
+    // on a solid, or one of the reference-plane ghosts clicked in 3D — resolved by
+    // sketch_plane_from_selection(). A three-row XY/XZ/YZ combo could not express either of those
+    // targets, so it displayed a value that was at best redundant and at worst false. snaporca-e1p.
 
     m_width = make_spin(m_cards, 20);
     form->Add(new wxStaticText(m_cards, wxID_ANY, _L("Width / X")), 0, wxALIGN_CENTER_VERTICAL);
@@ -4101,13 +4098,14 @@ void DesignPanel::on_add_sketch()
 {
     SketchShape shape = (m_shape->GetSelection() == 1) ? SketchShape::Circle
                                                         : SketchShape::Rectangle;
-    SketchPlane plane = plane_from_choice(m_plane->GetSelection());
+    wxString where;                                            // named for the status line
+    SketchPlane plane = sketch_plane_from_selection(where);    // picked face, else the 3D plane click
     m_feature_counter++;
     m_doc.add_sketch(shape, plane, m_width->GetValue(), m_height->GetValue(),
                      m_radius->GetValue(), "Sketch" + std::to_string(m_feature_counter));
     m_doc.recompute();  // a lone sketch yields an empty body; that is expected
     m_status->SetForegroundColour(wxNullColour);
-    m_status->SetLabel(_L("Sketch added — select it and Extrude"));
+    m_status->SetLabel(wxString::Format(_L("Sketch added on %s — select it and Extrude"), where));
     refresh_tree();
 }
 
@@ -7190,7 +7188,6 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
     switch (f.type) {
     case CadFeatureType::Sketch:
         m_shape->SetSelection(f.shape == SketchShape::Circle ? 1 : 0);
-        m_plane->SetSelection(index_from_plane(f.plane));
         m_width->SetValue(f.width);
         m_height->SetValue(f.height);
         m_radius->SetValue(f.radius);
@@ -7793,7 +7790,11 @@ CadFeature DesignPanel::build_candidate(Tool t) const
     case Tool::Sketch:
         f.type   = CadFeatureType::Sketch;
         f.shape  = (m_shape->GetSelection() == 0) ? SketchShape::Rectangle : SketchShape::Circle;
-        f.plane  = plane_from_choice(m_plane->GetSelection());
+        // The plane is STRUCTURAL, like Extrude's profile source. While EDITING it is preserved
+        // from the seeded original — the card carries no plane control and the old combo silently
+        // collapsed a face plane to a base plane through the modeling origin. While ADDING it
+        // comes from what is picked in the viewport. snaporca-e1p.
+        if (!editing) { wxString where; f.plane = sketch_plane_from_selection(where); }
         f.width  = m_width->GetValue();
         f.height = m_height->GetValue();
         f.radius = m_radius->GetValue();
