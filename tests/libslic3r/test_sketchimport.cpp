@@ -3,6 +3,7 @@
 #include "libslic3r/SketchImport.hpp"
 #include "libslic3r/Utils.hpp"   // resources_dir
 
+#include <filesystem>
 #include <fstream>
 #include <string>
 
@@ -10,14 +11,19 @@ using namespace Slic3r;
 
 TEST_CASE("svg_to_regions parses a filled path into a region", "[SketchImport]")
 {
-    // A 10x10 mm filled square. Written to a temp file because nanosvg reads
-    // from disk.
-    const std::string path = "/tmp/snaporca_test_square.svg";
+    // A 10x10 mm filled square, on disk because nanosvg reads from a file. The path comes
+    // from the system temp dir: a hardcoded /tmp is not writable on Windows, where the stream
+    // fails SILENTLY and the parse then sees no file. Ported from SoftFever's fix on
+    // OrcaSlicer#15238 (2179f5f670); he used mainline's ScopedTemporaryFile helper, which this
+    // fork's smaller tests/test_utils.hpp does not carry, so the temp path is taken directly.
+    const std::string path =
+        (std::filesystem::temp_directory_path() / "snaporca_test_square.svg").string();
     {
         std::ofstream f(path);
         f << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10mm\" height=\"10mm\" "
              "viewBox=\"0 0 10 10\">"
              "<path d=\"M0,0 L10,0 L10,10 L0,10 Z\" fill=\"#000000\"/></svg>";
+        REQUIRE(f.good());
     }
 
     ImportRegions regs = svg_to_regions(path, 1.0);
