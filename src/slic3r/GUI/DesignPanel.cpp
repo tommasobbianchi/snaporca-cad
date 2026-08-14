@@ -3491,6 +3491,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
             default: break;
             }
             if (got) { m_plane_pick = PlanePick::None; refresh_plane_labels(); }
+            if (got && m_viewport) m_viewport->set_escalate_on_repick(true);
         }
         // Axis tool with a pick armed: face or edge.
         if (m_active == Tool::Axis && m_axis_pick != AxisPick::None) {
@@ -3501,6 +3502,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
             default: break;
             }
             if (got) { m_axis_pick = AxisPick::None; refresh_axis_labels(); }
+            if (got && m_viewport) m_viewport->set_escalate_on_repick(true);
         }
         // CoordSys tool with a pick armed: face or edge.
         if (m_active == Tool::CoordSys && m_coordsys_pick != CoordSysPick::None) {
@@ -3511,6 +3513,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
             default: break;
             }
             if (got) { m_coordsys_pick = CoordSysPick::None; refresh_coordsys_labels(); }
+            if (got && m_viewport) m_viewport->set_escalate_on_repick(true);
         }
         m_status->SetForegroundColour(wxNullColour);
         const int nb = int(m_doc.bodies.size());
@@ -5841,6 +5844,7 @@ void DesignPanel::reset_plane_refs()
     m_pl_faceA_body = m_pl_faceA = -1;  m_pl_faceB_body = m_pl_faceB = -1;
     m_pl_edgeA_body = m_pl_edgeA = -1;  m_pl_edgeB_body = m_pl_edgeB = -1;
     m_plane_pick = PlanePick::None;
+    if (m_viewport) m_viewport->set_escalate_on_repick(true);   // pick abandoned
     refresh_plane_labels();
 }
 
@@ -5880,6 +5884,7 @@ void DesignPanel::reset_axis_refs()
     m_ax_face_body = m_ax_face = -1;
     m_ax_edge = -1;
     m_axis_pick = AxisPick::None;
+    if (m_viewport) m_viewport->set_escalate_on_repick(true);   // pick abandoned
     refresh_axis_labels();
 }
 
@@ -5940,6 +5945,7 @@ void DesignPanel::reset_coordsys_refs()
     m_cs_face_body = m_cs_face = -1;
     m_cs_edge = -1;
     m_coordsys_pick = CoordSysPick::None;
+    if (m_viewport) m_viewport->set_escalate_on_repick(true);   // pick abandoned
     refresh_coordsys_labels();
     if (m_cs_body) m_cs_body->SetSelection(0);
     if (m_viewport) m_viewport->set_xray_focus(-1);
@@ -5949,6 +5955,10 @@ void DesignPanel::reset_coordsys_refs()
 void DesignPanel::arm_coordsys_pick(CoordSysPick target)
 {
     m_coordsys_pick = target;
+    // While this pick is armed the click the card asked for must reach it, so the whole-body
+    // escalation is off: clicking the face the card is pointing at is the ANSWER here, not a
+    // request for its body.
+    if (m_viewport) m_viewport->set_escalate_on_repick(false);
     m_status->SetForegroundColour(wxNullColour);
     set_status(target == CoordSysPick::Face ? _L("Click a solid FACE in the viewport")
                                                     : _L("Click a solid EDGE in the viewport"));
@@ -8161,6 +8171,8 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
         m_plane_usize->SetValue(f.plane_u_size);
         m_plane_vsize->SetValue(f.plane_v_size);
         m_plane_pick = PlanePick::None;
+        if (m_viewport) m_viewport->set_escalate_on_repick(true);   // pick abandoned
+    if (m_viewport) m_viewport->set_escalate_on_repick(true);   // pick abandoned
         refresh_plane_labels();
         break;
     case CadFeatureType::Loft:
@@ -8186,6 +8198,8 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
         m_axis_p1x->SetValue(f.axis_p1.x()); m_axis_p1y->SetValue(f.axis_p1.y()); m_axis_p1z->SetValue(f.axis_p1.z());
         m_axis_p2x->SetValue(f.axis_p2.x()); m_axis_p2y->SetValue(f.axis_p2.y()); m_axis_p2z->SetValue(f.axis_p2.z());
         m_axis_pick = AxisPick::None;
+        if (m_viewport) m_viewport->set_escalate_on_repick(true);   // pick abandoned
+    if (m_viewport) m_viewport->set_escalate_on_repick(true);   // pick abandoned
         refresh_axis_labels();
         break;
     case CadFeatureType::CoordSys:
@@ -8199,6 +8213,8 @@ void DesignPanel::load_feature_into_dialog(const CadFeature& f)
         m_cs_hy->SetValue(f.coordsys_x_hint.y());
         m_cs_hz->SetValue(f.coordsys_x_hint.z());
         m_coordsys_pick = CoordSysPick::None;
+        if (m_viewport) m_viewport->set_escalate_on_repick(true);   // pick abandoned
+    if (m_viewport) m_viewport->set_escalate_on_repick(true);   // pick abandoned
         refresh_coordsys_labels();
         refresh_cs_body_choice();
         if (m_cs_body && f.coordsys_body >= 0) {
