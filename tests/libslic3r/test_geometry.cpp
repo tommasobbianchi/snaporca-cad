@@ -13,9 +13,9 @@
 
 #include "libslic3r/Point.hpp"
 #ifdef SLIC3R_CAD
-#include "libslic3r/GeometryEngine.hpp"
-#include "libslic3r/SketchEngine.hpp"
-#include "libslic3r/CadDocument.hpp"
+#include "libslic3r/CAD/GeometryEngine.hpp"
+#include "libslic3r/CAD/SketchEngine.hpp"
+#include "libslic3r/CAD/CadDocument.hpp"
 #endif
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/Polygon.hpp"

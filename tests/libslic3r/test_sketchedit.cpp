@@ -1,5 +1,5 @@
 #include <catch2/catch.hpp>
-#include "libslic3r/SketchEngine.hpp"
+#include "libslic3r/CAD/SketchEngine.hpp"
 #include <cmath>
 
 using namespace Slic3r;

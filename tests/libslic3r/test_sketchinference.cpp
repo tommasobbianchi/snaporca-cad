@@ -1,6 +1,6 @@
 #include <catch2/catch.hpp>
 
-#include "libslic3r/SketchInference.hpp"
+#include "libslic3r/CAD/SketchInference.hpp"
 
 using namespace Slic3r;
 using K = InferenceSnap::Kind;

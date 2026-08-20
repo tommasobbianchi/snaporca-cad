@@ -1,7 +1,7 @@
 #include <catch2/catch.hpp>
 
-#include "libslic3r/SketchSolver.hpp"
-#include "libslic3r/SketchEngine.hpp"
+#include "libslic3r/CAD/SketchSolver.hpp"
+#include "libslic3r/CAD/SketchEngine.hpp"
 
 using namespace Slic3r;
 using CT = SketchConstraintType;

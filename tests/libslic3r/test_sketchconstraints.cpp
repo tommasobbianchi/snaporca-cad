@@ -1,5 +1,5 @@
 #include <catch2/catch.hpp>
-#include "libslic3r/SketchConstraints.hpp"
+#include "libslic3r/CAD/SketchConstraints.hpp"
 
 using namespace Slic3r;
 

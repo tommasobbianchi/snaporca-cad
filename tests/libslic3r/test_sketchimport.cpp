@@ -1,6 +1,6 @@
 #include <catch2/catch.hpp>
 
-#include "libslic3r/SketchImport.hpp"
+#include "libslic3r/CAD/SketchImport.hpp"
 #include "libslic3r/Utils.hpp"   // resources_dir
 
 #include <filesystem>
