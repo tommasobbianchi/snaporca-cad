@@ -1112,6 +1112,43 @@ void DesignSketchTool::open_angle_editor(int ei)
                    []()                   {});
 }
 
+// Type the defining number of whatever is selected. One entry point for every 2D element, so
+// the gesture is the same whichever tool drew it: point at it, right-click, type the value.
+//
+// This is what a sketch element was missing. Its endpoints could be dragged and its handles
+// grabbed, but its own quantities — a line's LENGTH, an arc's RADIUS, a circle's DIAMETER, the
+// ANGLE between two lines — were reachable only by arming the Dimension tool and re-picking the
+// geometry that was already selected. The machinery was all here (dimension_kind / dimension_
+// current / apply_dimension); the way in was not.
+bool DesignSketchTool::open_selection_dimension_editor()
+{
+    if (!on_inline_edit || !selection_valid()) return false;
+    const DimType k = dimension_kind();
+    if (k == DimType::None) return false;
+    const char* title = "Value";
+    switch (k) {
+    case DimType::Length:         title = "Length";   break;
+    case DimType::Radius:         title = "Radius";   break;
+    case DimType::Diameter:       title = "Diameter"; break;
+    case DimType::Angle:          title = "Angle";    break;
+    case DimType::Distance:       title = "Distance"; break;
+    case DimType::DistanceToLine: title = "Distance"; break;
+    default: break;
+    }
+    // Anchor over the geometry it belongs to, not the panel: the value belongs to the element.
+    DimAnnot a; a.kind = k;
+    a.ea = m_selection.empty() ? -1 : m_selection[0];
+    if (m_selection.size() > 1) a.eb = m_selection[1];
+    const Vec2d at = dim_anchor(a);
+    const Camera& cam = wxGetApp().plater()->get_camera();
+    wxPoint px = world_to_screen_px(cam, m_plane.to_world(at));
+    if (px.x < 0 || px.y < 0) px = wxPoint(m_last_mouse_x, m_last_mouse_y);
+    on_inline_edit(px, dimension_current(), title,
+                   [this](double v) { apply_dimension(v); },
+                   []()             {});
+    return true;
+}
+
 void DesignSketchTool::set_line_angle(int ei, double deg)
 {
     if (ei < 0 || ei >= int(m_entities.size())) return;
@@ -8772,6 +8809,46 @@ static void translate_entity(SketchEntity& e, const Vec2d& d)
     e.p1 += d;
     e.center += d;
     for (auto& cp : e.ctrl) cp += d;     // BSpline poles
+}
+
+// Select whatever the cursor is over, for a RIGHT-click. In every CAD application the context
+// menu belongs to the thing you pointed at; here the menu was built from whatever happened to be
+// selected already, so right-clicking a line you had not left-clicked first offered the empty-
+// selection vocabulary and its own Delete/Length/Trim rows were nowhere. The offer table already
+// described all of those for SkLine/SkArc/SkPoint — the pick was the missing half.
+//
+// Nothing is stolen from an existing selection: if the entity under the cursor is already part
+// of it, the selection is left exactly as it is, so right-clicking one member of a multi-entity
+// pick still offers the multi-entity verbs.
+bool DesignSketchTool::select_at_screen(GLCanvas3D& canvas, int sx, int sy)
+{
+    if (!is_active()) return false;
+    const Linef3 ray  = canvas.mouse_ray(Point(sx, sy));
+    const Linef3 ray8 = canvas.mouse_ray(Point(sx + 8, sy));
+    const Vec2d  p    = m_plane.project(ray.a,  ray.vector());
+    const Vec2d  p8   = m_plane.project(ray8.a, ray8.vector());
+    const double tol  = std::max(1e-3, (p8 - p).norm());
+
+    // A point handle beats the curve it belongs to, same precedence the left-click pick uses.
+    int ei = -1; SketchPointRole role = SketchPointRole::P0;
+    if (hit_test_point(p, tol, ei, role)) {
+        const auto pr = std::make_pair(ei, role);
+        if (std::find(m_point_sel.begin(), m_point_sel.end(), pr) != m_point_sel.end())
+            return false;                                   // already selected: leave it alone
+        m_selection.clear();
+        m_point_sel.assign(1, pr);
+        if (on_selection_changed) on_selection_changed(1);
+        return true;
+    }
+
+    const int hit = hit_test(p, tol);
+    if (hit < 0) return false;
+    if (std::find(m_selection.begin(), m_selection.end(), hit) != m_selection.end())
+        return false;                                       // already selected: leave it alone
+    m_selection.assign(1, hit);
+    m_point_sel.clear();
+    if (on_selection_changed) on_selection_changed(1);
+    return true;
 }
 
 int DesignSketchTool::hit_test(const Vec2d& p, double tol) const

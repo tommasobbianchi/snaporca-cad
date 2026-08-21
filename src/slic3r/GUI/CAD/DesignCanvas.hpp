@@ -56,6 +56,8 @@ public:
     void set_sketch_construction(bool c);
     // Flip the sketch selection between construction and real geometry; returns the
     // number of entities changed (0 = nothing selected, caller falls back to the mode).
+    // Open the in-canvas value field on the sketch selection's defining number.
+    bool edit_sketch_selection_value();
     int  toggle_sketch_construction_selection();
     // Text / SVG art into the LIVE sketch, as ordinary editable lines. False = no session.
     bool add_sketch_regions(const std::vector<std::vector<std::vector<Vec2d>>>& regions);

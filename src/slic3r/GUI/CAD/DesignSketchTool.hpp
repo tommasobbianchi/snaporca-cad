@@ -441,6 +441,14 @@ public:
         out = m_entities[i].type;
         return true;
     }
+    // Right-click pick: select the entity (or point handle) under the given canvas pixel, so
+    // the context menu describes what was pointed at. No-op when it is already selected, or
+    // when nothing is there. Returns true if the selection changed.
+    bool select_at_screen(GLCanvas3D& canvas, int sx, int sy);
+    // Open the in-canvas value field on the SELECTION's defining number (a line's length, an
+    // arc's radius, a circle's diameter, the angle between two lines, a point-to-point or
+    // point-to-line distance). False when the selection has no such number.
+    bool open_selection_dimension_editor();
     void clear_selection();
     // Flip the selection between construction and real geometry (whole Feature groups).
     // Returns how many entities changed; 0 when nothing is selected.

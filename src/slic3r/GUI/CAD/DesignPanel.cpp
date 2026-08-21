@@ -1001,6 +1001,21 @@ DesignPanel::DesignPanel(wxWindow* parent)
         fadd("color", b_color);
         m_verb_actions["btn:colour"] = [this] { on_set_body_color(); };
         m_verb_actions["btn:delete"] = [this] { on_delete_feature(); };
+        // The sketch's own Delete. It used to share "btn:delete" with the feature tree, so
+        // choosing Delete on a selected LINE ran on_delete_feature() and removed a tree row (or
+        // nothing) while the line stayed — the reported "I click a line and cannot remove it".
+        m_verb_actions["btn:sk_delete"] = [this] {
+            if (m_viewport && m_viewport->is_sketching())
+                m_viewport->delete_selected_sketch_entities();
+            else
+                on_delete_feature();
+        };
+        // Type the selection's defining number: length / radius / diameter / angle / distance.
+        // One handler behind three offer rows; the quantity comes from the selection itself.
+        m_verb_actions["btn:sk_value"] = [this] {
+            if (m_viewport && m_viewport->is_sketching() && !m_viewport->edit_sketch_selection_value())
+                set_status(_L("Nothing here has a value to type — pick a line, an arc, a circle, or two entities"));
+        };
         m_verb_actions["btn:delete_body"] = [this] { on_delete_body(); };
         m_verb_actions["btn:edit"]   = [this] { on_edit_feature(); };
         m_verb_actions["btn:mass"]   = [this] { on_mass_properties(); };
