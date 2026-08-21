@@ -8820,6 +8820,150 @@ static void translate_entity(SketchEntity& e, const Vec2d& d)
 // Nothing is stolen from an existing selection: if the entity under the cursor is already part
 // of it, the selection is left exactly as it is, so right-clicking one member of a multi-entity
 // pick still offers the multi-entity verbs.
+// ---- Scripted surface (MCP) ------------------------------------------------------------
+
+int DesignSketchTool::add_entities_scripted(const std::vector<SketchEntity>& ents)
+{
+    if (ents.empty()) return -1;
+    const int base = int(m_entities.size());
+    for (const SketchEntity& e : ents) m_entities.push_back(e);
+    infer_auto_constraints(base);   // the same auto-coincidence/H/V pass a gesture runs
+    resolve_live();
+    return base;
+}
+
+bool DesignSketchTool::select_indices(const std::vector<int>& idx)
+{
+    m_selection.clear();
+    m_point_sel.clear();
+    const int n = int(m_entities.size());
+    for (int i : idx)
+        if (i >= 0 && i < n &&
+            std::find(m_selection.begin(), m_selection.end(), i) == m_selection.end())
+            m_selection.push_back(i);
+    if (on_selection_changed) on_selection_changed(int(m_selection.size()));
+    return !m_selection.empty();
+}
+
+DesignSketchTool::LoopReport DesignSketchTool::loop_report() const
+{
+    LoopReport out;
+
+    // Closed regions and their voids come straight from the code the viewport already uses to
+    // decide what can be extruded, so the report cannot drift from what the tool will build.
+    const auto regs = region_loops(m_entities);
+    out.loops.reserve(regs.size());
+    for (const auto& r : regs) {
+        LoopInfo li;
+        li.ents   = r.ents;
+        li.holes  = r.holes;
+        li.closed = true;
+        // Analytic where the loop IS one closed curve; shoelace only where it is a chain.
+        // region_loops hands back the render polyline, and a circle's is a 64-gon whose area is
+        // 0.3% short — a number reported as "area" must not be the faceting error.
+        if (r.ents.size() == 1 && r.ents[0] >= 0 && r.ents[0] < int(m_entities.size()) &&
+            (m_entities[r.ents[0]].type == SketchEntity::Type::Circle ||
+             m_entities[r.ents[0]].type == SketchEntity::Type::Ellipse)) {
+            const SketchEntity& c = m_entities[r.ents[0]];
+            li.area = (c.type == SketchEntity::Type::Circle)
+                          ? M_PI * c.radius * c.radius
+                          : M_PI * c.radius * c.rminor;
+        } else {
+            double a = 0.0;
+            for (size_t i = 0; i + 1 < r.poly.size(); ++i)
+                a += r.poly[i].x() * r.poly[i + 1].y() - r.poly[i + 1].x() * r.poly[i].y();
+            if (r.poly.size() > 2)
+                a += r.poly.back().x() * r.poly.front().y() - r.poly.front().x() * r.poly.back().y();
+            li.area = 0.5 * a;
+        }
+        out.loops.push_back(std::move(li));
+    }
+
+    // Open ends: an endpoint of an open curve that no other open curve's endpoint meets. This is
+    // the actionable half of the report — it says WHERE the profile fails to close, in plane
+    // coordinates, instead of only that it does.
+    struct End { Vec2d p; };
+    std::vector<End> ends;
+    for (const SketchEntity& e : m_entities) {
+        if (e.construction) continue;
+        if (e.type == SketchEntity::Type::Line || e.type == SketchEntity::Type::Arc ||
+            e.type == SketchEntity::Type::EllipseArc || e.type == SketchEntity::Type::BSpline) {
+            ends.push_back({ e.p0 });
+            ends.push_back({ e.p1 });
+        }
+    }
+    const double eps = 1e-3;
+    for (size_t i = 0; i < ends.size(); ++i) {
+        int met = 0;
+        for (size_t j = 0; j < ends.size(); ++j) {
+            if (i == j) continue;
+            if ((ends[i].p - ends[j].p).norm() < eps) ++met;
+        }
+        if (met == 0) {
+            // Report each free end once; two ends of the same gap are two different points.
+            bool dup = false;
+            for (const Vec2d& q : out.open_ends)
+                if ((q - ends[i].p).norm() < eps) { dup = true; break; }
+            if (!dup) out.open_ends.push_back(ends[i].p);
+        }
+    }
+    return out;
+}
+
+int DesignSketchTool::heal_coincidences(double tol, bool ignore_construction)
+{
+    if (tol <= 0.0) tol = 1e-3;
+    // Endpoint roles an entity exposes, same set infer_auto_constraints matches on.
+    auto roles_of = [](const SketchEntity& e, SketchPointRole out[2]) -> int {
+        switch (e.type) {
+        case SketchEntity::Type::Line:
+        case SketchEntity::Type::Arc:
+        case SketchEntity::Type::BSpline:
+        case SketchEntity::Type::EllipseArc:
+            out[0] = SketchPointRole::P0; out[1] = SketchPointRole::P1; return 2;
+        case SketchEntity::Type::Point:
+            out[0] = SketchPointRole::P0; return 1;
+        default: return 0;
+        }
+    };
+
+    const int n = int(m_entities.size());
+    int welded = 0;
+    std::vector<SketchEntityConstraintDef> cands;
+    for (int i = 0; i < n; ++i) {
+        if (ignore_construction && m_entities[i].construction) continue;
+        SketchPointRole ir[2]; const int ni = roles_of(m_entities[i], ir);
+        for (int a = 0; a < ni; ++a) {
+            Vec2d pa; if (!point_at(i, ir[a], pa)) continue;
+            for (int j = i + 1; j < n; ++j) {
+                if (ignore_construction && m_entities[j].construction) continue;
+                SketchPointRole jr[2]; const int nj = roles_of(m_entities[j], jr);
+                for (int b = 0; b < nj; ++b) {
+                    Vec2d pb; if (!point_at(j, jr[b], pb)) continue;
+                    const double d = (pa - pb).norm();
+                    if (d > tol) continue;
+                    if (has_coincident(i, ir[a], j, jr[b])) continue;
+                    // WELD FIRST, then constrain. Handing the solver two points a tolerance
+                    // apart and asking it to make them equal lets it move the rest of the sketch
+                    // to get there; snapping them together first means the constraint it is
+                    // asked to satisfy is already true, so nothing else shifts.
+                    if (d > 0.0) { set_point(j, jr[b], pa); pb = pa; }
+                    SketchEntityConstraintDef c;
+                    c.type = SketchConstraintType::Coincident;
+                    c.ea = i; c.ra = ir[a]; c.eb = j; c.rb = jr[b];
+                    cands.push_back(c);
+                    ++welded;
+                }
+            }
+        }
+    }
+    if (!cands.empty()) {
+        try_add_constraints(cands);
+        resolve_live();
+    }
+    return welded;
+}
+
 bool DesignSketchTool::select_at_screen(GLCanvas3D& canvas, int sx, int sy)
 {
     if (!is_active()) return false;

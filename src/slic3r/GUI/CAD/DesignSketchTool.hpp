@@ -449,6 +449,41 @@ public:
     // arc's radius, a circle's diameter, the angle between two lines, a point-to-point or
     // point-to-line distance). False when the selection has no such number.
     bool open_selection_dimension_editor();
+    // ---- Scripted surface (MCP) -------------------------------------------------------
+    // The same operations the right-click offers, reachable without a mouse gesture, so the 2D
+    // layer can be driven and asserted headlessly. Everything here goes through the SAME code a
+    // gesture goes through — append + infer_auto_constraints + live solve — because a test that
+    // exercises a private shortcut proves nothing about the tool the user drives.
+    const std::vector<SketchEntity>&              entities()    const { return m_entities; }
+    const SketchPlane&                            plane()       const { return m_plane; }
+    int  dof()      const { return m_dof; }
+    bool solve_ok() const { return m_solve_ok; }
+    // Append entities exactly as a finished gesture does. Returns the index of the first one.
+    int  add_entities_scripted(const std::vector<SketchEntity>& ents);
+    // Replace the selection with these entity indices (out-of-range ones are ignored).
+    bool select_indices(const std::vector<int>& idx);
+
+    // The loop report: what is CLOSED, what its internal voids are, and where a chain is still
+    // open. This is the answer to "is my profile buildable", and it is the one question the
+    // sketch layer could never be asked from outside.
+    struct LoopInfo {
+        std::vector<int>   ents;         // entities of this loop, in chain order
+        std::vector<int>   holes;        // indices into LoopReport::loops that this loop encloses
+        bool               closed{false};
+        double             area{0.0};    // signed shoelace area of the loop polyline
+    };
+    struct LoopReport {
+        std::vector<LoopInfo> loops;
+        std::vector<Vec2d>    open_ends;   // free endpoints: where a chain fails to close
+    };
+    LoopReport loop_report() const;
+
+    // FreeCAD's ValidateSketch, as one call: weld endpoints that are within `tol` of each other
+    // and RECORD the Coincident constraints, so a loop that was closed by floating-point luck
+    // becomes closed by construction and survives every later solve. Returns how many pairs were
+    // welded. Construction geometry is skipped when `ignore_construction`.
+    int heal_coincidences(double tol, bool ignore_construction);
+
     void clear_selection();
     // Flip the selection between construction and real geometry (whole Feature groups).
     // Returns how many entities changed; 0 when nothing is selected.

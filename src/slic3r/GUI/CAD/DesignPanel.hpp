@@ -61,6 +61,7 @@ public:
     // perceive the SAME kernel the GUI uses. Called only on the wx main thread.
     CadDocument& mcp_doc()        { return m_doc; }            // live document (read + mutate)
     void         mcp_after_change() { after_tree_edit(true); } // refresh tree + viewport + status
+    DesignCanvas* mcp_viewport()  { return m_viewport; }        // live sketch + 3D view
 
 private:
     enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft, Draft, Boolean, Cut, Insert, Axis, CoordSys, SurfaceExtrude, SurfaceRevolve, SurfaceLoft, SurfaceFill, SurfaceOffset, ThickenSurface, Transform, Mirror, Thicken, Rib, Project, DeleteFace, Helix, Mate };

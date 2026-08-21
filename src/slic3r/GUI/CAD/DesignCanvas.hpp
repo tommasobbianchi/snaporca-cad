@@ -293,6 +293,12 @@ public:
     // cycle); software GL (llvmpipe etc.) gets a direct render() because a
     // scheduled Refresh() is frequently dropped there. Backend cached on first use.
     // Public: DesignPanel calls it after a tree edit to force a frame on software GL.
+    // Scripted (MCP) access to the live sketch. One accessor rather than a passthrough per
+    // verb: the MCP layer drives the SAME tool the mouse drives, which is the whole point of
+    // having it — a socket that talked to a private copy would prove nothing about the app.
+    DesignSketchTool&       mcp_sketch_tool()       { return m_sketch_tool; }
+    const DesignSketchTool& mcp_sketch_tool() const { return m_sketch_tool; }
+
     void request_repaint();
     // Repaint synchronously, once the pending show/resize has settled. Needed when the
     // notebook re-shows the Design page: an invalidation issued while the page is still
