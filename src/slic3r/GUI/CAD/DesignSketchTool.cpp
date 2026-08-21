@@ -331,6 +331,31 @@ void DesignSketchTool::delete_selected()
     if (on_selection_changed) on_selection_changed(0);
 }
 
+// Convert the selection to/from construction geometry (snaporca-6zic). The Construction
+// checkbox only ever set the mode for what you draw NEXT, so a line drawn as real geometry
+// could never become a guide, nor a guide become real. Whole Feature groups flip together:
+// a rectangle is four Line entities and converting three of them is never what was meant.
+int DesignSketchTool::toggle_selection_construction()
+{
+    if (!selection_valid() || m_selection.empty()) return 0;
+    std::vector<bool> hit(m_entities.size(), false);
+    for (int i : m_selection) {
+        const int f = feature_of(i);
+        if (f >= 0)
+            for (int k = m_features[f].begin; k < m_features[f].end; ++k) hit[k] = true;
+        else
+            hit[i] = true;
+    }
+    // One direction for the whole batch: any real geometry in it -> all become construction.
+    bool any_real = false;
+    for (size_t i = 0; i < hit.size(); ++i)
+        if (hit[i] && !m_entities[i].construction) { any_real = true; break; }
+    int n = 0;
+    for (size_t i = 0; i < hit.size(); ++i)
+        if (hit[i] && m_entities[i].construction != any_real) { m_entities[i].construction = any_real; ++n; }
+    return n;
+}
+
 bool DesignSketchTool::selection_valid() const
 {
     for (int i : m_selection)
@@ -8257,6 +8282,23 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
         if (!handles.empty())     draw_vertices(m_vertex_model, handles, ColorRGBA(0.65f, 0.65f, 0.30f, 1.0f));
         if (!sel_handles.empty()) draw_vertices(m_highlight_model, sel_handles, white);
 
+        // Midpoint of every segment, drawn smaller and cooler than the endpoint handles
+        // (snaporca-te8v). Without it the Midpoint snap is invisible: it exists in the
+        // inference engine but the user has nothing to aim at. Construction lines get one
+        // too — you constrain to them as readily as to real geometry.
+        std::vector<Vec2d> mids;
+        for (const SketchEntity& e : m_entities) {
+            if (e.type == SketchEntity::Type::Line)
+                mids.push_back(0.5 * (e.p0 + e.p1));
+            else if (e.type == SketchEntity::Type::Arc) {
+                const double am = 0.5 * (e.start_angle + e.end_angle);
+                mids.push_back(Vec2d(e.center.x() + e.radius * std::cos(am),
+                                     e.center.y() + e.radius * std::sin(am)));
+            }
+        }
+        if (!mids.empty())
+            draw_vertices(m_vertex_model, mids, ColorRGBA(0.35f, 0.75f, 0.85f, 1.0f), 0.9);
+
         // Derived feature handles (A3): the circle RadiusHandle is not a SketchPointRole,
         // so the per-point pass above doesn't draw it. Render it (cyan) + the hovered
         // handle (white, larger) at a screen-constant size so they stay grabbable at any
@@ -8548,8 +8590,9 @@ void DesignSketchTool::render(GLCanvas3D& canvas)
     // Inference hint: highlight the snapped target under the cursor (C1.3). Colour
     // encodes what the placed point will be Coincident/PointOnObject/Fixed onto.
     if (m_has_cursor && m_mode != Mode::Constrain && m_cursor_snap.snapped()) {
-        ColorRGBA hint(1.0f, 0.55f, 0.1f, 1.0f);                 // endpoint/midpoint: orange
+        ColorRGBA hint(1.0f, 0.55f, 0.1f, 1.0f);                 // endpoint: orange
         switch (m_cursor_snap.kind) {
+        case InferenceSnap::Kind::Midpoint: hint = ColorRGBA(0.35f, 0.90f, 0.75f, 1.0f); break; // teal
         case InferenceSnap::Kind::Center: hint = ColorRGBA(0.30f, 0.80f, 1.0f, 1.0f); break; // cyan
         case InferenceSnap::Kind::Origin: hint = ColorRGBA(1.0f, 0.30f, 0.85f, 1.0f); break; // magenta
         case InferenceSnap::Kind::OnEdge: hint = ColorRGBA(0.45f, 0.70f, 1.0f, 1.0f); break; // blue

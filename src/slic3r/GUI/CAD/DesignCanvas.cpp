@@ -473,6 +473,13 @@ void DesignCanvas::set_sketch_construction(bool c)
     m_sketch_tool.set_construction(c);
 }
 
+int DesignCanvas::toggle_sketch_construction_selection()
+{
+    const int n = m_sketch_tool.toggle_selection_construction();
+    if (n > 0) request_repaint();
+    return n;
+}
+
 bool DesignCanvas::add_sketch_regions(
     const std::vector<std::vector<std::vector<Vec2d>>>& regions)
 {

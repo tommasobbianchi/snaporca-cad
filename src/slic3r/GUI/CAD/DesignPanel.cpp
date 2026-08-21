@@ -428,6 +428,14 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // Constrain (finish the live sketch + enter constrain), and Construction toggle.
     m_keys_sketch['K'] = [this] { enter_constrain_inline(); };
     m_keys_sketch['Q'] = [this] {
+        // With geometry selected, Q converts THAT geometry (snaporca-6zic) — the reading
+        // everyone arrives with from other sketchers. With nothing selected it keeps its
+        // old meaning: arm construction for whatever you draw next.
+        if (m_viewport && m_viewport->is_sketching() &&
+            m_viewport->toggle_sketch_construction_selection() > 0) {
+            set_status(_L("Converted the selection between construction and real geometry"));
+            return;
+        }
         if (m_construction) {
             m_construction->SetValue(!m_construction->GetValue());
             if (m_viewport && m_viewport->is_sketching())

@@ -442,6 +442,9 @@ public:
         return true;
     }
     void clear_selection();
+    // Flip the selection between construction and real geometry (whole Feature groups).
+    // Returns how many entities changed; 0 when nothing is selected.
+    int  toggle_selection_construction();
     void delete_selected();                         // erase selected entities
     // Abort any pending/queued draw-then-edit value-field sequence. Removing an entity that
     // still has a deferred auto-edit would otherwise open a field on a now-deleted entity and
