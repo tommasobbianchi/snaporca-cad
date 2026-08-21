@@ -36,6 +36,7 @@ if (SLIC3R_CAD)
         test_sketchinference.cpp
         test_sketchconstraints.cpp
         test_sketchedit.cpp
+        test_sketchprofile.cpp
     )
 endif ()
 
