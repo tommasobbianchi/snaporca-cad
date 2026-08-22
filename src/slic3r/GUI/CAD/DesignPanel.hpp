@@ -62,6 +62,17 @@ public:
     CadDocument& mcp_doc()        { return m_doc; }            // live document (read + mutate)
     void         mcp_after_change() { after_tree_edit(true); } // refresh tree + viewport + status
     DesignCanvas* mcp_viewport()  { return m_viewport; }        // live sketch + 3D view
+    // Put the PANEL into (or out of) sketch mode, not just the canvas tool. Measured on the
+    // rig: a sketch started straight through DesignCanvas::begin_sketch leaves m_ui_mode at
+    // Feature, and the keyboard map is dispatched on `m_ui_mode == UiMode::Sketch` while the
+    // offer menu is dispatched on the looser sketch_map_applies() — so the menu offered the
+    // line's verbs while every sketch shortcut was dead (KEYTRACE: key=81 ui_mode=0
+    // is_sketching=1). Half-entering a mode is worse than not entering it.
+    void mcp_set_sketch_mode(bool on)
+    {
+        set_ui_mode(on ? UiMode::Sketch : UiMode::Feature);
+        update_action_bar();
+    }
 
 private:
     enum class Tool { None, Sketch, Extrude, Dressup, Hole, Thread, Shell, Revolve, Sweep, Pattern, Plane, Loft, Draft, Boolean, Cut, Insert, Axis, CoordSys, SurfaceExtrude, SurfaceRevolve, SurfaceLoft, SurfaceFill, SurfaceOffset, ThickenSurface, Transform, Mirror, Thicken, Rib, Project, DeleteFace, Helix, Mate };
@@ -306,6 +317,10 @@ private:
     // while a sketch is open (single letters = sketch tools); m_keys_feature fires only when
     // no sketch is open (Shift+letter = feature tools; single letters = view toggles/section).
     static constexpr int SC_SHIFT = 0x10000;
+    // ...and with 0x20000 when Ctrl is required too. The Shift+letter space is full, so an
+    // action that arrives late lives on Ctrl+Shift; plain Ctrl-combos are still passed
+    // straight through, which is what leaves this layer free.
+    static constexpr int SC_CTRL = 0x20000;
     std::map<int, std::function<void()>> m_keys_sketch;
     std::map<int, std::function<void()>> m_keys_feature;
 

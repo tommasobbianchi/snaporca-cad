@@ -177,9 +177,9 @@ static const OfferVerb kOfferVerbs[] = {
     // the same handler, because dimension_kind() already resolves the quantity from the
     // selection. Without these, an element's own numbers were reachable only by arming the
     // Dimension tool and re-picking geometry that was already selected.
-    {"sk_length", "Length…", 7, nullptr, "btn:sk_value", nullptr, 0x00010000u, 0, 0, false, true, nullptr, "design_dimension", "Type the length of this line"},
-    {"sk_radius", "Radius / diameter…", 7, nullptr, "btn:sk_value", nullptr, 0x00020000u, 0, 0, false, true, nullptr, "design_dimension", "Type the radius of this arc, or the diameter of this circle"},
-    {"sk_angdist", "Angle / distance…", 7, nullptr, "btn:sk_value", nullptr, 0x00080000u, 0, 0, false, true, nullptr, "design_dimension", "Type the angle between two lines, or the distance between the two picks"},
+    {"sk_length", "Length…", 7, "V", "key:V", nullptr, 0x00010000u, 0, 0, false, true, nullptr, "design_dimension", "Type the length of this line"},
+    {"sk_radius", "Radius / diameter…", 7, "V", "key:V", nullptr, 0x00020000u, 0, 0, false, true, nullptr, "design_dimension", "Type the radius of this arc, or the diameter of this circle"},
+    {"sk_angdist", "Angle / distance…", 7, "V", "key:V", nullptr, 0x00080000u, 0, 0, false, true, nullptr, "design_dimension", "Type the angle between two lines, or the distance between the two picks"},
 };
 static const int kOfferVerbCount = 90;
 

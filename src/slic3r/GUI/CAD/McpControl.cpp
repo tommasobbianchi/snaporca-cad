@@ -1292,6 +1292,11 @@ json action_sketch_begin(DesignPanel* panel, const json& params)
     else if (pl == "YZ") plane = SketchPlane::YZ();
     else if (pl != "XY") throw std::runtime_error("plane must be XY, XZ or YZ");
     vp->begin_sketch(plane, DesignSketchTool::Mode::Select);
+    // The panel has to enter sketch mode too, or the app is half in it: the tool sketches, the
+    // offer menu offers sketch verbs, and every sketch KEY is dead because key dispatch tests
+    // m_ui_mode while the menu tests the viewport. Driving the socket must leave the GUI in the
+    // state a user would be in, not a state only the socket can produce.
+    panel->mcp_set_sketch_mode(true);
     return json{{"ok", true}, {"plane", pl}};
 }
 
@@ -1301,6 +1306,7 @@ json action_sketch_commit(DesignPanel* panel, const json& params)
     DesignCanvas* vp = panel->mcp_viewport();
     if (vp == nullptr || !vp->is_sketching()) throw std::runtime_error("no sketch is open");
     vp->finish_sketch();
+    panel->mcp_set_sketch_mode(false);
     panel->mcp_after_change();
     return json{{"ok", true}, {"features", int(panel->mcp_doc().features.size())}};
 }
@@ -1311,6 +1317,7 @@ json action_sketch_cancel(DesignPanel* panel, const json& params)
     DesignCanvas* vp = panel->mcp_viewport();
     if (vp == nullptr || !vp->is_sketching()) throw std::runtime_error("no sketch is open");
     vp->cancel_sketch();
+    panel->mcp_set_sketch_mode(false);
     return json{{"ok", true}};
 }
 

@@ -426,6 +426,18 @@ DesignPanel::DesignPanel(wxWindow* parent)
         select_tool(DesignSketchTool::Mode::Polygon, _L("Polygon — click center, then a vertex"));
     };
     // Constrain (finish the live sketch + enter constrain), and Construction toggle.
+    // V for Value: type the defining number of whatever is selected — a line's length, an arc's
+    // radius, a circle's diameter, the angle between two lines. One handler behind three offer
+    // rows, because the quantity comes from the selection, not from which row was clicked.
+    //
+    // It needs a KEY, not just a menu row. The deck profile in VSD_n1_streamcontroller is
+    // generated from these two key tables, so a verb with no shortcut cannot be put on a
+    // physical button at all — which is the whole point of that profile for a user who drives
+    // the app from buttons rather than a menu.
+    m_keys_sketch['V'] = [this] {
+        if (m_viewport && m_viewport->is_sketching() && !m_viewport->edit_sketch_selection_value())
+            set_status(_L("Nothing here has a value to type — pick a line, an arc, a circle, or two entities"));
+    };
     m_keys_sketch['K'] = [this] { enter_constrain_inline(); };
     m_keys_sketch['Q'] = [this] {
         // With geometry selected, Q converts THAT geometry (snaporca-6zic) — the reading
@@ -479,6 +491,19 @@ DesignPanel::DesignPanel(wxWindow* parent)
         if (!m_viewport) return;
         m_viewport->set_view("iso");
         set_status(_L("Isometric view, fitted"));
+    };
+
+    // Commit to Plate and the bed toggle were mouse-only: a toolbar button and a checkbox with
+    // no accelerator between them, so neither could be reached from the keyboard at all, nor by
+    // anything driving the keyboard. Ctrl+Shift+P is Plate, Ctrl+Shift+B is Bed; neither
+    // collides with Orca's own Ctrl+Shift+S (Save as) or Ctrl+Shift+G (Print plate).
+    m_keys_feature['P' | SC_SHIFT | SC_CTRL] = [this] { on_commit(); };
+    m_keys_feature['B' | SC_SHIFT | SC_CTRL] = [this] {
+        if (!m_show_bed) return;
+        const bool show = !m_show_bed->GetValue();
+        m_show_bed->SetValue(show);
+        if (m_viewport) m_viewport->set_show_bed(show);
+        set_status(show ? _L("Bed shown") : _L("Bed hidden"));
     };
 
     // Shared flyout glyph tint (used by BOTH the feature and sketch toolbars). Re-tint each
@@ -1010,12 +1035,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
             else
                 on_delete_feature();
         };
-        // Type the selection's defining number: length / radius / diameter / angle / distance.
-        // One handler behind three offer rows; the quantity comes from the selection itself.
-        m_verb_actions["btn:sk_value"] = [this] {
-            if (m_viewport && m_viewport->is_sketching() && !m_viewport->edit_sketch_selection_value())
-                set_status(_L("Nothing here has a value to type — pick a line, an arc, a circle, or two entities"));
-        };
+
         m_verb_actions["btn:delete_body"] = [this] { on_delete_body(); };
         m_verb_actions["btn:edit"]   = [this] { on_edit_feature(); };
         m_verb_actions["btn:mass"]   = [this] { on_mass_properties(); };
@@ -3973,6 +3993,13 @@ DesignPanel::DesignPanel(wxWindow* parent)
             const int up2 = (key >= 'a' && key <= 'z') ? key - 'a' + 'A' : key;
             auto it2 = m_keys_sketch.find(up2);
             if (it2 != m_keys_sketch.end()) { it2->second(); return; }
+        }
+        // Ctrl+Shift first: the block below deliberately ignores every Ctrl-combo, which is
+        // exactly what makes this layer free to use.
+        if (!in_text && ctrl && e.ShiftDown()) {
+            const int up = (key >= 'a' && key <= 'z') ? key - 'a' + 'A' : key;
+            auto it = m_keys_feature.find(up | SC_SHIFT | SC_CTRL);
+            if (it != m_keys_feature.end()) { it->second(); return; }
         }
         if (!in_text && !ctrl) {
             const int up = (key >= 'a' && key <= 'z') ? key - 'a' + 'A' : key;   // normalise case
