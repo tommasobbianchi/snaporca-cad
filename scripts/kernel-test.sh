@@ -80,7 +80,31 @@ fi
 # tests/ is mounted too -- unlike docker-iter-build.sh, this script exists precisely to
 # compile tests being edited. CMakeLists.txt and cmake/ carry the SLIC3R_CAD gate; taking
 # them from the baked image instead leaves the gate off and the CAD symbols vanish.
+
+# ---- OOM guard (2026-08-21) -------------------------------------------------------------
+# Two of these builds ran at once on 2026-08-21, each with ninja -j$(nproc)=16: ~36 cc1plus
+# holding 42 GB of a 62 GB box -> global OOM at 21:05, a 2h28m kill storm, ssh unreachable,
+# lightdm destroyed. Neither build produced a single object. scripts/rig-build.sh grew the
+# bounds first; every script that starts a compile needs the same three, or the guard is only
+# as strong as the script you happened not to use.
+#   flock    — the lock path is SHARED with rig-build.sh and the other fork on purpose, so
+#              concurrent builds serialise instead of summing.
+#   -j       — bounded parallelism; ~1.17 GB per cc1plus was the measured average.
+#   --memory — the actual guarantee: a runaway build dies in its own cgroup instead of taking
+#              the host down. --memory-swap equal to --memory forbids swap, which is what made
+#              ssh hang.
+JOBS="${JOBS:-12}"
+MEM="${MEM:-40g}"
+LOCK=/tmp/orca-rig-build.lock
+
+exec 9>"$LOCK"
+if ! flock -n 9; then
+    echo "another build holds $LOCK — waiting (this is the OOM guard, not a hang)"
+    flock 9
+fi
+
 docker run --rm \
+  --memory="$MEM" --memory-swap="$MEM" \
   -v "$REPO/src":/OrcaSlicer/src \
   -v "$REPO/tests":/OrcaSlicer/tests \
   -v "$REPO/resources":/OrcaSlicer/resources \
@@ -105,5 +129,5 @@ docker run --rm \
       -DwxWidgets_CONFIG_EXECUTABLE=\$DESTDIR/bin/wx-config \
       -DSLIC3R_GTK=3 -DBUILD_TESTS=ON \
       -DSLIC3R_CAD=ON -DSLIC3R_STATIC=1 -DORCA_TOOLS=ON -DCMAKE_BUILD_TYPE=Release
-    cmake --build build --config Release --target libslic3r_tests
+    cmake --build build --config Release --target libslic3r_tests -- -j$JOBS
     ./build/tests/libslic3r/Release/libslic3r_tests '$TAGS' --order decl"
