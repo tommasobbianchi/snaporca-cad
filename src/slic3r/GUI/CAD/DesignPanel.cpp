@@ -4004,6 +4004,15 @@ DesignPanel::DesignPanel(wxWindow* parent)
             }
         }
 
+        // Esc must exit the sketch wherever focus happens to be. Which widget holds focus is an
+        // accident of where the user last clicked (a toolbar button, the Construction checkbox),
+        // and Esc must not depend on it — request_exit() is the layered behaviour the GL-canvas
+        // path already uses, so Esc means the same thing here as it does over the viewport.
+        if (key == WXK_ESCAPE && m_viewport && m_viewport->is_sketching()) {
+            m_viewport->request_sketch_exit();
+            return;
+        }
+
         const bool dismissable = m_active != Tool::None || (m_viewport && m_viewport->moving_body());
         if (key == WXK_ESCAPE && dismissable) { tool_cancel(); return; }
 

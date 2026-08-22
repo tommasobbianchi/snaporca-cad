@@ -227,6 +227,10 @@ public:
     bool inline_has_focus() const;                    // the field itself holds keyboard focus
     void inline_commit();                             // accept the typed value (Enter/Tab)
     void inline_cancel();                             // discard the typed value (Esc)
+    // The layered Esc: abandon the points of the gesture in progress, else drop the armed tool
+    // back to Select, else leave the sketch. Same call GLCanvas3D::on_char makes, exposed so the
+    // panel can do it when focus is not on the canvas.
+    void request_sketch_exit();
     bool live_sketch_has_work() const;                // the live sketch holds entities a cancel would destroy
     bool undo_last_sketch_entity();                   // Ctrl+Z in a sketch: drop the last entity
     bool delete_selected_or_last_sketch_entity();     // Delete in a sketch: selected, else last

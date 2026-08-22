@@ -1228,6 +1228,12 @@ void DesignCanvas::inline_cancel()
     if (m_inline_editor) m_inline_editor->cancel();
 }
 
+void DesignCanvas::request_sketch_exit()
+{
+    m_sketch_tool.request_exit();
+    request_repaint();
+}
+
 bool DesignCanvas::live_sketch_has_work() const
 {
     return m_sketch_tool.live_sketch_has_work();
