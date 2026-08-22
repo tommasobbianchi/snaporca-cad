@@ -1026,6 +1026,21 @@ DesignPanel::DesignPanel(wxWindow* parent)
         fadd("color", b_color);
         m_verb_actions["btn:colour"] = [this] { on_set_body_color(); };
         m_verb_actions["btn:delete"] = [this] { on_delete_feature(); };
+        // Rename exists as a slow double-click on the row too, but the offer is this tab's only
+        // tool vocabulary — a rename that only a double-click reveals is not discoverable, and
+        // the row IS the object, so it belongs in the menu (and on F2) as well as on the row.
+        auto rename_feature = [this] {
+            const int sel = tree_selection();
+            if (sel != wxNOT_FOUND && sel < int(m_tree_items.size())) {
+                m_tree->EditLabel(m_tree_items[sel]);   // opens the in-place editor on that row
+            } else {
+                m_status->SetForegroundColour(wxNullColour);   // "nothing selected" is not an error
+                set_status(_L("Select a feature first — click a sketch or feature row, then rename it"));
+                m_status->Refresh();
+            }
+        };
+        m_verb_actions["btn:rename"] = rename_feature;
+        m_keys_feature[WXK_F2]        = rename_feature;   // a function key, so no letter space spent
         // The sketch's own Delete. It used to share "btn:delete" with the feature tree, so
         // choosing Delete on a selected LINE ran on_delete_feature() and removed a tree row (or
         // nothing) while the line stayed — the reported "I click a line and cannot remove it".
@@ -3001,7 +3016,7 @@ DesignPanel::DesignPanel(wxWindow* parent)
               FromDIP(SidebarProps::TitlebarMargin()));
     m_tree = new wxTreeCtrl(m_tree_box, wxID_ANY, wxDefaultPosition, wxSize(-1, 64),
                             wxTR_HIDE_ROOT | wxTR_SINGLE | wxTR_NO_LINES |
-                            wxTR_FULL_ROW_HIGHLIGHT | wxBORDER_SIMPLE);
+                            wxTR_FULL_ROW_HIGHLIGHT | wxBORDER_SIMPLE | wxTR_EDIT_LABELS);
     if (!dp_dark()) m_tree->SetBackgroundColour(dp_panel_bg());
     // Per-feature-type icons (indices match tree_icon_for): sketch/extrude/dressup/hole/thread.
     m_tree_images = new wxImageList(16, 16);
@@ -3042,6 +3057,41 @@ DesignPanel::DesignPanel(wxWindow* parent)
     // Without it the row only highlights and the feature looks dead until the user finds the
     // Edit button in the section header.
     m_tree->Bind(wxEVT_TREE_ITEM_ACTIVATED, [this](wxTreeEvent&) { on_edit_feature(); });
+
+    // In-place rename of a feature row (slow double-click, the offer's Rename verb, or F2).
+    // The name is what makes a tree of eight sketches readable, and the tree row IS the object —
+    // so renaming belongs on the row, not in a side-panel field. Bodies are computed results,
+    // not named features, so a body row must never open an editor (it cannot, they live in the
+    // Parts list, but the guard keeps a future change from slipping a body into this tree).
+    auto item_index = [this](const wxTreeItemId& it) -> int {
+        for (size_t i = 0; i < m_tree_items.size(); ++i)
+            if (m_tree_items[i] == it) return int(i);
+        return wxNOT_FOUND;
+    };
+    m_tree->Bind(wxEVT_TREE_BEGIN_LABEL_EDIT, [this, item_index](wxTreeEvent& e) {
+        // The event's item is the authority for WHAT is being edited; tree_selection() is not,
+        // because the editor can open on a row that is not the current selection. A row that is
+        // not a feature (a body, or a stray id) gets the edit vetoed before it can take a name.
+        if (tree_body_selection() >= 0 || item_index(e.GetItem()) == wxNOT_FOUND) { e.Veto(); return; }
+        e.Skip();
+    });
+    m_tree->Bind(wxEVT_TREE_END_LABEL_EDIT, [this, item_index](wxTreeEvent& e) {
+        if (e.IsEditCancelled()) return;
+        const int idx = item_index(e.GetItem());
+        if (idx == wxNOT_FOUND) { e.Veto(); return; }
+        wxString label = e.GetLabel();
+        label.Trim(true).Trim(false);
+        if (label.empty()) { e.Veto(); return; }   // a nameless row is worse than a badly named one
+        m_doc.features[idx].name = std::string(label.ToUTF8().data());
+        sync_recipe_to_model();   // the name is part of the recipe, so the save path persists it
+        e.Skip();                 // let wx finish applying the label to the item it is holding
+        // REBUILD LATER, NOT NOW. refresh_tree() deletes and re-creates every wxTreeItemId, and
+        // we are inside wx's own END_LABEL_EDIT dispatch for one of them — destroying it here
+        // frees the item the caller is still using and takes the process down. Measured: typing
+        // a name and pressing Enter killed the app outright, with the keystrokes traced and no
+        // trace for the Return. Deferring to the next event-loop turn lets wx finish first.
+        CallAfter([this] { refresh_tree(); });
+    });
 
     // Feature-tree edit actions: act on the selected feature (delete / reorder). These sit in the
     // card header (Prepare puts its section actions there too) rather than on a loose row below.
