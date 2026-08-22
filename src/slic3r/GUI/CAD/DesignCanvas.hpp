@@ -224,6 +224,9 @@ public:
     void set_on_context_menu(std::function<void(const wxPoint&)> cb);
     void delete_selected_sketch_entities();
     bool inline_busy() const;                         // a sketch value field is open (guard keys)
+    bool inline_has_focus() const;                    // the field itself holds keyboard focus
+    void inline_commit();                             // accept the typed value (Enter/Tab)
+    void inline_cancel();                             // discard the typed value (Esc)
     bool live_sketch_has_work() const;                // the live sketch holds entities a cancel would destroy
     bool undo_last_sketch_entity();                   // Ctrl+Z in a sketch: drop the last entity
     bool delete_selected_or_last_sketch_entity();     // Delete in a sketch: selected, else last

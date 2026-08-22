@@ -3922,7 +3922,6 @@ DesignPanel::DesignPanel(wxWindow* parent)
         // Delete/Ctrl+Z there must edit the text, not the model.
         const bool in_text = (dynamic_cast<wxTextCtrl*>(wxWindow::FindFocus()) != nullptr)
                              || (m_viewport && m_viewport->inline_busy());
-
         if (getenv("SNAPORCA_KEYTRACE")) {
             wxWindow* fw = wxWindow::FindFocus();
             fprintf(stderr, "[KEYTRACE] key=%d ui_mode=%d is_sketching=%d in_text=%d inline_busy=%d focus=%s\n",
@@ -3931,6 +3930,30 @@ DesignPanel::DesignPanel(wxWindow* parent)
                     fw ? (const char*) fw->GetClassInfo()->GetClassName() : "(none)");
             fflush(stderr);
         }
+
+        // NOTE the position: this sits AFTER the KEYTRACE block on purpose. It returns early,
+        // and putting it first made every forwarded key invisible to the tracer — the one
+        // instrument that diagnosed this bug in the first place.
+        // The in-canvas value field is a borderless, always-on-top top-level frame, so whether it
+        // may take keyboard focus is the platform's decision, not ours: macOS denies key status to a
+        // borderless window, mutter's focus-stealing prevention refuses a re-mapped window, and the
+        // rig never grants it. When focus is refused, Enter/Esc/Tab are delivered HERE (to the panel)
+        // instead of the field, its own wxEVT_TEXT_ENTER / WXK_ESCAPE bindings never fire, and the
+        // queued-dimension chain (a line queues Length then Angle) becomes unwalkable. Forwarding them
+        // makes the field behave the same everywhere WITHOUT fighting the window manager for focus,
+        // which is what seven earlier attempts did unsuccessfully. When the field DOES hold focus we
+        // deliberately do nothing here, so its own bindings run and typing keeps working.
+        if (m_viewport && m_viewport->inline_busy() && !m_viewport->inline_has_focus()) {
+            if (key == WXK_RETURN || key == WXK_NUMPAD_ENTER || key == WXK_TAB) {
+                m_viewport->inline_commit();
+                return;
+            }
+            if (key == WXK_ESCAPE) {
+                m_viewport->inline_cancel();
+                return;
+            }
+        }
+
         const bool dismissable = m_active != Tool::None || (m_viewport && m_viewport->moving_body());
         if (key == WXK_ESCAPE && dismissable) { tool_cancel(); return; }
 
