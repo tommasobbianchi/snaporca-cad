@@ -296,6 +296,57 @@ exact = 2 * L * 2 * R + math.pi * R * R
 check("LENGTH", near(out["area"], exact, 1e-6),
       f"cross-check: enclosed area {out['area']:.4f} = 2L*2R + pi*R^2 = {exact:.4f}")
 
+print("\nRUNG 8 — a real drawing: StudyCadCam MPD5, the pin's revolve half-profile")
+# Ø27 x 95 pin: C1 chamfer on the left end, cylinder to a corner at x=85, an R5 fillet into a
+# cone at 23 degrees to the axis, right face at x=95. Interpretation stated so the rung is
+# reproducible: 85 is to the CORNER, 23 deg is to the AXIS, C1 is 1 x 45.
+fresh()
+RAD, LEN, TX, ANG, RF, CH = 13.5, 95.0, 85.0, math.radians(23), 5.0, 1.0
+t  = RF * math.tan(ANG / 2)
+ax, ay = TX - t, RAD                      # fillet tangent point on the cylinder
+cx, cy = ax, RAD - RF                     # fillet centre
+bx, by = TX + t * math.cos(-ANG), RAD + t * math.sin(-ANG)   # tangent point on the cone
+ey = by - (LEN - bx) * math.tan(ANG)      # where the cone meets the right face
+call("sketch_add", entities=[
+    {"type": "line", "p0": [0, 0],            "p1": [0, RAD - CH]},        # left face
+    {"type": "line", "p0": [0, RAD - CH],     "p1": [CH, RAD]},            # C1 chamfer
+    {"type": "line", "p0": [CH, RAD],         "p1": [ax, ay]},             # cylinder top
+    {"type": "arc",  "center": [cx, cy], "radius": RF,
+     "start_angle": math.pi / 2, "end_angle": math.pi / 2 - ANG},          # R5 fillet
+    {"type": "line", "p0": [bx, by],          "p1": [LEN, ey]},            # 23 deg cone
+    {"type": "line", "p0": [LEN, ey],         "p1": [LEN, 0]},             # right face
+    {"type": "line", "p0": [LEN, 0],          "p1": [0, 0]},               # axis
+])
+r = rep()
+es = r["entities"]
+check("CLOSED", r["buildable"] and r["open_ends"] == [], "the half-profile is one closed loop")
+xs = [v[0] for e in es if "p0" in e for v in (e["p0"], e["p1"])]
+ys = [v[1] for e in es if "p0" in e for v in (e["p0"], e["p1"])]
+check("LENGTH", near(max(xs) - min(xs), LEN), f"overall length exactly {LEN} (the 95 dimension)")
+check("VERTEX", near(max(ys), RAD), f"outer radius exactly {RAD} (the dia 27)")
+fil = [e for e in es if e["type"] == "arc"][0]
+check("ARC", near(fil["radius"], RF), f"the corner fillet is exactly R{RF:g}")
+cone = [e for e in es if e["type"] == "line"
+        and not near(e["p0"][0], e["p1"][0]) and not near(e["p0"][1], e["p1"][1])
+        and e["length"] > 5]
+if cone:
+    c0 = cone[0]
+    a = abs(math.degrees(math.atan2(c0["p1"][1] - c0["p0"][1], c0["p1"][0] - c0["p0"][0])))
+    check("ANGLE", near(a, 23, 1e-6), f"the cone is exactly 23 degrees to the axis (got {a:.6f})")
+cham = [e for e in es if e["type"] == "line" and near(e["length"], CH * math.sqrt(2), 1e-9)]
+check("ANGLE", bool(cham), "the C1 chamfer is exactly 1 x 45 (length 1*sqrt2)")
+tang = True
+for p in endpoints(fil):
+    for m in [e for e in es if e is not fil and any(pt_near(p, q) for q in endpoints(e))]:
+        if not smooth(fil, m, p):
+            tang = False
+check("TANGENT", tang, "the fillet is tangent to BOTH the cylinder and the cone (no kink)")
+
 call("sketch_cancel")
+
+try:
+    call("sketch_cancel")
+except Exception:
+    pass                      # a rung may have closed it already
 print(f"\n{'ALL RUNGS HELD' if _fail == 0 else str(_fail) + ' CHECK(S) FAILED'}")
 sys.exit(1 if _fail else 0)
