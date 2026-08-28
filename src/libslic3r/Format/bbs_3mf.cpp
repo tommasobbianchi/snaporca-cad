@@ -171,9 +171,8 @@ const std::string BBS_MODEL_CONFIG_RELS_FILE = "Metadata/_rels/model_settings.co
 const std::string SLICE_INFO_CONFIG_FILE = "Metadata/slice_info.config";
 const std::string BBS_LAYER_HEIGHTS_PROFILE_FILE = "Metadata/layer_heights_profile.txt";
 const std::string ORCA_CAD_RECIPE_FILE = "Metadata/orca_cad.bin";
-// Read-only fallback: what this file was called before the SnapOrca->Orca rename. Projects
-// saved by any earlier build carry this name, and without it their feature tree is silently
-// dropped on reopen. Never written -- new saves always use ORCA_CAD_RECIPE_FILE.
+// Read-only: the recipe entry's pre-rename name. A reader that knows only the new one drops the
+// feature tree of every project written before the move, without a word. Never written.
 const std::string LEGACY_CAD_RECIPE_FILE = "Metadata/SnapOrca_cad.bin";
 const std::string LAYER_CONFIG_RANGES_FILE = "Metadata/layer_config_ranges.xml";
 const std::string BRIM_EAR_POINTS_FILE = "Metadata/brim_ear_points.txt";

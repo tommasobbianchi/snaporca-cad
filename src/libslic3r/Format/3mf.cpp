@@ -74,7 +74,8 @@ const std::string PRINT_CONFIG_FILE = "Metadata/Slic3r_PE.config";
 const std::string MODEL_CONFIG_FILE = "Metadata/Slic3r_PE_model.config";
 const std::string LAYER_HEIGHTS_PROFILE_FILE = "Metadata/Slic3r_PE_layer_heights_profile.txt";
 const std::string CAD_RECIPE_FILE = "Metadata/orca_cad.bin";
-// Read-only fallback for projects written before the SnapOrca->Orca rename; see bbs_3mf.cpp.
+// Read-only: the recipe entry's pre-rename name. A reader that knows only the new one drops the
+// feature tree of every project written before the move, without a word. Never written.
 const std::string LEGACY_CAD_RECIPE_FILE = "Metadata/SnapOrca_cad.bin";
 const std::string LAYER_CONFIG_RANGES_FILE = "Metadata/Prusa_Slicer_layer_config_ranges.xml";
 const std::string SLA_SUPPORT_POINTS_FILE = "Metadata/Slic3r_PE_sla_support_points.txt";

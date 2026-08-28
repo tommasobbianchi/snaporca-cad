@@ -844,8 +844,11 @@ void MainFrame::update_layout()
     case ESettingsLayout::Old:
     {
 #ifdef SLIC3R_CAD
-        m_design_page->Reparent(m_tabpanel);
-        m_tabpanel->InsertPage(tpDesign, m_design_page, _L("Design"), std::string("tab_design_active"), std::string("tab_design_active"), false);
+        // The page only exists when the experimental CAD feature is enabled.
+        if (m_design_page != nullptr) {
+            m_design_page->Reparent(m_tabpanel);
+            m_tabpanel->InsertPage(tpDesign, m_design_page, _L("Design"), std::string("tab_design_active"), std::string("tab_design_active"), false);
+        }
 #endif
         m_plater->Reparent(m_tabpanel);
         m_tabpanel->InsertPage(tp3DEditor, m_plater, _L("Prepare"), std::string("tab_3d_active"), std::string("tab_3d_active"), false);
@@ -1078,7 +1081,7 @@ void MainFrame::init_tabpanel() {
         //else if (panel == m_param_panel)
         //    m_param_panel->OnActivate();
 #ifdef SLIC3R_CAD
-        else if (panel == m_design_page) {
+        else if (m_design_page != nullptr && panel == m_design_page) {
             // Built on first activation, never at startup: the panel creates several hundred
             // controls and its own GL canvas, which a user who does not open the tab should
             // not pay for.
@@ -1192,10 +1195,12 @@ void MainFrame::init_tabpanel() {
     // Stand-in page for the Design tab. The real DesignPanel is built into it the first time
     // the tab is selected (see the page-changed handler above), so nothing it constructs sits
     // on the startup path.
-    m_design_page = new wxPanel(this);
-    m_design_page->SetSizer(new wxBoxSizer(wxVERTICAL));
-    m_design_page->Hide();
-    start_mcp_control_if_enabled();   // opens the MCP socket iff SNAPORCA_MCP is set
+    if (wxGetApp().is_enable_cad_feature()) {
+        m_design_page = new wxPanel(this);
+        m_design_page->SetSizer(new wxBoxSizer(wxVERTICAL));
+        m_design_page->Hide();
+        start_mcp_control_if_enabled();   // opens the MCP socket iff SNAPORCA_MCP is set
+    }
 #endif
 
     create_preset_tabs();

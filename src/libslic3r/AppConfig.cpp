@@ -207,6 +207,13 @@ void AppConfig::set_defaults()
         set_bool("zoom_to_mouse", false);
 
 #ifdef SLIC3R_CAD
+    // The experimental parametric Design tab. Upstream ships this OFF, because there the tab is
+    // an experiment bolted to a slicer. This fork exists for that tab, so it is ON: shipping it
+    // hidden would hide the product. The flag also gates the MCP socket, which the headless rig
+    // drives, so switching it off here disables Design-tab automation too.
+    if (get("enable_cad_feature").empty())
+        set_bool("enable_cad_feature", true);
+
     // Design tab: draw a mate connector as a face rather than as the abstract disc + roll
     // quadrant. Defaults ON — face orientation is hardwired perception, so the roll and the
     // verse read without being learned, which no abstract glyph achieves. Turning it off
