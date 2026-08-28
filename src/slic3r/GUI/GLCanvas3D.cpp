@@ -1,7 +1,7 @@
 #include "libslic3r/libslic3r.h"
 #include "GLCanvas3D.hpp"
 #ifdef SLIC3R_CAD
-#include "slic3r/GUI/CAD/DesignSketchTool.hpp"   // SnapOrca Design: interactive 2D sketch tool
+#include "slic3r/GUI/CAD/DesignSketchTool.hpp"   // Design tab: interactive 2D sketch tool
 #endif
 
 #include <igl/unproject.h>
@@ -2048,7 +2048,7 @@ void GLCanvas3D::render(bool only_init)
     if (m_picking_enabled && m_rectangle_selection.is_dragging())
         m_rectangle_selection.render(*this);
 
-    // SnapOrca Design: interactive 2D sketch overlay, drawn over the scene but
+    // Design tab: interactive 2D sketch overlay, drawn over the scene but
     // beneath the UI overlays (toolbars, labels).
 #ifdef SLIC3R_CAD
     if (m_design_sketch_tool != nullptr && m_design_sketch_tool->has_display())
@@ -3104,19 +3104,9 @@ void GLCanvas3D::on_idle(wxIdleEvent& evt)
     //m_dirty |= wxGetApp().plater()->get_view_toolbar().update_items_state();
     m_dirty |= wxGetApp().plater()->get_collapse_toolbar().update_items_state();
     _update_imgui_select_plate_toolbar();
-    // ONLY THE CANVAS THE USER IS LOOKING AT MAY CONSUME THE 3D-MOUSE QUEUE. apply() DRAINS the
-    // queue, and every bound canvas idles — but a hidden canvas's render() early-returns on
-    // _is_shown_on_screen(), so the motion it swallowed is applied to the SHARED camera and never
-    // drawn. The next visible frame then jumps by more than one state change at once.
-    //
-    // The plater avoids this by binding exactly one of its three views at a time (Plater.cpp,
-    // around the current_panel switch). The Design tab's canvas binds once at construction and
-    // never unbinds, so from the moment it exists two canvases drain the same queue. Reported
-    // upstream as the SpaceMouse being "more severe lag, and jerkyness vs really smooth on the
-    // other tab ... its more than 1 state change" (OrcaSlicer PR #15238).
-    //
-    // Guarding here rather than at the bind sites fixes the whole class: whatever is bound, only
-    // the visible canvas takes motion off the queue.
+    // apply() DRAINS the 3D-mouse queue, so only the canvas actually on screen may call it: a
+    // hidden canvas renders nothing, so the motion it swallowed moves the shared camera without
+    // ever being drawn and the next visible frame jumps several states at once.
     bool mouse3d_controller_applied = _is_shown_on_screen()
         && wxGetApp().plater()->get_mouse3d_controller().apply(wxGetApp().plater()->get_camera());
     m_dirty |= mouse3d_controller_applied;
@@ -3138,10 +3128,7 @@ void GLCanvas3D::on_idle(wxIdleEvent& evt)
     wxGetApp().imgui()->reset_requires_extra_frame();
 #endif // ENABLE_ENHANCED_IMGUI_SLIDER_FLOAT
 
-    // Not on screen yet (e.g. the notebook is still showing this page): nothing was rendered,
-    // so keep the frame pending instead of dropping it — clearing m_dirty here leaves the
-    // canvas blank until some later event happens to dirty it again.
-    const bool rendered = _refresh_if_shown_on_screen();
+    _refresh_if_shown_on_screen();
 
 #if ENABLE_ENHANCED_IMGUI_SLIDER_FLOAT
     if (m_extra_frame_requested || mouse3d_controller_applied || imgui_requires_extra_frame || wxGetApp().imgui()->requires_extra_frame()) {
@@ -3153,7 +3140,7 @@ void GLCanvas3D::on_idle(wxIdleEvent& evt)
         evt.RequestMore();
     }
     else
-        m_dirty = !rendered;
+        m_dirty = false;
 }
 
 void GLCanvas3D::on_char(wxKeyEvent& evt)
@@ -3172,7 +3159,7 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
         return;
     }
 
-    // SnapOrca Design: Delete/Backspace removes the selected sketch entities while a
+    // Design tab: Delete/Backspace removes the selected sketch entities while a
     // sketch tool is active and the canvas has focus (dialog text fields are separate
     // wx controls, so this never eats their editing keys).
 #ifdef SLIC3R_CAD
@@ -3198,7 +3185,7 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
     }
 #endif
 
-    // SnapOrca Design: Ctrl+Z / Ctrl+Shift+Z (and Ctrl+Y) undo/redo the Design feature
+    // Design tab: Ctrl+Z / Ctrl+Shift+Z (and Ctrl+Y) undo/redo the Design feature
     // history. Scoped by m_design_sketch_tool — only the Design canvas owns one — so the
     // main 3D editor's undo/redo (the CanvasView3D-gated cases further below) is untouched.
     // Handled here, before the generic Ctrl block, so it takes precedence and early-returns.
@@ -3216,7 +3203,7 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
     }
 #endif
 
-    // SnapOrca Design: F = Place on Face (Prepare's lay-flat), when the Design viewport is up
+    // Design tab: F = Place on Face (Prepare's lay-flat), when the Design viewport is up
     // and a body face is selected. The tool forwards to DesignPanel::place_on_face; it returns
     // false (no face picked) so F falls through to the default handler below.
 #ifdef SLIC3R_CAD
@@ -3604,7 +3591,7 @@ public:
 
 void GLCanvas3D::on_key(wxKeyEvent& evt)
 {
-    // SnapOrca Design: Delete/Backspace removes selected sketch entities. GTK delivers
+    // Design tab: Delete/Backspace removes selected sketch entities. GTK delivers
     // these as KEY_DOWN rather than CHAR, so handle it here too.
 #ifdef SLIC3R_CAD
     if (evt.GetEventType() == wxEVT_KEY_DOWN
@@ -4152,7 +4139,7 @@ void GLCanvas3D::on_mouse(wxMouseEvent& evt)
             return;
     }
 
-    // SnapOrca Design: the interactive sketch tool owns the mouse whenever it has
+    // Design tab: the interactive sketch tool owns the mouse whenever it has
     // something on screen — an active session OR committed sketch overlays that the user
     // can click to select. It runs after ImGui (so dialogs still work) but before
     // camera/toolbar/gizmo handling; on_mouse returns false for events it doesn't consume
@@ -7001,18 +6988,16 @@ void GLCanvas3D::_update_camera_zoom(double zoom)
     m_dirty = true;
 }
 
-bool GLCanvas3D::_refresh_if_shown_on_screen()
+void GLCanvas3D::_refresh_if_shown_on_screen()
 {
-    if (!_is_shown_on_screen())
-        return false;
+    if (_is_shown_on_screen()) {
+        const Size& cnv_size = get_canvas_size();
+        _resize((unsigned int)cnv_size.get_width(), (unsigned int)cnv_size.get_height());
 
-    const Size& cnv_size = get_canvas_size();
-    _resize((unsigned int)cnv_size.get_width(), (unsigned int)cnv_size.get_height());
-
-    // Because of performance problems on macOS, where PaintEvents are not delivered
-    // frequently enough, we call render() here directly when we can.
-    render();
-    return true;
+        // Because of performance problems on macOS, where PaintEvents are not delivered
+        // frequently enough, we call render() here directly when we can.
+        render();
+    }
 }
 
 void GLCanvas3D::_picking_pass()
@@ -7448,7 +7433,7 @@ void GLCanvas3D::_render_bed(const Transform3d& view_matrix, const Transform3d& 
     //bool show_texture = true;
     //BBS set axes mode
     if (m_axes_at_bed_center) {
-        // SnapOrca Design: triad at the bed centre = modeling origin (set every frame because
+        // Design tab: triad at the bed centre = modeling origin (set every frame because
         // set_shape/set_axes_mode otherwise reset it to the bed corner).
         const Vec2d bc = m_bed.build_volume().bed_center();
         m_bed.set_axes_origin(Vec3d(bc.x(), bc.y(), 0.0));
@@ -7460,15 +7445,9 @@ void GLCanvas3D::_render_bed(const Transform3d& view_matrix, const Transform3d& 
 
 void GLCanvas3D::_render_platelist(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_current, bool only_body, int hover_id, bool render_cali, bool show_grid)
 {
-    // SnapOrca Design: transiently suppress plate chrome (icons/logo/numbers) for
-    // canvases that opted out (DesignCanvas). The list is shared with the main
-    // editor; renders never interleave (single GL thread), so set-render-reset is
-    // safe and leaves the editor's chrome intact.
-    auto& plate_list = wxGetApp().plater()->get_partplate_list();
-    const bool prev_hide_chrome = plate_list.get_hide_chrome();
-    plate_list.set_hide_chrome(!m_plate_chrome_enabled);
-    plate_list.render(view_matrix, projection_matrix, bottom, only_current, only_body, hover_id, render_cali, show_grid);
-    plate_list.set_hide_chrome(prev_hide_chrome);
+    // Design tab: transiently suppress plate chrome (icons/logo/numbers) for
+    // canvases that opted out (DesignCanvas).
+    wxGetApp().plater()->get_partplate_list().render(view_matrix, projection_matrix, bottom, only_current, only_body, hover_id, render_cali, show_grid, !m_plate_chrome_enabled);
 }
 
 void GLCanvas3D::_render_plane() const

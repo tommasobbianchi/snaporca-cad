@@ -844,8 +844,8 @@ void MainFrame::update_layout()
     case ESettingsLayout::Old:
     {
 #ifdef SLIC3R_CAD
-        m_design_panel->Reparent(m_tabpanel);
-        m_tabpanel->InsertPage(tpDesign, m_design_panel, _L("Design"), std::string("tab_design_active"), std::string("tab_design_active"), false);
+        m_design_page->Reparent(m_tabpanel);
+        m_tabpanel->InsertPage(tpDesign, m_design_page, _L("Design"), std::string("tab_design_active"), std::string("tab_design_active"), false);
 #endif
         m_plater->Reparent(m_tabpanel);
         m_tabpanel->InsertPage(tp3DEditor, m_plater, _L("Prepare"), std::string("tab_3d_active"), std::string("tab_3d_active"), false);
@@ -1027,6 +1027,19 @@ void MainFrame::show_option(bool show)
     }
 }
 
+#ifdef SLIC3R_CAD
+DesignPanel* MainFrame::ensure_design_panel()
+{
+    if (m_design_panel == nullptr && m_design_page != nullptr) {
+        wxBusyCursor busy;
+        m_design_panel = new DesignPanel(m_design_page);
+        m_design_page->GetSizer()->Add(m_design_panel, 1, wxEXPAND);
+        m_design_page->Layout();
+    }
+    return m_design_panel;
+}
+#endif
+
 void MainFrame::init_tabpanel() {
     // wxNB_NOPAGETHEME: Disable Windows Vista theme for the Notebook background. The theme performance is terrible on
     // Windows 10 with multiple high resolution displays connected.
@@ -1065,7 +1078,11 @@ void MainFrame::init_tabpanel() {
         //else if (panel == m_param_panel)
         //    m_param_panel->OnActivate();
 #ifdef SLIC3R_CAD
-        else if (panel == m_design_panel) {
+        else if (panel == m_design_page) {
+            // Built on first activation, never at startup: the panel creates several hundred
+            // controls and its own GL canvas, which a user who does not open the tab should
+            // not pay for.
+            ensure_design_panel();
             // Re-sync the Design bed to the active printer: the panel is built before the
             // printer profile is fully applied, so its bed must refresh on activation or the
             // grid (true bed) spills past the stale default bed quad.
@@ -1078,7 +1095,7 @@ void MainFrame::init_tabpanel() {
 #ifdef SLIC3R_CAD
         // Any page that is not Design takes the Design status line down with it — see
         // DesignPanel::on_tab_hidden for why the popup does not follow the page on its own.
-        if (m_design_panel != nullptr && panel != m_design_panel) m_design_panel->on_tab_hidden();
+        if (m_design_panel != nullptr && panel != m_design_page) m_design_panel->on_tab_hidden();
 #endif
 #ifndef __APPLE__
         if (sel == tp3DEditor) {
@@ -1163,16 +1180,23 @@ void MainFrame::init_tabpanel() {
       
     }
     m_plater = new Plater(this, this);
-    // Register the plater with the app BEFORE constructing DesignPanel: its
-    // DesignCanvas reads wxGetApp().plater()->config() at construction time
-    // (to share the editor config + bed shape with the native GLCanvas3D).
-    wxGetApp().plater_ = m_plater;
-#ifdef SLIC3R_CAD
-    m_design_panel = new DesignPanel(this);
-    start_mcp_control_if_enabled();   // opens the MCP socket iff SNAPORCA_MCP is set
-#endif
     m_plater->SetBackgroundColour(*wxWHITE);
     m_plater->Hide();
+
+    // DesignCanvas reads wxGetApp().plater()->config() when it is built (to share the editor
+    // config + bed shape with the native GLCanvas3D). The panel is now built lazily, long after
+    // this point, so the old "register the plater FIRST" ordering constraint is gone.
+    wxGetApp().plater_ = m_plater;
+
+#ifdef SLIC3R_CAD
+    // Stand-in page for the Design tab. The real DesignPanel is built into it the first time
+    // the tab is selected (see the page-changed handler above), so nothing it constructs sits
+    // on the startup path.
+    m_design_page = new wxPanel(this);
+    m_design_page->SetSizer(new wxBoxSizer(wxVERTICAL));
+    m_design_page->Hide();
+    start_mcp_control_if_enabled();   // opens the MCP socket iff SNAPORCA_MCP is set
+#endif
 
     create_preset_tabs();
 

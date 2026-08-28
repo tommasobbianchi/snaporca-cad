@@ -57,7 +57,7 @@ namespace GUI {
 class Bed3D;
 class PartPlateList;
 #ifdef SLIC3R_CAD
-class DesignSketchTool;   // SnapOrca Design: interactive 2D sketch tool
+class DesignSketchTool;   // Design tab: interactive 2D sketch tool
 #endif
 
 #if ENABLE_RETINA_GL
@@ -534,20 +534,20 @@ private:
     mutable GLToolbar m_assemble_view_toolbar;
     mutable IMReturnToolbar m_return_toolbar;
     mutable float m_paint_toolbar_width;
-    // SnapOrca Design: per-canvas suppression of the shared plater collapse toolbar
+    // Design tab: per-canvas suppression of the shared plater collapse toolbar
     // (the < > sidebar arrow). Default true preserves the main editor's behaviour.
     bool m_collapse_toolbar_enabled{true};
-    // SnapOrca Design: per-canvas suppression of PartPlate overlay chrome (corner
+    // Design tab: per-canvas suppression of PartPlate overlay chrome (corner
     // icons, logo watermark, plate numbers). Default true preserves the editor.
     bool m_plate_chrome_enabled{true};
-    // SnapOrca Design: render the world-axis triad at the bed centre (= modeling origin) instead of
+    // Design tab: render the world-axis triad at the bed centre (= modeling origin) instead of
     // the bed corner. Default false preserves the main editor's corner triad.
     bool m_axes_at_bed_center{false};
-    // SnapOrca Design: draw the printer bed and its plate grid at all. Default true, so the
+    // Design tab: draw the printer bed and its plate grid at all. Default true, so the
     // main editor is untouched; the Design tab lets the user hide it to model without a bed.
     bool m_show_bed{true};
 #ifdef SLIC3R_CAD
-    // SnapOrca Design: optional interactive 2D sketch tool. When non-null and
+    // Design tab: optional interactive 2D sketch tool. When non-null and
     // active it intercepts mouse events and renders an overlay on the sketch
     // plane. Null in the main editor (no behaviour change). Not owned.
     DesignSketchTool* m_design_sketch_tool{nullptr};
@@ -871,7 +871,7 @@ public:
     void set_show_bed(bool b) { m_show_bed = b; }
     bool get_show_bed() const { return m_show_bed; }
 #ifdef SLIC3R_CAD
-    // SnapOrca Design: register/clear the interactive sketch tool (not owned).
+    // Design tab: register/clear the interactive sketch tool (not owned).
     void set_design_sketch_tool(DesignSketchTool* tool) { m_design_sketch_tool = tool; }
     DesignSketchTool* get_design_sketch_tool() const { return m_design_sketch_tool; }
 #endif
@@ -1194,9 +1194,7 @@ private:
     void _zoom_to_box(const BoundingBoxf3& box, double margin_factor = DefaultCameraZoomToBoxMarginFactor);
     void _update_camera_zoom(double zoom);
 
-    // Returns false when the canvas is not on screen yet and therefore nothing was rendered,
-    // so callers can keep it dirty instead of dropping the pending frame.
-    bool _refresh_if_shown_on_screen();
+    void _refresh_if_shown_on_screen();
 
     void _picking_pass();
     void _rectangular_selection_picking_pass();
