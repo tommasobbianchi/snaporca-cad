@@ -5,6 +5,7 @@
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/Format/STL.hpp"
 #include "libslic3r/miniz_extension.hpp"
+#include "test_utils.hpp"   // ScopedTemporaryFile / ScopedTemporaryDir
 #include "libslic3r/Utils.hpp"   // set_temporary_dir
 
 #include <boost/filesystem/operations.hpp>
@@ -267,10 +268,10 @@ SCENARIO("CAD recipe is embedded in the BBS 3mf archive", "[3mf][CAD]") {
                 ConfigSubstitutionContext ctxt{ ForwardCompatibilitySubstitutionRule::Enable };
                 PlateDataPtrs        dst_plates;
                 std::vector<Preset*> project_presets;
-                bool   is_bbl_3mf = false, is_orca_3mf = false;
+                bool   is_bbl_3mf = false;
                 Semver file_version;
                 REQUIRE(load_bbs_3mf(test_file.c_str(), &dst_config, &ctxt, &dst_model, &dst_plates,
-                                     &project_presets, &is_bbl_3mf, &is_orca_3mf, &file_version, nullptr,
+                                     &project_presets, &is_bbl_3mf, &file_version, nullptr,
                                      LoadStrategy::LoadModel | LoadStrategy::LoadConfig));
                 REQUIRE(dst_model.cad_recipe.size() == recipe.size());
                 REQUIRE(dst_model.cad_recipe == recipe);
