@@ -13,7 +13,11 @@
 # The rig container is expected to be up with the app running and SNAPORCA_MCP set; bring it up
 # with scripts/CAD/start-headless-gui.sh inside it. The corpus lives at /corpus in that container.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+# ../.. — this script lives in scripts/CAD/, so one level up is scripts/, not the repo root.
+# It was scripts/ladder-all.sh when it was written; the move (ea5f25e8b9) fixed the three
+# sibling scripts and missed this one, which left every rung looking for its own path under
+# scripts/scripts/ and reporting seven instant failures that were all the same typo.
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
 C="${C:-snaporca-gui}"
 CORPUS="${CORPUS:-/corpus}"
