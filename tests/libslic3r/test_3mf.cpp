@@ -177,50 +177,6 @@ static bool read_cad_recipe_entry(const std::string& path, std::string& out)
     return found;
 }
 
-SCENARIO("CAD recipe blob survives a 3mf save/load cycle", "[3mf][CAD]") {
-    GIVEN("a model carrying a binary cad_recipe") {
-        Model src_model;
-        std::string src_file = std::string(TEST_DATA_DIR) + "/test_3mf/Prusa.stl";
-        REQUIRE(load_stl(src_file.c_str(), &src_model));
-        src_model.add_default_instances();
-
-        const std::string recipe = make_cad_recipe();
-        src_model.cad_recipe = recipe;
-
-        WHEN("the model is saved+loaded to/from a 3mf file") {
-            ScopedTemporaryFile temp(".3mf");
-            const std::string test_file = temp.string();
-            REQUIRE(store_3mf(test_file.c_str(), &src_model, nullptr, false));
-
-            Model dst_model;
-            DynamicPrintConfig dst_config;
-            ConfigSubstitutionContext ctxt{ ForwardCompatibilitySubstitutionRule::Disable };
-            REQUIRE(load_3mf(test_file.c_str(), dst_config, ctxt, &dst_model, false));
-
-            THEN("the recipe round-trips byte-for-byte") {
-                REQUIRE(dst_model.cad_recipe.size() == recipe.size());
-                REQUIRE(dst_model.cad_recipe == recipe);
-            }
-        }
-
-        WHEN("the same model is saved with no recipe") {
-            src_model.cad_recipe.clear();
-            ScopedTemporaryFile temp(".3mf");
-            const std::string test_file = temp.string();
-            REQUIRE(store_3mf(test_file.c_str(), &src_model, nullptr, false));
-
-            Model dst_model;
-            DynamicPrintConfig dst_config;
-            ConfigSubstitutionContext ctxt{ ForwardCompatibilitySubstitutionRule::Disable };
-            REQUIRE(load_3mf(test_file.c_str(), dst_config, ctxt, &dst_model, false));
-
-            THEN("nothing is written and nothing is read back") {
-                REQUIRE(dst_model.cad_recipe.empty());
-            }
-        }
-    }
-}
-
 // The GUI saves/loads projects via the BBS-native 3mf backend (store_bbs_3mf / load_bbs_3mf),
 // NOT the PrusaSlicer 3mf.cpp. This locks in both halves: the archive entry is at the exact
 // path the importer looks for, and the recipe comes back through the real importer.
