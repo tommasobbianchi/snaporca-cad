@@ -32,10 +32,16 @@ step() {
     if "$@"; then echo "--- $name OK"; else echo "--- $name FAILED"; fail=1; fi
 }
 
+# Explicit, because docker exec leaves DISPLAY unset and the check scripts then fall back to
+# their ":10" default. That default happens to be right for THIS fork's rig and wrong for the
+# other one, whose Xvfb is on :11 -- where it produced "FATAL no app window on :10", a message
+# that reads like a dead app rather than a wrong display. State it rather than rely on the default.
+RIG_DISPLAY="${RIG_DISPLAY:-:10}"
+
 run_in_rig() {                      # copy the script in fresh, then run it there
     docker cp "$1" "$C:/tmp/$(basename "$1")" >/dev/null || return 1
     shift
-    docker exec "$C" python3 "$@"
+    docker exec -e DISPLAY="$RIG_DISPLAY" "$C" python3 "$@"
 }
 
 # FIRST, and it needs no rig: the offer table the menu is compiled from must be what the atlas

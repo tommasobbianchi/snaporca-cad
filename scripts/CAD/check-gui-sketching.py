@@ -794,10 +794,22 @@ def rung_extend():
 # has not constrained anything, it has only nudged it.
 
 # Constrain-mode toolbar, measured off the rig at 1920x1080 (icon centres, 42 px apart).
+#
+# THIS LIST MIRRORS THE cbtn() SEQUENCE IN DesignPanel.cpp AND HAS TO BE UPDATED WHEN A BUTTON
+# IS INSERTED. Positions are computed by index, so inserting a button shifts every entry after
+# it and the map silently points at the wrong icon -- a rung then applies some OTHER constraint
+# and fails with a geometric message that says nothing about buttons.
+#
+# It has already happened once, undetected: equal_radius and collinear (after "equal"), sym_v
+# and sym_h (after "symmetric") and dist_x and dist_y (after "fix") were added while this list
+# still had 14 names. Everything from index 6 on was wrong in both forks. Nothing caught it
+# because the ladder only ever clicks "perpendicular" (3) and "equal" (5), both of which sit
+# before the first insertion. The next rung to use "tangent" would have clicked "collinear".
 CON_BTN_Y = 76
 CON_BTN = {n: (449 + 42 * i, CON_BTN_Y) for i, n in enumerate(
     ["horizontal", "vertical", "parallel", "perpendicular", "coincident", "equal",
-     "concentric", "tangent", "midpoint", "symmetric", "angle", "radius", "diameter", "fix"])}
+     "equal_radius", "collinear", "concentric", "tangent", "midpoint", "symmetric",
+     "sym_v", "sym_h", "angle", "radius", "diameter", "fix", "dist_x", "dist_y"])}
 
 
 def draw_rect_undimensioned():
