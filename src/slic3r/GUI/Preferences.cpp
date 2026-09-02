@@ -7,6 +7,7 @@
 #include "I18N.hpp"
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/MixedFilament.hpp"
+#include "libslic3r/CAD/SketchEngine.hpp"
 #include <wx/language.h>
 #include <wx/notebook.h>
 #include "Notebook.hpp"
@@ -1246,6 +1247,10 @@ wxWindow* PreferencesDialog::create_general_page()
         _L("In the Design tab, draw a mate connector as a small face instead of the conventional "
            "disc with a roll quadrant. A face's orientation is read without being learned. "
            "Turn this off for the conventional CAD representation."), 50, "design_connector_face_glyph");
+    auto item_auto_close_sketch_loops = create_item_checkbox(_L("Auto-close sketch loops"), page,
+        _L("Treat sketch endpoints within 0.001 mm as one joint and weld the loop shut. "
+           "Off: only exactly coincident endpoints join, so a loop with a tiny gap is "
+           "shown as open instead of being closed for you."), 50, "auto_close_sketch_loops");
 #endif
 
     auto item_show_splash_screen = create_item_checkbox(_L("Show splash screen"), page, _L("Show the splash screen during startup."), 50, "show_splash_screen");
@@ -1360,6 +1365,11 @@ wxWindow* PreferencesDialog::create_general_page()
     // Design-tab only, so it stays out of the way while the CAD feature is switched off.
     if (wxGetApp().is_enable_cad_feature())
         sizer_page->Add(item_connector_face_glyph, 0, wxTOP, FromDIP(3));
+    sizer_page->Add(item_auto_close_sketch_loops, 0, wxTOP, FromDIP(3));
+
+    // Push the weld preference into the kernel now so toggling it takes effect without
+    // a restart (the sketch tool also re-pushes on activation, see DesignSketchTool::begin).
+    Slic3r::set_sketch_auto_close(wxGetApp().is_auto_close_sketch_loops());
 #endif
     sizer_page->Add(item_show_splash_screen, 0, wxTOP, FromDIP(3));
     sizer_page->Add(item_hints, 0, wxTOP, FromDIP(3));
